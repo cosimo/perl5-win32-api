@@ -1,0 +1,5 @@
+LIBRARY simple.dll
+
+EXPORTS
+    test
+
