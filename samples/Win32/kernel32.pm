@@ -1,8 +1,9 @@
+# $Id$
 
 package Win32::kernel32;
 use Win32::API;
 
-$VERSION = '0.49';
+$VERSION = '0.50';
 
 %APIs = (
     Beep                      => [[N, N], N],
@@ -673,8 +674,11 @@ Example:
 
 =head1 AUTHOR
 
-Aldo Calpini ( I<dada@divinf.it> ).
+Aldo Calpini ( I<dada@perl.it> ).
 
+=head1 MAINTAINER
+
+Cosimo Streppone, <cosimo@cpan.org>
 
 =cut
 

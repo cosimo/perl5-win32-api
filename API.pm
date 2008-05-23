@@ -7,8 +7,8 @@ package Win32::API;
 #
 # Win32::API - Perl Win32 API Import Facility
 # 
-# Version: 0.49
-# Date: 20 Feb 2008
+# Version: 0.50
+# Date: 23 Feb 2008
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
@@ -41,7 +41,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.49';
+$VERSION = '0.50';
 
 #### some package-global hash to 
 #### keep track of the imported 

@@ -52,8 +52,8 @@ SKIP: {
 
 SKIP: {
 
-	skip('because callbacks currently /SEGFAULT/ all compilers but MSVC 6', 1)
-		unless $cc_name eq 'cl' && $cc_vers >= 12 && $cc_vers < 13; 
+	skip('because callbacks currently /SEGFAULT/ all compilers but MSVC 6+', 1)
+		unless $cc_name eq 'cl' && $cc_vers >= 12;
 
 	$result = $function->Call( $callback, 21 );
 	is($result, 42, 'callback function works');

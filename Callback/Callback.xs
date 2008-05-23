@@ -1,8 +1,6 @@
 /*
     # Win32::API::Callback - Perl Win32 API Import Facility
     #
-    # Version: 0.49
-    # Date: 20 Feb 2008
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #

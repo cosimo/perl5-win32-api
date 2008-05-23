@@ -1,5 +1,10 @@
 History of Win32::API perl extension.
 
+2008-02-23  Win32::API v0.50     Cosimo
+
+   - Fixed RT #31702 (http://rt.cpan.org/Public/Bug/Display.html?id=31702)
+     Thanks to RUrban for supplying the fix.
+
 2008-02-20  Win32::API v0.49     Cosimo
 
    - Fixed the stack cleanup assembler statements for GCC in API.xs, I hope.
@@ -13,7 +18,7 @@ History of Win32::API perl extension.
      Now Win32::API *can* work with cdecl DLLs.
      Fixes RT #32424 (http://rt.cpan.org/Public/Bug/Display.html?id=32424)
        and RT #24685 (http://rt.cpan.org/Public/Bug/Display.html?id=24685)
-     Thanks to itsme at xs4all.nl for your great work.
+     Thanks to Willem Jan Hengeveld (itsme at xs4all.nl) for your great work.
      Thanks to JimK for a test case and to BrowserUk and others at PerlMonks
      for providing me useful information and complaints. :-)
 

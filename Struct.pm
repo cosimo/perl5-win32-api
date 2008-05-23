@@ -13,7 +13,7 @@ package Win32::API::Struct;
 # $Id: Struct.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
 
-$VERSION = '0.49';
+$VERSION = '0.50';
 
 use Win32::API::Type;
 
