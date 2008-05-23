@@ -1,8 +1,8 @@
 /*
     # Win32::API::Callback - Perl Win32 API Import Facility
     #
-    # Version: 0.46
-    # Date: 05 Dec 2006
+    # Version: 0.48
+    # Date: 20 Feb 2008
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
@@ -496,7 +496,9 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 			done = TRUE;
 		}
 
-		if(cursor >= (unsigned char *) PerformCallback) {
+        // this test only works if the compiler does not reorder the functions in the output.
+		if((unsigned char *) CallbackTemplate < (unsigned char *) PerformCallback &&
+            cursor >= (unsigned char *) PerformCallback) {
 			checkpoint_DONE = distance;
 		 	done = TRUE;
 		}
@@ -651,7 +653,7 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 				} else
 				if(*(cursor+0) == 0xC7
 				&& *(cursor+1) == 0x45
-				&& *(cursor+2) == 0xEC
+				&& (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
 				&& *((int*)(cursor+3)) == 0xC0DE0003
 				) {
 #ifdef WIN32_API_DEBUG
@@ -701,7 +703,7 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 				} else
 				if(*(cursor+0) == 0xC7
 				&& *(cursor+1) == 0x45
-				&& *(cursor+2) == 0xEC
+				&& (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
 				&& *((int*)(cursor+3)) == 0xC0DE0003
 				) {
 #ifdef WIN32_API_DEBUG
@@ -752,7 +754,7 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 				} else
 				if(*(cursor+0) == 0xC7
 				&& *(cursor+1) == 0x45
-				&& *(cursor+2) == 0xEC
+				&& (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
 				&& *((int*)(cursor+3)) == 0xC0DE0003
 				) {
 #ifdef WIN32_API_DEBUG

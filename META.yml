@@ -1,12 +1,13 @@
 --- #YAML:1.0
 name:                Win32-API
-version:             0.47
+version:             0.48
 abstract:            Perl Win32 API Import Facility
-license:             unknown
-generated_by:        ExtUtils::MakeMaker version 6.30_01
-author:              Aldo Calpini <dada@perl.it>
+license:             ~
+author:              
+    - Aldo Calpini <dada@perl.it>
+generated_by:        ExtUtils::MakeMaker version 6.42
 distribution_type:   module
 requires:     
 meta-spec:
-    url: <http://module-build.sourceforge.net/META-spec-new.html>;
-    version: 1.1
+    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
+    version: 1.3

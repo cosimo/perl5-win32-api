@@ -7,8 +7,8 @@ package Win32::API;
 #
 # Win32::API - Perl Win32 API Import Facility
 # 
-# Version: 0.47
-# Date: 12 Nov 2007
+# Version: 0.48
+# Date: 20 Feb 2008
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
@@ -41,7 +41,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.47';
+$VERSION = '0.48';
 
 #### some package-global hash to 
 #### keep track of the imported 
@@ -59,7 +59,7 @@ bootstrap Win32::API;
 # PUBLIC METHODS
 #
 sub new {
-    my($class, $dll, $proc, $in, $out) = @_;
+    my($class, $dll, $proc, $in, $out, $callconvention) = @_;
     my $hdll;   
     my $self = {};
 
@@ -92,7 +92,7 @@ sub new {
 
     #### determine if we have a prototype or not
     if( (not defined $in) and (not defined $out) ) {
-        ($proc, $self->{in}, $self->{intypes}, $self->{out}) = parse_prototype( $proc );
+        ($proc, $self->{in}, $self->{intypes}, $self->{out}, $self->{cdecl}) = parse_prototype( $proc );
         return undef unless $proc;
         $self->{proto} = 1;
     } else {
@@ -108,6 +108,7 @@ sub new {
             }           
         }
         $self->{out} = type_to_num($out);
+        $self->{cdecl} = calltype_to_num($callconvention);
     }
 
     #### first try to import the function of given name...
@@ -147,15 +148,14 @@ sub new {
 }
 
 sub Import {
-    my($class, $dll, $proc, $in, $out) = @_;
-    $Imported{"$dll:$proc"} = Win32::API->new($dll, $proc, $in, $out) or return 0;
+    my($class, $dll, $proc, $in, $out, $callconvention) = @_;
+    $Imported{"$dll:$proc"} = Win32::API->new($dll, $proc, $in, $out, $callconvention) or return 0;
     my $P = (caller)[0];
     eval qq(
         sub ${P}::$Imported{"$dll:$proc"}->{procname} { \$Win32::API::Imported{"$dll:$proc"}->Call(\@_); }
     );
     return $@ ? 0 : 1;
 }
-
 
 #######################################################################
 # PRIVATE METHODS
@@ -172,6 +172,24 @@ sub DESTROY {
         Win32::API::FreeLibrary($Libraries{$self->{dllname}});
         delete($Libraries{$self->{dllname}});
     }    
+}
+
+# Convert calling convention string (_cdecl|__stdcall)
+# to an integer (1|0). Unknown counts as __stdcall
+#
+sub calltype_to_num {
+    my $type = shift;
+
+    if (!$type || $type eq "__stdcall") {
+        return 0;
+    }
+    elsif ($type eq "_cdecl") {
+        return 1;
+    }
+    else {
+        warn "unknown calling convention: '$type'";
+        return 0;
+    }
 }
 
 sub type_to_num {
@@ -231,11 +249,12 @@ sub parse_prototype {
     
     my @in_params = ();
     my @in_types = ();
-    if($proto =~ /^\s*(\S+)\s+(\S+)\s*\(([^\)]*)\)/) {
+    if($proto =~ /^\s*(\S+)(?:\s+(\w+))?\s+(\S+)\s*\(([^\)]*)\)/) {
         my $ret = $1;
-        my $proc = $2;
-        my $params = $3;
-        
+        my $callconvention= $2;
+        my $proc = $3;
+        my $params = $4;
+ 
         $params =~ s/^\s+//;
         $params =~ s/\s+$//;
         
@@ -283,17 +302,17 @@ sub parse_prototype {
                     $ret, 
                     Win32::API::Type->packing( $ret ), 
                     type_to_num('P');
-                return ( $proc, \@in_params, \@in_types, type_to_num('P') );
+                return ( $proc, \@in_params, \@in_types, type_to_num('P'), calltype_to_num($callconvention) );
             } else {        
                 DEBUG "parse_prototype: OUT='%s' PACKING='%s' API_TYPE=%d\n",
                     $ret, 
                     Win32::API::Type->packing( $ret ), 
                     type_to_num( Win32::API::Type->packing( $ret ) );
-                return ( $proc, \@in_params, \@in_types, type_to_num(Win32::API::Type->packing($ret)) );
+                return ( $proc, \@in_params, \@in_types, type_to_num(Win32::API::Type->packing($ret)), calltype_to_num($callconvention) );
             }
         } else {
             warn "Win32::API::parse_prototype: WARNING unknown output parameter type '$ret'";
-            return ( $proc, \@in_params, \@in_types, type_to_num('I') );
+            return ( $proc, \@in_params, \@in_types, type_to_num('I'), calltype_to_num($callconvention) );
         }
 
     } else {
@@ -462,6 +481,10 @@ The number and types of the arguments the function expects as input.
 
 =item 4.
 The type of the value returned by the function.
+
+=item 5.
+And optionally you can specify the calling convention, this defaults to
+'__stdcall', alternatively you can specify '_cdecl'.
 
 =back
 

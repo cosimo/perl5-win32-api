@@ -131,3 +131,39 @@ my $string = "japh";
 my $char = "a";
 is($function->Call($string, $char), 'aph', 'find_char() function call works');
 
+__END__
+
+/* cdecl tests */
+
+#### 12: sum integers and double via _cdecl function
+$function = new Win32::API($test_dll, 'int _cdecl c_call_sum_int(int a, int b)');
+defined($function) or die "not ok $t\t$^E\n";
+print "" . ($function->Call(2, 3) == 5 ? "" : "not ") . "ok $t\n";
+$t++;
+
+#### 13: sum integers and double via _cdecl function
+$function = new Win32::API($test_dll, 'int _cdecl c_call_sum_int_dbl(int a, double b)');
+defined($function) or die "not ok $t\t$^E\n";
+print "" . ($function->Call(2, 3) == 5 ? "" : "not ") . "ok $t\n";
+$t++;
+
+#### 14: sum integers and double via _cdecl function, no prototype
+$function = new Win32::API($test_dll, 'c_call_sum_int', 'II', 'I', '_cdecl');
+defined($function) or die "not ok $t\t$^E\n";
+print "" . ($function->Call(2, 3) == 5 ? "" : "not ") . "ok $t\n";
+$t++;
+
+#### 15: sum 2 integers, no prototype
+$function = new Win32::API($test_dll, 'sum_integers', 'II', 'I');
+defined($function) or die "not ok $t\t$^E\n";
+print "" . ($function->Call(2, 3) == 5 ? "" : "not ") . "ok $t\n";
+$t++;
+
+#### 16: convert integer to string
+$function = new Win32::API($test_dll, 'int_to_str', 'IPI', 'I');
+defined($function) or die "not ok $t\t$^E\n";
+my $buf= " " x 16;
+print "" . ( ($function->Call(12345, $buf, length($buf)) == 5 && $buf =~ /^12345\x00 +$/ ) ? "" : "not ") . "ok $t\n";
+$t++;
+
+

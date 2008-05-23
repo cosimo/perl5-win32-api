@@ -1,8 +1,8 @@
 /*
     # Win32::API - Perl Win32 API Import Facility
     #
-    # Version: 0.46
-    # Date: 23 Dec 2006
+    # Version: 0.48
+    # Date: 20 Feb 2008
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
@@ -264,6 +264,7 @@ PPCODE:
     SV**	obj_out;
     SV**	obj_intypes;
     SV**	in_type;
+    SV**	call_type;
     AV*		inlist;
     AV*		intypes;
 
@@ -273,7 +274,9 @@ PPCODE:
 	SV** code;
 
     int nin, tin, tout, i;
-	BOOL	has_proto = FALSE;
+    int words_pushed;
+    BOOL c_call;
+	BOOL has_proto = FALSE;
 
     obj = (HV*) SvRV(api);
     obj_proc = hv_fetch(obj, "proc", 4, FALSE);
@@ -294,6 +297,10 @@ PPCODE:
     inlist = (AV*) SvRV(*obj_in);
     nin  = av_len(inlist);
     tout = SvIV(*obj_out);
+
+    // Detect call type from obj hash key `cdecl'
+    call_type = hv_fetch(obj, "cdecl", 5, FALSE);
+    c_call = call_type ? SvTRUE(*call_type) : FALSE;
 
     if(items-1 != nin+1) {
         croak("Wrong number of parameters: expected %d, got %d.\n", nin+1, items-1);
@@ -496,6 +503,7 @@ PPCODE:
 		}
 
 		/* #### PUSH THE PARAMETER ON THE (ASSEMBLER) STACK #### */
+        words_pushed = 0;
         for(i = nin; i >= 0; i--) {
             switch(params[i].t) {
             case T_POINTER:
@@ -505,6 +513,7 @@ PPCODE:
                 printf("(XS)Win32::API::Call: parameter %d (P) is %s\n", i, pParam);
 #endif
                 ASM_LOAD_EAX(pParam, dword ptr);
+                words_pushed++;
                 break;
             case T_POINTERPOINTER:
                 ppParam = params[i].b;
@@ -512,6 +521,7 @@ PPCODE:
                 printf("(XS)Win32::API::Call: parameter %d (P) is %s\n", i, ppParam);
 #endif
                 ASM_LOAD_EAX(ppParam, dword ptr);
+                words_pushed++;
                 break;
             case T_NUMBER:
             case T_CHAR:
@@ -520,6 +530,7 @@ PPCODE:
                 printf("(XS)Win32::API::Call: parameter %d (N) is %ld\n", i, lParam);
 #endif
                 ASM_LOAD_EAX(lParam);
+                words_pushed++;
                 break;
             case T_FLOAT:
                 fParam = params[i].f;
@@ -527,6 +538,7 @@ PPCODE:
                 printf("(XS)Win32::API::Call: parameter %d (F) is %f\n", i, fParam);
 #endif
                 ASM_LOAD_EAX(fParam);
+                words_pushed++;
                 break;
             case T_DOUBLE:
                 dParam = params[i].d;
@@ -553,7 +565,8 @@ PPCODE:
 		  printf("   %f\n", dParam);
 		} */
 #endif
-
+                words_pushed++;
+                words_pushed++;
                 break;
             case T_CODE:
                 lParam = params[i].l;
@@ -561,6 +574,7 @@ PPCODE:
                 printf("(XS)Win32::API::Call: parameter %d (K) is 0x%x\n", i, lParam);
 #endif
                 ASM_LOAD_EAX(lParam);
+                words_pushed++;
                 break;
             }
         }
@@ -639,6 +653,20 @@ PPCODE:
         ApiFunctionVoid();
         break;
     }
+
+    if (c_call) {
+        // cleanup stack for _cdecl type functions.
+#if (defined(_MSC_VER) || defined(__BORLANDC__))
+        _asm {
+            mov eax, dword ptr words_pushed
+            shl eax, 2
+            add esp, eax
+        }
+#elif (defined(__GNUC__))
+        /* TODO */
+#endif
+    }
+
 	/* #### THIRD PASS: postfix pointers/structures #### */
     for(i = 0; i <= nin; i++) {
 		if(params[i].t == T_POINTER && has_proto) {

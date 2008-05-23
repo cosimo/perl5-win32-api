@@ -1,5 +1,22 @@
 History of Win32::API perl extension.
 
+2008-02-20  Win32::API v0.48     Cosimo
+
+   - Finally applied the cdecl/stdcall patch available since long time
+     from http://www.xs4all.nl/~itsme/projects/perl/.
+     Now Win32::API *can* work with cdecl DLLs.
+     Fixes RT #32424 (http://rt.cpan.org/Public/Bug/Display.html?id=32424)
+       and RT #24685 (http://rt.cpan.org/Public/Bug/Display.html?id=24685)
+     Thanks to itsme at xs4all.nl for your great work.
+     Thanks to JimK for a test case and to BrowserUk and others at PerlMonks
+     for providing me useful information and complaints. :-)
+
+     However, still missing some GCC assembler magic for stack cleanup.
+     Any help?
+
+   - Clarified licensing info. Yes, Win32::API is available with
+     GPL 2 / Artistic license.
+
 2007-11-12  Win32::API v0.47     Cosimo
 
    - Nothing exciting. Fixed warning on DATA filehandle.
