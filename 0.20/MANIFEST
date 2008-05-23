@@ -1,9 +1,0 @@
-MANIFEST
-README
-README.txt
-API.pm
-API.xs
-API.html
-TYPEMAP
-Makefile.PL
-t/test.t
