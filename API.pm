@@ -7,10 +7,11 @@ package Win32::API;
 #
 # Win32::API - Perl Win32 API Import Facility
 # 
-# Version: 0.43
+# Version: 0.44
 # Date: 28 Nov 2006
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
+#
 # $Id: API.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
 
@@ -35,7 +36,7 @@ use Win32::API::Struct;
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = "0.43";
+$VERSION = '0.44';
 
 #### some package-global hash to 
 #### keep track of the imported 
@@ -707,14 +708,14 @@ you have to pack() the required elements in a variable:
 
 =back
 
-
 The rest is left as an exercise to the reader...
-
 
 =head1 AUTHOR
 
 Aldo Calpini ( I<dada@perl.it> ).
 
+=head1 MAINTAINER
+
+Cosimo Streppone ( I<cosimo@cpan.org> )
+
 =cut
-
-

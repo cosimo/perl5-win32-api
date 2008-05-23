@@ -1,10 +1,11 @@
 /*
     # Win32::API::Callback - Perl Win32 API Import Facility
     #
-    # Version: 0.40
-    # Date: 07 Mar 2003
+    # Version: 0.43
+    # Date: 28 Nov 2006
     # Author: Aldo Calpini <dada@perl.it>
-	# $Id: Callback.xs,v 1.0 2002/03/19 10:25:00 dada Exp $
+    # Maintainer: Cosimo Streppone <cosimo@cpan.org>
+    # $Id: Callback.xs,v 1.0 2002/03/19 10:25:00 dada Exp $
  */
 
 #define  WIN32_LEAN_AND_MEAN

@@ -2,8 +2,10 @@
 #
 # Win32::API - Perl Win32 API Import Facility
 # ^^^^^^^^^^
-# Version: 0.41 (10 Mar 2003)
+# Version: 0.44 (28 Nov 2006)
 # by Aldo Calpini <dada@perl.it>
+#
+# Current maintainer is Cosimo Streppone <cosimo@cpan.org>
 #######################################################################
 
 With this module you can import and call arbitrary functions
@@ -16,12 +18,7 @@ are some things that you just can't do.
 
 The current version of Win32::API is available at:
 
-  http://dada.perl.it/
-
-It's also available on your nearest CPAN mirror (but allow a few days 
-for worldwide spreading of the latest version) reachable at:
-
-  http://www.perl.com/CPAN/authors/Aldo_Calpini/
+  http://search.cpan.org/dist/Win32-API/
 
 A short example of how you can use this module (it just gets the PID of 
 the current process, eg. same as Perl's internal $$):
@@ -34,4 +31,3 @@ Full documentation is available in POD format inside API.pm.
 
 The possibilities are nearly infinite (but not all are good :-).
 Enjoy it.
-

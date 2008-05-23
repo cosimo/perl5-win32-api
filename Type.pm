@@ -7,14 +7,15 @@ package Win32::API::Type;
 #
 # Win32::API::Type - Perl Win32 API type definitions
 # 
-# Version: 0.43
+# Version: 0.44
 # Date: 28 Nov 2006
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
+#
 # $Id: Type.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
 
-$VERSION = "0.40";
+$VERSION = '0.43';
 
 use Carp;
 
