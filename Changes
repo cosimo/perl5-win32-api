@@ -1,5 +1,9 @@
 History of Win32::API perl extension.
 
+2008-03-04  Win32::API v0.54     Cosimo
+
+   - Try to clean up this big OS check mess.
+
 2008-03-02  Win32::API v0.53     Cosimo
 
    - Devel::AssertOS came out unauthorized.

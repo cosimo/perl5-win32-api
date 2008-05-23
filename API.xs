@@ -1,12 +1,10 @@
 /*
     # Win32::API - Perl Win32 API Import Facility
     #
-    # Version: 0.53
-    # Date: 02 Mar 2008
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
-    # $Id: API.xs,v 1.0 2001/10/30 13:57:31 dada Exp $
+    # $Id: API.xs 62 2008-03-03 22:39:50Z Cosimo $
  */
 
 #define  WIN32_LEAN_AND_MEAN

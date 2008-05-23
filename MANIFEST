@@ -33,6 +33,3 @@ samples/rndcolors.pl
 samples/wininfo.pl
 samples/Win32/kernel32.pm
 META.yml                                 Module meta-data (added by MakeMaker)
-inc/Devel/CheckOS.pm
-inc/Devel/AssertOS.pm
-inc/Devel/AssertOS/MicrosoftWindows.pm

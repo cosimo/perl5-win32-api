@@ -5,15 +5,15 @@
 #
 # Win32::API - Perl Win32 API Import Facility
 # 
-# Version: 0.53
-# Date: 02 Mar 2008
+# Version: 0.54
+# Date: 04 Mar 2008
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
 # Changes for gcc/cygwin: Daniel Risacher <magnus@alum.mit.edu>
 #  ported from 0.41 based on Daniel's patch by Reini Urban <rurban@x-ray.at>
 #
-# $Id: API.pm 58 2008-03-02 00:18:05Z Cosimo $
+# $Id: API.pm 62 2008-03-03 22:39:50Z Cosimo $
 #
 #######################################################################
 
@@ -41,7 +41,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.53';
+$VERSION = '0.54';
 
 #### some package-global hash to 
 #### keep track of the imported 
