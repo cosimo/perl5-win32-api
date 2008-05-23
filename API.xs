@@ -1,7 +1,7 @@
 /*
     # Win32::API - Perl Win32 API Import Facility
     #
-    # Version: 0.48
+    # Version: 0.49
     # Date: 20 Feb 2008
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
@@ -30,7 +30,7 @@
 
 /* Borland C */
 #if (defined(__BORLANDC__) && __BORLANDC__ >= 452)
-    #define ASM_LOAD_EAX(param,type)  {   \
+    #define ASM_LOAD_EAX(param,type) \
         __asm {                      \
             mov    eax, type param ; \
             push   eax             ; \
@@ -654,8 +654,8 @@ PPCODE:
         break;
     }
 
+    // cleanup stack for _cdecl type functions.
     if (c_call) {
-        // cleanup stack for _cdecl type functions.
 #if (defined(_MSC_VER) || defined(__BORLANDC__))
         _asm {
             mov eax, dword ptr words_pushed
@@ -663,7 +663,15 @@ PPCODE:
             add esp, eax
         }
 #elif (defined(__GNUC__))
-        /* TODO */
+        asm ( 
+            "movl %0, %%eax\n" 
+            "shll $2, %%eax\n" 
+            "addl %%eax, %%esp\n" 
+
+            : /* no output */ 
+            : "m" (words_pushed) /* input */ 
+            : "%eax" /* modified registers */ 
+        );
 #endif
     }
 

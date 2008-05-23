@@ -1,5 +1,11 @@
 History of Win32::API perl extension.
 
+2008-02-20  Win32::API v0.49     Cosimo
+
+   - Fixed the stack cleanup assembler statements for GCC in API.xs, I hope.
+   - Fixed a Borland C macro definition in API.xs
+   - Fixed META.yml (stupid me)
+
 2008-02-20  Win32::API v0.48     Cosimo
 
    - Finally applied the cdecl/stdcall patch available since long time

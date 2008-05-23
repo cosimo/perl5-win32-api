@@ -2,7 +2,7 @@
 package Win32::kernel32;
 use Win32::API;
 
-$VERSION = '0.48';
+$VERSION = '0.49';
 
 %APIs = (
     Beep                      => [[N, N], N],
