@@ -1,5 +1,9 @@
 History of Win32::API perl extension.
 
+2008-03-01  Win32::API v0.52     Cosimo
+
+   - Devel::AssertOS was not properly set up in 0.51.
+
 2008-03-01  Win32::API v0.51     Cosimo
 
    - Cleaned up API.pm pod docs and clearly stated Win32::API license
