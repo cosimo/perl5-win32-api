@@ -7,14 +7,29 @@ package Win32::API;
 #
 # Win32::API - Perl Win32 API Import Facility
 # 
-# Version: 0.20 
-# Date: 24 Oct 2000
+# Version: 0.40 
+# Date: 07 Mar 2003
 # Author: Aldo Calpini <dada@perl.it>
+# $Id: API.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
 
 require Exporter;       # to export the constants to the main:: space
 require DynaLoader;     # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
+
+use vars qw( $DEBUG );
+$DEBUG = 0;
+
+sub DEBUG { 
+    if ($Win32::API::DEBUG) { 
+        printf @_ if @_ or return 1; 
+    } else {
+        return 0;
+    }
+}
+
+use Win32::API::Type;
+use Win32::API::Struct;
 
 #######################################################################
 # This AUTOLOAD is used to 'autoload' constants from the constant()
@@ -45,13 +60,14 @@ sub AUTOLOAD {
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = "0.20";
+$VERSION = "0.40";
 
-# some package-global hash to 
-# keep track of the imported 
-# libraries and procedures
-%Libraries = ();
-%Procedures = ();
+#### some package-global hash to 
+#### keep track of the imported 
+#### libraries and procedures
+my %Libraries = ();
+my %Procedures = ();
+
 
 #######################################################################
 # dynamically load in the API extension module.
@@ -66,7 +82,7 @@ sub new {
     my $hdll;   
     my $self = {};
   
-    # avoid loading a library more than once
+    #### avoid loading a library more than once
     if(exists($Libraries{$dll})) {
         # print "Win32::API::new: Library '$dll' already loaded, handle=$Libraries{$dll}\n";
         $hdll = $Libraries{$dll};
@@ -76,79 +92,72 @@ sub new {
         $Libraries{$dll} = $hdll;
     }
 
-    # if the dll can't be loaded, set $! to Win32's GetLastError()
+    #### if the dll can't be loaded, set $! to Win32's GetLastError()
     if(!$hdll) {
         $! = Win32::GetLastError();
         return undef;
     }
 
-    # first try to import the function of given name...
-    my $hproc = Win32::API::GetProcAddress($hdll, $proc);
-
-    # ...then try appending either A or W (for ASCII or Unicode)
-    if(!$hproc) {
-        $proc .= (IsUnicode() ? "W" : "A");
-        # print "Win32::API::new: procedure not found, trying '$proc'...\n";
-        $hproc = Win32::API::GetProcAddress($hdll, $proc);
+    #### determine if we have a prototype or not
+    if( (not defined $in) and (not defined $out) ) {
+        ($proc, $self->{in}, $self->{intypes}, $self->{out}) = parse_prototype( $proc );
+        return undef unless $proc;
+        $self->{proto} = 1;
+    } else {
+        $self->{in} = [];
+        if(ref($in) eq 'ARRAY') {
+            foreach (@$in) {
+                push(@{ $self->{in} }, type_to_num($_));
+            }   
+        } else {
+            my @in = split '', $in;
+            foreach (@in) {
+                push(@{ $self->{in} }, type_to_num($_));
+            }           
+        }
+        $self->{out} = type_to_num($out);
     }
 
-    # ...if all that fails, set $! accordingly
+    #### first try to import the function of given name...
+    my $hproc = Win32::API::GetProcAddress($hdll, $proc);
+
+    #### ...then try appending either A or W (for ASCII or Unicode)
+    if(!$hproc) {
+        my $tproc = $proc;
+        $tproc .= (IsUnicode() ? "W" : "A");
+        # print "Win32::API::new: procedure not found, trying '$tproc'...\n";
+        $hproc = Win32::API::GetProcAddress($hdll, $tproc);
+    }
+
+    #### ...if all that fails, set $! accordingly
     if(!$hproc) {
         $! = Win32::GetLastError();
         return undef;
     }
     
-    # ok, let's stuff the object
+    #### ok, let's stuff the object
+    $self->{procname} = $proc;
     $self->{dll} = $hdll;
     $self->{dllname} = $dll;
     $self->{proc} = $hproc;
 
-	my @in_params = ();
-	if(ref($in) eq 'ARRAY') {
-		foreach (@$in) {
-			push(@in_params, 1) if /[NL]/i;
-			push(@in_params, 2) if /P/i;
-			push(@in_params, 3) if /I/i;        
-			push(@in_params, 4) if /F/i;
-			push(@in_params, 5) if /D/i;
-			push(@in_params, 22) if /B/i;
-			push(@in_params, 101) if /C/i;
-		}	
-	} else {
-		my @in = split '', $in;
-		foreach (@in) {
-			push(@in_params, 1) if /[NL]/i;
-			push(@in_params, 2) if /P/i;
-			push(@in_params, 3) if /I/i;        
-			push(@in_params, 4) if /F/i;
-			push(@in_params, 5) if /D/i;
-			push(@in_params, 22) if /B/i;
-			push(@in_params, 101) if /C/i;
-		}			
-	}
-	$self->{in} = \@in_params;
-
-    if($out =~ /[NL]/i) {
-        $self->{out} = 1;
-    } elsif($out =~ /P/i) {
-        $self->{out} = 2;
-    } elsif($out =~ /I/i) {
-        $self->{out} = 3;
-    } elsif($out =~ /F/i) {
-        $self->{out} = 4;
-    } elsif($out =~ /D/i) {
-        $self->{out} = 5;
-    } else {
-        $self->{out} = 0;
-    }
-
-    # keep track of the imported function
+    #### keep track of the imported function
     $Libraries{$dll} = $hdll;
     $Procedures{$dll}++;
 
-    # cast the spell
+    #### cast the spell
     bless($self, $class);
     return $self;
+}
+
+sub Import {
+    my($class, $dll, $proc, $in, $out) = @_;
+    $Imported{"$dll:$proc"} = Win32::API->new($dll, $proc, $in, $out) or return 0;
+    my $P = (caller)[0];
+    eval qq(
+        sub ${P}::$Imported{"$dll:$proc"}->{procname} { \$Win32::API::Imported{"$dll:$proc"}->Call(\@_); }
+    );
+    return $@ ? 0 : 1;
 }
 
 
@@ -158,10 +167,10 @@ sub new {
 sub DESTROY {
     my($self) = @_;
 
-    # decrease this library's procedures reference count
+    #### decrease this library's procedures reference count
     $Procedures{$self->{dllname}}--;
 
-    # once it reaches 0, free it
+    #### once it reaches 0, free it
     if($Procedures{$self->{dllname}} == 0) {
         # print "Win32::API::DESTROY: Freeing library '$self->{dllname}'\n";
         Win32::API::FreeLibrary($Libraries{$self->{dllname}});
@@ -169,12 +178,141 @@ sub DESTROY {
     }    
 }
 
-#Currently Autoloading is not implemented in Perl for win32
-# Autoload methods go after __END__, and are processed by the autosplit program.
+sub type_to_num {
+    my $type = shift;
+    my $out = shift;
+    my $num;
+    
+    if(     $type eq 'N'
+    or      $type eq 'n'
+    or      $type eq 'l'
+    or      $type eq 'L'
+    ) {
+        $num = 1;
+    } elsif($type eq 'P'
+    or      $type eq 'p'
+    ) {
+        $num = 2;
+    } elsif($type eq 'I'
+    or      $type eq 'i'
+    ) {
+        $num = 3;
+    } elsif($type eq 'f'
+    or      $type eq 'F'
+    ) {
+        $num = 4;
+    } elsif($type eq 'D'
+    or      $type eq 'd'
+    ) {
+        $num = 5;
+    } elsif($type eq 'c'
+    or      $type eq 'C'
+    ) {
+        $num = 6;
+    } else {
+        $num = 0;
+    }       
+    unless(defined $out) {
+        if(     $type eq 's'
+        or      $type eq 'S'
+        ) {
+            $num = 51;
+        } elsif($type eq 'b'
+        or      $type eq 'B'
+        ) {
+            $num = 22;
+        } elsif($type eq 'k'
+        or      $type eq 'K'
+        ) {
+            $num = 101;
+        }       
+    }
+    return $num;
+}
+
+sub parse_prototype {
+    my($proto) = @_;
+    
+    my @in_params = ();
+    my @in_types = ();
+    if($proto =~ /^\s*(\S+)\s+(\S+)\s*\(([^\)]*)\)/) {
+        my $ret = $1;
+        my $proc = $2;
+        my $params = $3;
+        
+        $params =~ s/^\s+//;
+        $params =~ s/\s+$//;
+        
+        DEBUG "(PM)parse_prototype: got PROC '%s'\n", $proc;
+        DEBUG "(PM)parse_prototype: got PARAMS '%s'\n", $params;
+        
+        foreach my $param (split(/\s*,\s*/, $params)) {
+            my($type, $name);
+            if($param =~ /(\S+)\s+(\S+)/) {
+                ($type, $name) = ($1, $2);
+            }
+            
+            if(Win32::API::Type::is_known($type)) {
+                if(Win32::API::Type::is_pointer($type)) {
+                    DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
+                        $type, 
+                        Win32::API::Type->packing( $type ), 
+                        type_to_num('P');
+                    push(@in_params, type_to_num('P'));
+                } else {        
+                    DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
+                        $type, 
+                        Win32::API::Type->packing( $type ), 
+                        type_to_num( Win32::API::Type->packing( $type ) );
+                    push(@in_params, type_to_num( Win32::API::Type->packing( $type ) ));
+                }
+            } elsif( Win32::API::Struct::is_known( $type ) ) {
+                DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
+                    $type, 'S', type_to_num('S');
+                push(@in_params, type_to_num('S'));
+            } else {
+                warn "Win32::API::parse_prototype: WARNING unknown parameter type '$type'";
+                push(@in_params, type_to_num('I'));
+            }
+            push(@in_types, $type);
+            
+        }
+        DEBUG "parse_prototype: IN=[ @in_params ]\n";
+
+
+            
+        if(Win32::API::Type::is_known($ret)) {
+            if(Win32::API::Type::is_pointer($ret)) {
+                DEBUG "parse_prototype: OUT='%s' PACKING='%s' API_TYPE=%d\n",
+                    $ret, 
+                    Win32::API::Type->packing( $ret ), 
+                    type_to_num('P');
+                return ( $proc, \@in_params, \@in_types, type_to_num('P') );
+            } else {        
+                DEBUG "parse_prototype: OUT='%s' PACKING='%s' API_TYPE=%d\n",
+                    $ret, 
+                    Win32::API::Type->packing( $ret ), 
+                    type_to_num( Win32::API::Type->packing( $ret ) );
+                return ( $proc, \@in_params, \@in_types, type_to_num(Win32::API::Type->packing($ret)) );
+            }
+        } else {
+            warn "Win32::API::parse_prototype: WARNING unknown output parameter type '$ret'";
+            return ( $proc, \@in_params, \@in_types, type_to_num('I') );
+        }
+
+    } else {
+        warn "Win32::API::parse_prototype: bad prototype '$proto'";
+        return undef;
+    }
+}   
 
 1;
+
 __END__
 
+#######################################################################
+# DOCUMENTATION
+#
 
 =head1 NAME
 
@@ -182,11 +320,36 @@ Win32::API - Perl Win32 API Import Facility
 
 =head1 SYNOPSIS
 
+  #### Method 1: with prototype
+
   use Win32::API;
-  $function = new Win32::API(
-      $library, $functionname, \@argumenttypes, $returntype,
+  $function = Win32::API->new(
+      'mydll, 'int sum_integers(int a, int b)',
   );
-  $return = $function->Call(@arguments);
+  $return = $function->Call(3, 2);
+  
+  #### Method 2: with parameter list
+  
+  use Win32::API;
+  $function = Win32::API->new(
+      'mydll', 'sum_integers', 'II', 'I',
+  );
+  $return = $function->Call(3, 2);
+  
+  #### Method 3: with Import
+  
+  use Win32::API;
+  Win32::API->Import(
+      'mydll', 'int sum_integers(int a, int b)',
+  );  
+  $return = sum_integers(3, 2);
+
+
+=for LATER-UNIMPLEMENTED
+  #### or
+  use Win32::API mydll => 'int sum_integers(int a, int b)';
+  $return = sum_integers(3, 2);
+
 
 =head1 ABSTRACT
 
@@ -210,8 +373,8 @@ A short example of how you can use this module (it just gets the PID of
 the current process, eg. same as Perl's internal C<$$>):
 
     use Win32::API;
-    $GetPID = new Win32::API("kernel32", "GetCurrentProcessId", '', 'N');
-    $PID = $GetPID->Call();
+    Win32::API->Import("kernel32", "int GetCurrentProcessId()");
+    $PID = GetCurrentProcessId();
 
 The possibilities are nearly infinite (but not all are good :-).
 Enjoy it.
@@ -221,6 +384,7 @@ Enjoy it.
 
 All the credits go to Andrea Frosini 
 for the neat assembler trick that makes this thing work.
+I've also used some work by Dave Roth for the prototyping stuff.
 A big thank you also to Gurusamy Sarathy for his
 unvaluable help in XS development, and to all the Perl community for
 being what it is.
@@ -233,15 +397,60 @@ To use this module put the following line at the beginning of your script:
     use Win32::API;
 
 You can now use the C<new()> function of the Win32::API module to create a
-new API object (see L<IMPORTING A FUNCTION>) and then invoke the 
+new Win32::API object (see L<IMPORTING A FUNCTION>) and then invoke the 
 C<Call()> method on this object to perform a call to the imported API
 (see L<CALLING AN IMPORTED FUNCTION>).
+
+Starting from version 0.40, you can also avoid creating a Win32::API object
+and instead automatically define a Perl sub with the same name of the API
+function you're importing. The details of the API definitions are the same,
+just the call is different:
+
+    my $GetCurrentProcessId = Win32::API->new(
+        "kernel32", "int GetCurrentProcessId()"
+    );
+    my $PID = $GetCurrentProcessId->Call();
+
+    #### vs.
+
+    Win32::API->Import("kernel32", "int GetCurrentProcessId()");
+    $PID = GetCurrentProcessId();
+
+Note that C<Import> returns 1 on success and 0 on failure (in which case you
+can check the content of C<$^E>). 
 
 =head2 IMPORTING A FUNCTION
 
 You can import a function from a 32 bit Dynamic Link Library (DLL) file 
 with the C<new()> function. This will create a Perl object that contains the
 reference to that function, which you can later C<Call()>.
+
+What you need to know is the prototype of the function you're going to import
+(eg. the definition of the function expressed in C syntax).
+
+Starting from version 0.40, there are 2 different approaches for this step:
+(the preferred) one uses the prototype directly, while the other (now deprecated)
+one uses Win32::API's internal representation for parameters.
+
+=head2 IMPORTING A FUNCTION BY PROTOTYPE
+
+You need to pass 2 parameters:
+
+=over 4
+
+=item 1.
+The name of the library from which you want to import the function.
+
+=item 2.
+The C prototype of the function.
+
+=back
+
+See L<Win32::API::Type> for a list of the known parameter types and
+L<Win32::API::Struct> for information on how to define a structure.
+
+=head2 IMPORTING A FUNCTION WITH A PARAMETER LIST
+
 You need to pass 4 parameters:
 
 =over 4
@@ -350,7 +559,7 @@ argument; allowed types are:
 =over 4
 
 =item C<I>: 
-value is an integer
+value is an integer (int)
 
 =item C<N>: 
 value is a number (long)
@@ -361,8 +570,17 @@ value is a floating point number (float)
 =item C<D>: 
 value is a double precision number (double)
 
+=item C<C>: 
+value is a char (char)
+
 =item C<P>: 
 value is a pointer (to a string, structure, etc...)
+
+=item C<S>: 
+value is a Win32::API::Struct object (see below)
+
+=item C<K>:
+value is a Win32::API::Callback object (see L<Win32::API::Callback>)
 
 =back
 
@@ -450,31 +668,70 @@ If you don't know the length of the string, you can usually
 cut it at the C<\0> (ASCII zero) character, which is the string
 delimiter in C:
 
-    $TempPath = ((split(/\0/, $lpBuffer))[0];
-    
-    # or
-    
+    $TempPath = ((split(/\0/, $lpBuffer))[0];  
+    # or    
     $lpBuffer =~ s/\0.*$//;
 
-Another note: to pass a pointer to a structure in C, you have
-to pack() the required elements in a variable. And of course, to 
-access the values stored in a structure, unpack() it as required.
-A short example of how it works: the C<POINT> structure is defined 
-in C as:
+=head2 USING STRUCTURES
 
-    typedef struct {
-        LONG  x;
-        LONG  y;
-    } POINT;
+Starting from version 0.40, Win32::API comes with a support package
+named Win32::API::Struct. The package is loaded automatically with
+Win32::API, so you don't need to use it explicitly.
 
-Thus, to call a function that uses a C<POINT> structure you
-need the following lines:
+With this module you can conveniently define structures and use
+them as parameters to Win32::API functions. A short example follows:
 
-    $GetCursorPos = new Win32::API('user32', 'GetCursorPos', 'P', 'V');
+
+    # the 'POINT' structure is defined in C as:
+    #     typedef struct {
+    #        LONG  x;
+    #        LONG  y;
+    #     } POINT;
     
+
+    #### define the structure
+    Win32::API::Struct->typedef( POINT => qw{
+        LONG x; 
+        LONG y; 
+    });
+    
+    #### import an API that uses this structure
+    Win32::API->Import('user32', 'BOOL GetCursorPos(LPPOINT lpPoint)');
+    
+    #### create a 'POINT' object
+    my $pt = Win32::API::Struct->new('POINT');
+    
+    #### call the function passing our structure object
+    GetCursorPos($pt);
+    
+    #### and now, access its members
+    print "The cursor is at: $pt->{x}, $pt->{y}\n";
+
+Note that this works only when the function wants a 
+B<pointer to a structure>: as you can see, our structure is named 
+'POINT', but the API used 'LPPOINT'. 'LP' is automatically added at 
+the beginning of the structure name when feeding it to a Win32::API
+call.
+
+For more information, see also L<Win32::API::Struct>.
+
+If you don't want (or can't) use the Win32::API::Struct facility,
+you can still use the low-level approach to use structures:
+
+
+=over 4
+
+=item 1.
+you have to pack() the required elements in a variable:
+
     $lpPoint = pack('LL', 0, 0); # store two LONGs
-    $GetCursorPos->Call($lpPoint);
+
+=item 2. to access the values stored in a structure, unpack() it as required:
+
     ($x, $y) = unpack('LL', $lpPoint); # get the actual values
+
+=back
+
 
 The rest is left as an exercise to the reader...
 

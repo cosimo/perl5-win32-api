@@ -1,3 +1,4 @@
+# $Id: TYPEMAP,v 1.0 2001/10/30 13:57:31 dada Exp $
 HINSTANCE   T_IV
 LPCSTR      T_PV
 LPCWSTR     T_PV

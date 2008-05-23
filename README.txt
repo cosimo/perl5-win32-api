@@ -2,7 +2,7 @@
 #
 # Win32::API - Perl Win32 API Import Facility
 # ^^^^^^^^^^
-# Version: 0.20 (24 Oct 2000)
+# Version: 0.40 (07 Mar 2003)
 # by Aldo Calpini <dada@perl.it>
 #######################################################################
 
@@ -27,11 +27,10 @@ A short example of how you can use this module (it just gets the PID of
 the current process, eg. same as Perl's internal $$):
 
   use Win32::API;
-  $GetPID = new Win32::API("kernel32", "GetCurrentProcessId", [], N);
-  $PID = $GetPID->Call();
+  Win32::API->Import("kernel32", "int GetCurrentProcessId()");
+  $PID = GetCurrentProcessId();
 
-Full documentation is available in 
-POD format inside API.pm and in HTML format in the file API.html.
+Full documentation is available in POD format inside API.pm.
 
 The possibilities are nearly infinite (but not all are good :-).
 Enjoy it.
