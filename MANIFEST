@@ -1,4 +1,5 @@
 MANIFEST
+Changes
 README
 README.txt
 API.h
@@ -11,6 +12,7 @@ TYPEMAP
 Makefile.PL
 t/00_API.t
 t/01_Struct.t
+t/99_GetProcess.t
 Callback/Callback.xs
 Callback/Makefile.PL
 Callback/t/02_Callback.t
@@ -40,3 +42,4 @@ samples/resolution.pl
 samples/rndcolors.pl
 samples/wininfo.pl
 samples/Win32/kernel32.pm
+META.yml                                 Module meta-data (added by MakeMaker)

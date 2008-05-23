@@ -7,9 +7,10 @@ package Win32::API::Type;
 #
 # Win32::API::Type - Perl Win32 API type definitions
 # 
-# Version: 0.40 
-# Date: 07 Mar 2003
+# Version: 0.43
+# Date: 28 Nov 2006
 # Author: Aldo Calpini <dada@perl.it>
+# Maintainer: Cosimo Streppone <cosimo@cpan.org>
 # $Id: Type.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
 
@@ -36,37 +37,38 @@ sub DEBUG {
 %Modifier   = ();
 %Pointer    = ();
 
-INIT { 
-    my $section = 'nothing';
-    foreach (<DATA>) {
-        next if /^\s*#/ or /^\s*$/;
-        chomp;
-        if( /\[(.+)\]/) {
-            $section = $1;
-            next;
-        }
-        if($section eq 'TYPE') {
-            my($name, $packing) = split(/\s+/);
-            # DEBUG "(PM)Type::INIT: Known('$name') => '$packing'\n";
-            $Known{$name} = $packing;
-        } elsif($section eq 'PACKSIZE') {
-            my($packing, $size) = split(/\s+/);
-            # DEBUG "(PM)Type::INIT: PackSize('$packing') => '$size'\n";
-            $PackSize{$packing} = $size;
-        } elsif($section eq 'MODIFIER') {
-            my($modifier, $mapto) = split(/\s+/, $_, 2);
-            my %maps = ();
-            foreach my $item (split(/\s+/, $mapto)) {
-                my($k, $v) = split(/=/, $item);
-                $maps{$k} = $v;
-            }           
-            # DEBUG "(PM)Type::INIT: Modifier('$modifier') => '%maps'\n";
-            $Modifier{$modifier} = { %maps };
-        } elsif($section eq 'POINTER') {
-            my($pointer, $pointto) = split(/\s+/);
-            # DEBUG "(PM)Type::INIT: Pointer('$pointer') => '$pointto'\n";
-            $Pointer{$pointer} = $pointto;
-        }
+# Initialize data structures at startup.
+# Aldo wants to keep the <DATA> approach.
+#
+my $section = 'nothing';
+foreach (<DATA>) {
+    next if /^\s*#/ or /^\s*$/;
+    chomp;
+    if( /\[(.+)\]/) {
+        $section = $1;
+        next;
+    }
+    if($section eq 'TYPE') {
+        my($name, $packing) = split(/\s+/);
+        # DEBUG "(PM)Type::INIT: Known('$name') => '$packing'\n";
+        $Known{$name} = $packing;
+    } elsif($section eq 'PACKSIZE') {
+        my($packing, $size) = split(/\s+/);
+        # DEBUG "(PM)Type::INIT: PackSize('$packing') => '$size'\n";
+        $PackSize{$packing} = $size;
+    } elsif($section eq 'MODIFIER') {
+        my($modifier, $mapto) = split(/\s+/, $_, 2);
+        my %maps = ();
+        foreach my $item (split(/\s+/, $mapto)) {
+            my($k, $v) = split(/=/, $item);
+            $maps{$k} = $v;
+        }           
+        # DEBUG "(PM)Type::INIT: Modifier('$modifier') => '%maps'\n";
+        $Modifier{$modifier} = { %maps };
+    } elsif($section eq 'POINTER') {
+        my($pointer, $pointto) = split(/\s+/);
+        # DEBUG "(PM)Type::INIT: Pointer('$pointer') => '$pointto'\n";
+        $Pointer{$pointer} = $pointto;
     }
 }
 
@@ -269,6 +271,10 @@ for the full list.
 =head1 AUTHOR
 
 Aldo Calpini ( I<dada@perl.it> ).
+
+=head1 MAINTAINER
+
+Cosimo Streppone ( I<cosimo@cpan.org> ).
 
 =cut
 

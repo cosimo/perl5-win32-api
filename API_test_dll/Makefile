@@ -51,32 +51,32 @@ CLEAN :
 CPP=cl.exe
 CPP_PROJ=/nologo /MT /W3 /GX /O2 /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /D "_MBCS" /D "_USRDLL" /D "API_TEST_EXPORTS" /Fp"$(INTDIR)\API_test.pch" /Yu"stdafx.h" /Fo"$(INTDIR)\\" /Fd"$(INTDIR)\\" /FD /c 
 
-.c{$(INTDIR)}.obj::
+.c$(INTDIR).obj::
    $(CPP) @<<
    $(CPP_PROJ) $< 
 <<
 
-.cpp{$(INTDIR)}.obj::
+.cpp$(INTDIR).obj::
    $(CPP) @<<
    $(CPP_PROJ) $< 
 <<
 
-.cxx{$(INTDIR)}.obj::
+.cxx$(INTDIR).obj::
    $(CPP) @<<
    $(CPP_PROJ) $< 
 <<
 
-.c{$(INTDIR)}.sbr::
+.c$(INTDIR).sbr::
    $(CPP) @<<
    $(CPP_PROJ) $< 
 <<
 
-.cpp{$(INTDIR)}.sbr::
+.cpp$(INTDIR).sbr::
    $(CPP) @<<
    $(CPP_PROJ) $< 
 <<
 
-.cxx{$(INTDIR)}.sbr::
+.cxx$(INTDIR).sbr::
    $(CPP) @<<
    $(CPP_PROJ) $< 
 <<

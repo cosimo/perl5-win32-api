@@ -1,10 +1,11 @@
 /*
     # Win32::API - Perl Win32 API Import Facility
     #
-    # Version: 0.40
-    # Date: 07 Mar 2003
+    # Version: 0.43
+    # Date: 28 Nov 2006
     # Author: Aldo Calpini <dada@perl.it>
-	# $Id: API.xs,v 1.0 2001/10/30 13:57:31 dada Exp $
+    # Current maintainer: Cosimo Streppone <cosimo@cpan.org>
+    # $Id: API.xs,v 1.0 2001/10/30 13:57:31 dada Exp $
  */
 
 #define  WIN32_LEAN_AND_MEAN
@@ -19,6 +20,16 @@
 #include "API.h"
 
 #pragma optimize("", off)
+
+/* Assembler macros, for GCC / MSVC compatibility */
+#ifndef __GNUC__
+    #define ASM_LOAD_EAX(type,param) _asm { \
+        mov  eax, type param \
+        push eax \
+    }
+#else
+    #define ASM_LOAD_EAX(type,param) asm ("push %0" :: "g" (param));
+#endif
 
 /*
  * some Perl macros for backward compatibility
@@ -475,20 +486,14 @@ PPCODE:
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: parameter %d (P) is %s\n", i, pParam);
 #endif
-                _asm {
-                    mov     eax, dword ptr pParam
-                    push    eax
-                }
+                ASM_LOAD_EAX(dword ptr, pParam);
                 break;
             case T_POINTERPOINTER:
                 ppParam = params[i].b;
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: parameter %d (P) is %s\n", i, ppParam);
 #endif
-                _asm {
-                    mov     eax, dword ptr ppParam
-                    push    eax
-                }
+                ASM_LOAD_EAX(dword ptr, ppParam);
                 break;
             case T_NUMBER:
             case T_CHAR:
@@ -496,42 +501,48 @@ PPCODE:
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: parameter %d (N) is %ld\n", i, lParam);
 #endif
-                _asm {
-                    mov     eax, lParam
-                    push    eax
-                }
+                ASM_LOAD_EAX(,lParam);
                 break;
             case T_FLOAT:
                 fParam = params[i].f;
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: parameter %d (F) is %f\n", i, fParam);
 #endif
-                _asm {
-                    mov		eax, fParam
-                    push	eax
-                }
+                ASM_LOAD_EAX(,fParam);
                 break;
             case T_DOUBLE:
                 dParam = params[i].d;
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: parameter %d (D) is %f\n", i, dParam);
 #endif
+#ifndef __GNUC__
                 _asm {
                     mov		eax, dword ptr [dParam + 4]
                     push    eax
                     mov     eax, dword ptr [dParam]
                     push	eax
                 }
+#else
+		/* probably uglier than necessary, but works */
+		asm ("pushl %0":: "g" (((unsigned int*)&dParam)[1]));
+		asm ("pushl %0":: "g" (((unsigned int*)&dParam)[0]));
+		/* { 
+		  int idc;
+		  printf ("dParam = ");
+		  for (idc = 0; idc < sizeof(dParam); idc++) {
+		    printf(" %2.2x",((unsigned char*)&dParam)[idc]);
+		  } 
+		  printf("   %f\n", dParam);
+		} */
+#endif
+
                 break;
             case T_CODE:
                 lParam = params[i].l;
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: parameter %d (K) is 0x%x\n", i, lParam);
 #endif
-                _asm {
-                    mov		eax, lParam
-                    push    eax
-                }
+                ASM_LOAD_EAX(,lParam);
                 break;
             }
         }
@@ -551,11 +562,6 @@ PPCODE:
 #ifdef WIN32_API_DEBUG
     	printf("(XS)Win32::API::Call: Calling ApiFunctionFloat()\n");
 #endif
-//		_asm {
-//			call    dword ptr [ApiFunctionFloat]
-//			fstp    qword ptr [fReturn]
-//		}
-		fReturn = ApiFunctionFloat();
 #ifdef WIN32_API_DEBUG
         printf("(XS)Win32::API::Call: ApiFunctionFloat returned %f\n", fReturn);
 #endif
@@ -565,10 +571,19 @@ PPCODE:
 #ifdef WIN32_API_DEBUG
     	printf("(XS)Win32::API::Call: Calling ApiFunctionDouble()\n");
 #endif
-		_asm {
-			call    dword ptr [ApiFunctionDouble]
-			fstp    qword ptr [dReturn]
-		}
+#ifndef __GNUC__
+        /*
+    	_asm {
+	    	call    dword ptr [ApiFunctionFloat]
+		    fstp    qword ptr [fReturn]
+	    }
+	    */
+	    fReturn = ApiFunctionFloat();
+#else
+	    asm ("call *%0"::"g"(ApiFunctionFloat));
+	    asm ("fstpl %0"::"g"(fReturn));
+        /* XST_mNV(0, (float) fReturn); */
+#endif
 #ifdef WIN32_API_DEBUG
        printf("(XS)Win32::API::Call: ApiFunctionDouble returned %f\n", dReturn);
 #endif
@@ -660,7 +675,17 @@ PPCODE:
 #ifdef WIN32_API_DEBUG
 	   	printf("(XS)Win32::API::Call: returning %f.\n", dReturn);
 #endif
-        XSRETURN_NV(dReturn);
+#ifndef __GNUC__
+	_asm {
+	    call    dword ptr [ApiFunctionDouble]
+	    fstp    qword ptr [dReturn]
+    }
+    /*  XSRETURN_NV(dReturn); */
+#else
+	asm ("call *%0"::"g"(ApiFunctionDouble));
+	asm ("fstpl %0"::"g"(dReturn));
+    /* XST_mNV(0, dReturn); */
+#endif
         break;
     case T_POINTER:
 		if(pReturn == NULL) {

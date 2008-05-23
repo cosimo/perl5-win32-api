@@ -1,0 +1,31 @@
+History of Win32::API perl extension.
+
+2006-11-28  Win32::API v0.43     Cosimo
+
+   - Now Win32::API should cleanly *compile* on GCC / MinGW
+     environment. This has been tested only Vanilla Perl and
+     only with Microsoft nmake.
+     Test suite does not work with GCC. You can only test that
+     Win32::API extension works running manually the t\99_GetProcess.t
+     test script.
+     This improvement comes thanks to the 0.42 patches I found
+     and collected from the internet, though I don't know who
+     is the guy that wrote them first. Anyway, thank you!
+
+   - There are problems with current ExtUtils::MakeMaker (6.31 and
+     also blead, I believe) version and dmake generated Makefiles.
+     I'm trying to understand what to do here.
+
+   - Win32::API::Type now doesn't have a INIT block anymore, that
+     seems to be the cause of all evils on this module.
+     Please you out there report your findings on this.
+
+   - Last but not least. Current maintainer of Win32::API is now
+     Cosimo Streppone (me), cosimo at cpan.org. I'm not very
+     skilled on Win32 development, but I'm trying to to work out the
+     CPAN bugs queue. Thanks to Aldo for handing me his wonderful
+     work maintainance.
+
+
+Previous history had no changes file.
+

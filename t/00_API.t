@@ -6,6 +6,7 @@
 # `make test'. After `make install' it should work as `perl test.pl'
 
 use strict;
+use Config;
 use FindBin qw($Bin);
 use vars qw( 
 	$loaded 
@@ -23,6 +24,10 @@ $loaded = 1;
 print "ok 1\n";
 
 ######################### End of black magic.
+
+if($Config{cc} eq 'gcc'){
+    die("*** Win32::API tests currently FAIL under gcc/MinGW... ***\n");
+}
 
 $test_dll = $Bin.'\\..\\API_Test.dll';
 die "not ok 2 (can't find API_Test.dll)\n" unless -e $test_dll;
