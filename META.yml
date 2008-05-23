@@ -1,10 +1,12 @@
-# http://module-build.sourceforge.net/META-spec.html
-#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
-name:         Win32-API
-version:      0.46
-version_from: API.pm
-installdirs:  site
-requires:
-
-distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.17
+--- #YAML:1.0
+name:                Win32-API
+version:             0.47
+abstract:            Perl Win32 API Import Facility
+license:             unknown
+generated_by:        ExtUtils::MakeMaker version 6.30_01
+author:              Aldo Calpini <dada@perl.it>
+distribution_type:   module
+requires:     
+meta-spec:
+    url: <http://module-build.sourceforge.net/META-spec-new.html>;
+    version: 1.1

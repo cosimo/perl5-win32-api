@@ -7,15 +7,13 @@ package Win32::API::Struct;
 #
 # Win32::API::Struct - Perl Win32 API struct Facility
 # 
-# Version: 0.45 
-# Date: 28 Nov 2006
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
 # $Id: Struct.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
 
-$VERSION = '0.45';
+$VERSION = '0.47';
 
 use Win32::API::Type;
 

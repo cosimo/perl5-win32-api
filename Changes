@@ -1,5 +1,11 @@
 History of Win32::API perl extension.
 
+2007-11-12  Win32::API v0.47     Cosimo
+
+   - Nothing exciting. Fixed warning on DATA filehandle.
+     Reported by Dmitri Karasik. Build passed on Windows Vista.
+     Fixes RT #30674 (http://rt.cpan.org/Ticket/Display.html?id=30674)
+
 2006-12-23  Win32::API v0.46     Cosimo
 
    - Test suite now passes on MSVC6, MSVC7, GCC/MinGW and Cygwin.

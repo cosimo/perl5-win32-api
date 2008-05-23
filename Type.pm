@@ -7,15 +7,13 @@ package Win32::API::Type;
 #
 # Win32::API::Type - Perl Win32 API type definitions
 # 
-# Version: 0.45
-# Date: 29 Nov 2006
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
 # $Id: Type.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
 
-$VERSION = '0.45';
+$VERSION = '0.47';
 
 use Carp;
 
@@ -72,6 +70,7 @@ foreach (<DATA>) {
         $Pointer{$pointer} = $pointto;
     }
 }
+close(DATA);
 
 sub new {
     my $class = shift;
