@@ -1,9 +1,11 @@
 /*
     # Win32::API - Perl Win32 API Import Facility
     #
-    # Version: 0.41
+    # Version: 0.45
     # Date: 10 Mar 2003
     # Author: Aldo Calpini <dada@perl.it>
+    # Maintainer: Cosimo Streppone <cosimo@cpan.org>
+    #
 	# $Id: API.h,v 1.0 2002/03/19 18:21:00 dada Exp $
  */
 

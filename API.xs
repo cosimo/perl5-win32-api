@@ -1,8 +1,8 @@
 /*
     # Win32::API - Perl Win32 API Import Facility
     #
-    # Version: 0.44
-    # Date: 28 Nov 2006
+    # Version: 0.45
+    # Date: 30 Nov 2006
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
@@ -30,11 +30,11 @@
 
 /* Borland C */
 #if (defined(__BORLANDC__) && __BORLANDC__ >= 452)
-    #define ASM_LOAD_EAX(param,type) {   \
-    	__asm {                          \
-    		mov    eax, type param ; \
-    		push   eax             ; \
-    	}
+    #define ASM_LOAD_EAX(param,type)  {   \
+        __asm {
+            mov    eax, type param ; \
+            push   eax             ; \
+        }
 /* MSVC compilers */
 #elif defined _MSC_VER
     /* Disable warning about one missing macro parameter.
@@ -46,7 +46,7 @@
     }
 /* GCC-MinGW Compiler */
 #elif (defined(__GNUC__))
-    #define ASM_LOAD_EAX(param,type) asm ("push %0" :: "g" (param));
+    #define ASM_LOAD_EAX(param,...)  asm ("push %0" :: "g" (param));
 #endif
 
 /*

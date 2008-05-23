@@ -7,13 +7,15 @@ package Win32::API::Struct;
 #
 # Win32::API::Struct - Perl Win32 API struct Facility
 # 
-# Version: 0.40 
-# Date: 07 Mar 2003
+# Version: 0.45 
+# Date: 28 Nov 2006
 # Author: Aldo Calpini <dada@perl.it>
+# Maintainer: Cosimo Streppone <cosimo@cpan.org>
+#
 # $Id: Struct.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
 
-$VERSION = "0.40";
+$VERSION = '0.45';
 
 use Win32::API::Type;
 
@@ -524,5 +526,9 @@ remember to backslash it, eg.
 =head1 AUTHOR
 
 Aldo Calpini ( I<dada@perl.it> ).
+
+=head1 MAINTAINER
+
+Cosimo Streppone ( I<cosimo@cpan.org> ).
 
 =cut

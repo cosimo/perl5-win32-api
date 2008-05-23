@@ -1,5 +1,10 @@
 History of Win32::API perl extension.
 
+2006-11-29  Win32::API v0.45     Cosimo
+
+   - What a mess! Restored GCC/MinGW compile that broke with that
+     damned assembler macros...
+
 2006-11-28  Win32::API v0.44     Cosimo
 
    - Fixed compile under MSVC broken with GCC/MinGW last changes.
