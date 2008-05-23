@@ -1,5 +1,12 @@
 History of Win32::API perl extension.
 
+2008-03-01  Win32::API v0.51     Cosimo
+
+   - Cleaned up API.pm pod docs and clearly stated Win32::API license
+   - Fixed $$/pid tests for Cygwin
+   - Now uses Devel::AssertOS to check that we are on a Win32 or Cygwin
+     system. This should ease the work of CPAN testers.
+
 2008-02-23  Win32::API v0.50     Cosimo
 
    - Fixed RT #31702 (http://rt.cpan.org/Public/Bug/Display.html?id=31702)

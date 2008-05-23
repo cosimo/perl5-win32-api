@@ -1,5 +1,3 @@
-package Win32::API;
-
 # See the bottom of this file for the POD documentation.  Search for the
 # string '=head'.
 
@@ -7,7 +5,7 @@ package Win32::API;
 #
 # Win32::API - Perl Win32 API Import Facility
 # 
-# Version: 0.50
+# Version: 0.51
 # Date: 23 Feb 2008
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
@@ -15,9 +13,11 @@ package Win32::API;
 # Changes for gcc/cygwin: Daniel Risacher <magnus@alum.mit.edu>
 #  ported from 0.41 based on Daniel's patch by Reini Urban <rurban@x-ray.at>
 #
-# $Id: API.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
+# $Id: API.pm 50 2008-03-01 23:04:10Z Cosimo $
 #
 #######################################################################
+
+package Win32::API;
 
 require Exporter;       # to export the constants to the main:: space
 require DynaLoader;     # to dynuhlode the module.
@@ -41,7 +41,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.50';
+$VERSION = '0.51';
 
 #### some package-global hash to 
 #### keep track of the imported 
@@ -352,7 +352,7 @@ Win32::API - Perl Win32 API Import Facility
   $return = $function->Call(3, 2);
   
   #### Method 3: with Import
-  
+ 
   use Win32::API;
   Win32::API->Import(
       'mydll', 'int sum_integers(int a, int b)',
@@ -371,18 +371,15 @@ Win32::API - Perl Win32 API Import Facility
 With this module you can import and call arbitrary functions
 from Win32's Dynamic Link Libraries (DLL), without having
 to write an XS extension. Note, however, that this module 
-can't do anything (parameters input and output is limited 
-to simpler cases), and anyway a regular XS extension is
-always safer and faster. 
+can't do everything. In fact, parameters input and output is
+limited to simpler cases.
 
-The current version of Win32::API is available at my website:
+A regular B<XS> extension is always safer and faster anyway.
 
-  http://dada.perl.it/
+The current version of Win32::API is always available at your
+nearest CPAN mirror:
 
-It's also available on your nearest CPAN mirror (but allow a few days 
-for worldwide spreading of the latest version) reachable at:
-
-  http://www.perl.com/CPAN/authors/Aldo_Calpini/
+  http://search.cpan.org/dist/Win32-API/
 
 A short example of how you can use this module (it just gets the PID of 
 the current process, eg. same as Perl's internal C<$$>):
@@ -393,17 +390,6 @@ the current process, eg. same as Perl's internal C<$$>):
 
 The possibilities are nearly infinite (but not all are good :-).
 Enjoy it.
-
-
-=head1 CREDITS
-
-All the credits go to Andrea Frosini 
-for the neat assembler trick that makes this thing work.
-I've also used some work by Dave Roth for the prototyping stuff.
-A big thank you also to Gurusamy Sarathy for his
-unvaluable help in XS development, and to all the Perl community for
-being what it is.
-
 
 =head1 DESCRIPTION
 
@@ -734,18 +720,20 @@ call.
 
 For more information, see also L<Win32::API::Struct>.
 
-If you don't want (or can't) use the Win32::API::Struct facility,
+If you don't want (or can't) use the C<Win32::API::Struct> facility,
 you can still use the low-level approach to use structures:
-
 
 =over 4
 
 =item 1.
+
 you have to pack() the required elements in a variable:
 
     $lpPoint = pack('LL', 0, 0); # store two LONGs
 
-=item 2. to access the values stored in a structure, unpack() it as required:
+=item 2.
+
+to access the values stored in a structure, unpack() it as required:
 
     ($x, $y) = unpack('LL', $lpPoint); # get the actual values
 
@@ -761,4 +749,25 @@ Aldo Calpini ( I<dada@perl.it> ).
 
 Cosimo Streppone ( I<cosimo@cpan.org> )
 
+=head1 LICENSE
+
+To finally clarify this, C<Win32::API> is OSI-approved free software;
+you can redistribute it and/or modify it under the same terms as Perl
+itself.
+
+See L<http://dev.perl.org/licenses/artistic.html>
+
+=head1 CREDITS
+
+All the credits go to Andrea Frosini for the neat assembler trick
+that makes this thing work. I've also used some work by Dave Roth
+for the prototyping stuff. A big thank you also to Gurusamy Sarathy
+for his unvaluable help in XS development, and to all the Perl
+community for being what it is.
+
+Cosimo also wants to personally thank everyone that contributed
+to Win32::API with complaints, emails, patches, RT bug reports
+and so on.
+
 =cut
+

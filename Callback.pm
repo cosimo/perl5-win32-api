@@ -1,5 +1,3 @@
-package Win32::API::Callback;
-
 # See the bottom of this file for the POD documentation.  Search for the
 # string '=head'.
 
@@ -10,11 +8,13 @@ package Win32::API::Callback;
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id: Callback.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
+# $Id: Callback.pm 50 2008-03-01 23:04:10Z Cosimo $
 #
 #######################################################################
 
-$VERSION = '0.50';
+package Win32::API::Callback;
+
+$VERSION = '0.51';
 
 require Exporter;       # to export the constants to the main:: space
 require DynaLoader;     # to dynuhlode the module.
