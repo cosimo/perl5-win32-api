@@ -1,8 +1,8 @@
 /*
     # Win32::API - Perl Win32 API Import Facility
     #
-    # Version: 0.45
-    # Date: 30 Nov 2006
+    # Version: 0.46
+    # Date: 23 Dec 2006
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
@@ -31,7 +31,7 @@
 /* Borland C */
 #if (defined(__BORLANDC__) && __BORLANDC__ >= 452)
     #define ASM_LOAD_EAX(param,type)  {   \
-        __asm {
+        __asm {                      \
             mov    eax, type param ; \
             push   eax             ; \
         }
@@ -590,17 +590,17 @@ PPCODE:
     	printf("(XS)Win32::API::Call: Calling ApiFunctionDouble()\n");
 #endif
 #if (defined(_MSC_VER) || defined(__BORLANDC__))
-        /*
-    	_asm {
-	    call    dword ptr [ApiFunctionFloat]
-	    fstp    qword ptr [fReturn]
-	}
-	*/
-	    fReturn = ApiFunctionFloat();
+		/*
+			_asm {
+			call    dword ptr [ApiFunctionFloat]
+			fstp    qword ptr [fReturn]
+		}
+		*/
+	    fReturn = ApiFunctionDouble();
 #elif (defined(__GNUC__))
-	asm ("call *%0"::"g"(ApiFunctionFloat));
+	asm ("call *%0"::"g"(ApiFunctionDouble));
 	asm ("fstpl %0"::"g"(fReturn));
-        /* XST_mNV(0, (float) fReturn); */
+    /* XST_mNV(0, (float) fReturn); */
 #endif
 #ifdef WIN32_API_DEBUG
        printf("(XS)Win32::API::Call: ApiFunctionDouble returned %f\n", dReturn);

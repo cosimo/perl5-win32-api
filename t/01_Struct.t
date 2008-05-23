@@ -7,40 +7,29 @@
 
 use strict;
 use Config;
-use FindBin qw($Bin);
+use File::Spec;
+use Test::More; plan tests => 7;
+
 use vars qw( 
-	$loaded 
-	$t
 	$function 
 	$result
 	$test_dll
 );
 
-######################### We start with some black magic to print on failure.
+use_ok('Win32::API');
+use_ok('Win32::API::Test');
 
-BEGIN { $| = 1; print "1..3\n"; }
-END {print "not ok 1\n" unless $loaded;}
-use Win32::API;
-$loaded = 1;
-print "ok 1\n";
+ok(1, 'loaded');
 
-######################### End of black magic.
-
-if($Config{cc} eq 'gcc'){
-    die("*** Win32::API tests currently FAIL under gcc/MinGW... ***\n");
-}
-
-$test_dll = $Bin.'\\..\\API_Test.dll';
-die "not ok 2 (can't find API_Test.dll)\n" unless -e $test_dll;
-
-$t = 2;
+$test_dll = Win32::API::Test::find_test_dll('API_test.dll');
+ok(-s $test_dll, 'found API_Test.dll');
 
 typedef Win32::API::Struct('simple_struct', qw(
 	int a;
 	double b;
 	LPSTR c;
 ));
-	
+
 my $simple_struct = Win32::API::Struct->new( 'simple_struct' );
 
 $simple_struct->align('auto');
@@ -50,22 +39,20 @@ $simple_struct->{b} = 2.5;
 $simple_struct->{c} = "test";
 
 $function = new Win32::API($test_dll, 'mangle_simple_struct', 'S', 'I');
-defined($function) or die "not ok $t\t$^E\n";
+ok(defined($function), 'mangle_simple_struct() function');
+diag('$^E=',$^E);
 
 $result = $function->Call( $simple_struct );
 
-unless(	$simple_struct->{a} == 2
-and		$simple_struct->{b} == 5
-and		$simple_struct->{c} eq 'TEST') {
-	print "not ";
-}
-print "ok $t\n";
-
-$t++;
+ok(
+	$simple_struct->{a} == 2 &&
+	$simple_struct->{b} == 5 &&
+	$simple_struct->{c} eq 'TEST',
+	'mangling of simple structures work'
+);
 
 my %simple_struct;
 tie %simple_struct, 'Win32::API::Struct' => 'simple_struct';
-
 tied(%simple_struct)->align('auto');
 
 $simple_struct{a} = 5;
@@ -74,12 +61,11 @@ $simple_struct{c} = "test";
 
 $result = $function->Call( \%simple_struct );
 
-unless(	$simple_struct{a} == 2
-and		$simple_struct{b} == 5
-and		$simple_struct{c} eq 'TEST') {
-	print "not ";
-}
-print "ok $t\n";
-
+ok(
+	$simple_struct{a} == 2 &&
+	$simple_struct{b} == 5 &&
+	$simple_struct{c} eq 'TEST',
+	'tied interface works'
+);
 
 

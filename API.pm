@@ -7,12 +7,16 @@ package Win32::API;
 #
 # Win32::API - Perl Win32 API Import Facility
 # 
-# Version: 0.45
-# Date: 29 Nov 2006
+# Version: 0.46
+# Date: 23 Dec 2006
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
+# Changes for gcc/cygwin: Daniel Risacher <magnus@alum.mit.edu>
+#  ported from 0.41 based on Daniel's patch by Reini Urban <rurban@x-ray.at>
+#
 # $Id: API.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
+#
 #######################################################################
 
 require Exporter;       # to export the constants to the main:: space
@@ -32,11 +36,12 @@ sub DEBUG {
 
 use Win32::API::Type;
 use Win32::API::Struct;
+use File::Basename ();
 
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.45';
+$VERSION = '0.46';
 
 #### some package-global hash to 
 #### keep track of the imported 
@@ -57,20 +62,31 @@ sub new {
     my($class, $dll, $proc, $in, $out) = @_;
     my $hdll;   
     my $self = {};
-  
+
+    if ($^O eq 'cygwin' and $dll ne File::Basename::basename($dll)) {
+        # need to convert $dll to win32 path
+        # isn't there an API for this?
+        my $newdll = `cygpath -w "$dll"`;
+        chomp $newdll;
+        DEBUG "(PM)new: converted '$dll' to\n  '$newdll'\n";
+        $dll = $newdll;
+    }
+
     #### avoid loading a library more than once
     if(exists($Libraries{$dll})) {
-        # print "Win32::API::new: Library '$dll' already loaded, handle=$Libraries{$dll}\n";
+        DEBUG "Win32::API::new: Library '$dll' already loaded, handle=$Libraries{$dll}\n";
         $hdll = $Libraries{$dll};
     } else {
-        # print "Win32::API::new: Loading library '$dll'\n";
+        DEBUG "Win32::API::new: Loading library '$dll'\n";
         $hdll = Win32::API::LoadLibrary($dll);
-        $Libraries{$dll} = $hdll;
+#        $Libraries{$dll} = $hdll;
     }
 
     #### if the dll can't be loaded, set $! to Win32's GetLastError()
     if(!$hdll) {
         $! = Win32::GetLastError();
+		DEBUG "FAILED Loading library '$dll': $!\n";
+		delete $Libraries{$dll};
         return undef;
     }
 
@@ -108,18 +124,22 @@ sub new {
     #### ...if all that fails, set $! accordingly
     if(!$hproc) {
         $! = Win32::GetLastError();
+		DEBUG "FAILED GetProcAddress for Proc '$proc': $!\n";
         return undef;
     }
-    
+	DEBUG "GetProcAddress('$proc') = '$hproc'\n";
+
     #### ok, let's stuff the object
     $self->{procname} = $proc;
-    $self->{dll} = $hdll;
-    $self->{dllname} = $dll;
-    $self->{proc} = $hproc;
+    $self->{dll}      = $hdll;
+    $self->{dllname}  = $dll;
+    $self->{proc}     = $hproc;
 
     #### keep track of the imported function
     $Libraries{$dll} = $hdll;
     $Procedures{$dll}++;
+
+	DEBUG "Object blessed!\n";
 
     #### cast the spell
     bless($self, $class);
@@ -148,7 +168,7 @@ sub DESTROY {
 
     #### once it reaches 0, free it
     if($Procedures{$self->{dllname}} == 0) {
-        # print "Win32::API::DESTROY: Freeing library '$self->{dllname}'\n";
+        DEBUG "Win32::API::DESTROY: Freeing library '$self->{dllname}'\n";
         Win32::API::FreeLibrary($Libraries{$self->{dllname}});
         delete($Libraries{$self->{dllname}});
     }    

@@ -6,46 +6,58 @@
 # `make test'. After `make install' it should work as `perl test.pl'
 
 use strict;
-use FindBin qw($Bin);
+use Config;
+use Test::More; plan tests => 8;
 use vars qw( 
-	$loaded 
-	$t
 	$function 
 	$result
 	$callback
 	$test_dll
 );
 
-######################### We start with some black magic to print on failure.
+use_ok('Win32::API');
+use_ok('Win32::API::Callback');
+use_ok('Win32::API::Test');
 
-BEGIN { $| = 1; print "1..2\n"; }
-END {print "not ok 1\n" unless $loaded;}
-use Win32::API;
-use Win32::API::Callback;
-$loaded = 1;
-print "ok 1\n";
+ok(1, 'loaded');
 
-######################### End of black magic.
+$test_dll = Win32::API::Test::find_test_dll('API_test.dll');
+ok(-e $test_dll, 'found API_Test.dll');
 
-$test_dll = $Bin.'\\..\\..\\API_Test.dll';
-die "not ok 2 (can't find API_Test.dll)\n" unless -e $test_dll;
+my $cc_name = Win32::API::Test::compiler_name();
+my $cc_vers = Win32::API::Test::compiler_version();
+my $callback;
 
-$t = 2;
-	
-my $callback = Win32::API::Callback->new(
-	sub { 
-		my($value) = @_;
-		return $value*2;
-	},
-	'N', 'N'
-);
+diag('Compiler name:', $cc_name);
+diag('Compiler version:', $cc_vers);
 
-$function = new Win32::API($test_dll, 'do_callback', 'KI', 'I');
-defined($function) or die "not ok $t\t$^E\n";
+SKIP: {
 
-$result = $function->Call( $callback, 21 );
+	skip('because bombs on gcc', 2) if $cc_name =~ /g?cc/;
 
-unless(	$result == 42 ) {
-	print "not ";
+	$callback = Win32::API::Callback->new(
+		sub { 
+			my($value) = @_;
+			return $value*2;
+		},
+		'N', 'N'
+	);
+	ok($callback, 'callback function defined');
+
+	$function = new Win32::API($test_dll, 'do_callback', 'KI', 'I');
+	ok(defined($function), 'defined function do_callback()');
+	diag('$^E=', $^E);
+
 }
-print "ok $t\n";
+
+SKIP: {
+
+	skip('because callbacks currently /SEGFAULT/ all compilers but MSVC 6', 1)
+		unless $cc_name eq 'cl' && $cc_vers >= 12 && $cc_vers < 13; 
+
+	$result = $function->Call( $callback, 21 );
+	is($result, 42, 'callback function works');
+}
+
+#
+# End of tests

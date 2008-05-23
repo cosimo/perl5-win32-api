@@ -7,15 +7,16 @@ package Win32::API::Callback;
 #
 # Win32::API::Callback - Perl Win32 API Import Facility
 # 
-# Version: 0.45
-# Date: 29 Nov 2006
+# Version: 0.46
+# Date: 23 Dec 2006
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
 # $Id: Callback.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
+#
 #######################################################################
 
-$VERSION = '0.45';
+$VERSION = '0.46';
 
 require Exporter;       # to export the constants to the main:: space
 require DynaLoader;     # to dynuhlode the module.

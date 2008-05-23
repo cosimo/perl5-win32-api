@@ -1,10 +1,14 @@
 /*
     # Win32::API::Callback - Perl Win32 API Import Facility
     #
-    # Version: 0.45
-    # Date: 29 Nov 2006
+    # Version: 0.46
+    # Date: 05 Dec 2006
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
+    #
+    # Changes for gcc/cygwin by Reini Urban <rurban@x-ray.at> 
+    # TODO: This does not work yet with the 64bit gcc cygwin-thread-multi-64int 
+    #       (cygwin default)
     #
     # $Id: Callback.xs,v 1.0 2002/03/19 10:25:00 dada Exp $
  */
@@ -44,6 +48,15 @@
 #ifndef call_sv
 #	define call_sv(name, flags) perl_call_sv(name, flags)
 #endif
+
+#ifdef __GNUC__
+/* itoa is NOT in newlib. We need only the simple base 10 version. */
+char * itoa(int n, char *str, int radix);
+char * itoa(int n, char *str, int radix) {
+    sprintf(str, "%d", n);
+}
+#endif
+
 
 int PerformCallback(SV* self, int nparams, APIPARAM* params);
 
