@@ -7,8 +7,8 @@ package Win32::API;
 #
 # Win32::API - Perl Win32 API Import Facility
 # 
-# Version: 0.40 
-# Date: 07 Mar 2003
+# Version: 0.41 
+# Date: 10 Mar 2003
 # Author: Aldo Calpini <dada@perl.it>
 # $Id: API.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
@@ -32,35 +32,9 @@ use Win32::API::Type;
 use Win32::API::Struct;
 
 #######################################################################
-# This AUTOLOAD is used to 'autoload' constants from the constant()
-# XS function.  If a constant is not found then control is passed
-# to the AUTOLOAD in AutoLoader.
-#
-
-sub AUTOLOAD {
-    my($constname);
-    ($constname = $AUTOLOAD) =~ s/.*:://;
-    #reset $! to zero to reset any current errors.
-    $!=0;
-    my $val = constant($constname, @_ ? $_[0] : 0);
-    if ($! != 0) {
-        if ($! =~ /Invalid/) {
-            $AutoLoader::AUTOLOAD = $AUTOLOAD;
-            goto &AutoLoader::AUTOLOAD;
-        } else {
-            ($pack,$file,$line) = caller;
-            die "Your vendor has not defined Win32::API macro $constname, used at $file line $line.";
-        }
-    }
-    eval "sub $AUTOLOAD { $val }";
-    goto &$AUTOLOAD;
-}
-
-
-#######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = "0.40";
+$VERSION = "0.41";
 
 #### some package-global hash to 
 #### keep track of the imported 

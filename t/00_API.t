@@ -29,6 +29,16 @@ die "not ok 2 (can't find API_Test.dll)\n" unless -e $test_dll;
 
 $t = 2;
 
+if(not Win32::IsWinNT) {
+
+print "ok 2 # skipped on this platform\n";
+print "ok 3 # skipped on this platform\n";
+print "ok 4 # skipped on this platform\n";
+
+$t = 5;
+
+} else {
+
 #### 2: simple test, from kernel32
 $function = new Win32::API("kernel32", "GetCurrentProcessId", "", "N");
 defined($function) or die "not ok $t\t$^E\n";
@@ -37,17 +47,19 @@ print "" . ($result != $$ ? "not " : "") . "ok $t\n";
 $t++;
 
 #### 3: same as above, with prototype
-$function = new Win32::API("kernel32", "int GetCurrentProcessId(  )");
+$function = new Win32::API("kernel32", "DWORD GetCurrentProcessId(  )");
 defined($function) or die "not ok $t\t$^E\n";
 $result = $function->Call();
 print "" . ($result != $$ ? "not " : "") . "ok $t\n";
 $t++;
 
 #### 4: same as above, with Import
-Win32::API->Import("kernel32", "int GetCurrentProcessId(  )") or die "not ok $t\t$^E\n";
+Win32::API->Import("kernel32", "DWORD GetCurrentProcessId(  )") or die "not ok $t\t$^E\n";
 $result = GetCurrentProcessId();
 print "" . ($result != $$ ? "not " : "") . "ok $t\n";
 $t++;
+
+}
 
 #### tests from our own DLL
 

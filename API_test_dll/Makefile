@@ -197,15 +197,6 @@ LINK32_OBJS= \
 !ENDIF 
 
 
-!IF "$(NO_EXTERNAL_DEPS)" != "1"
-!IF EXISTS("API_test.dep")
-!INCLUDE "API_test.dep"
-!ELSE 
-!MESSAGE Warning: cannot find "API_test.dep"
-!ENDIF 
-!ENDIF 
-
-
 !IF "$(CFG)" == "API_test - Win32 Release" || "$(CFG)" == "API_test - Win32 Debug"
 SOURCE=.\API_test.cpp
 

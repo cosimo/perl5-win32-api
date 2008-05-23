@@ -2,7 +2,7 @@
 #
 # Win32::API - Perl Win32 API Import Facility
 # ^^^^^^^^^^
-# Version: 0.40 (07 Mar 2003)
+# Version: 0.41 (10 Mar 2003)
 # by Aldo Calpini <dada@perl.it>
 #######################################################################
 

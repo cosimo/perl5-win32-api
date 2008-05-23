@@ -16,7 +16,6 @@ Callback/Makefile.PL
 Callback/t/02_Callback.t
 API_test_dll/API_test.cpp
 API_test_dll/API_test.def
-API_test_dll/API_test.dep
 API_test_dll/API_test.dsp
 API_test_dll/API_test.dsw
 API_test_dll/API_test.h
