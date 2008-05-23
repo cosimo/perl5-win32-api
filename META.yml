@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                Win32-API
-version:             0.54
+version:             0.55
 abstract:            Perl Win32 API Import Facility
 license:             perl
 author:              

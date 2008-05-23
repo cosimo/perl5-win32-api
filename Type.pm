@@ -13,7 +13,7 @@ package Win32::API::Type;
 # $Id: Type.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
 
-$VERSION = '0.50';
+$VERSION = '0.55';
 
 use Carp;
 
@@ -188,28 +188,33 @@ sub is_pointer {
 }
 
 sub Pack {
-    my $type = $_[0];
-    
-    if(packing($type) eq 'c' and is_pointer($type)) {
-        $_[1] = pack("Z*", $_[1]);
-        return $_[1];
+    my ($type, $arg) = @_;
+
+    my $pack_type = packing($type);
+
+    if($pack_type eq 'p') {
+        $pack_type = 'Z*';
     }
-    $_[1] = pack( packing($type), $_[1]);   
-    return $_[1];
+
+    $arg = pack($pack_type, $arg);
+
+    return $arg;
 }
 
 sub Unpack {
-    my $type = $_[0];
-    if(packing($type) eq 'c' and is_pointer($type)) {       
-        DEBUG "(PM)Type::Unpack: got packing 'c', is a pointer, unpacking 'Z*' '$_[1]'\n";
-        $_[1] = unpack("Z*", $_[1]);
-        DEBUG "(PM)Type::Unpack: returning '$_[1]'\n";
-        return $_[1];
+    my ($type, $arg) = @_;
+
+    my $pack_type = packing($type);
+
+    if($pack_type eq 'p') {       
+        DEBUG "(PM)Type::Unpack: got packing 'p': is a pointer\n";
+        $pack_type = 'Z*';
     }
-    DEBUG "(PM)Type::Unpack: unpacking '".packing($type)."' '$_[1]'\n"; 
-    $_[1] = unpack( packing($type), $_[1]);
-    DEBUG "(PM)Type::Unpack: returning '$_[1]'\n";  
-    return $_[1];
+
+    DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$arg'\n"; 
+    $arg = unpack($pack_type, $arg);
+    DEBUG "(PM)Type::Unpack: returning '$arg'\n";  
+    return $arg;
 }
 
 1;
