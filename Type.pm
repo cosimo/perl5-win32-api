@@ -13,7 +13,7 @@ package Win32::API::Type;
 # $Id: Type.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
 #######################################################################
 
-$VERSION = '0.55';
+$VERSION = '0.56';
 
 use Carp;
 
@@ -410,6 +410,7 @@ LPCSTR                  CHAR
 LPCTSTR                 CHAR
 LPCVOID                 any
 LPCWSTR                 WCHAR
+LPDOUBLE                double
 LPDWORD                 DWORD
 LPHANDLE                HANDLE
 LPINT                   INT
