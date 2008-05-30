@@ -1,12 +1,10 @@
 #
 # Win32::API::Test - Test helper package for Win32::API
 # 
-# Version: 0.01
-# Date: 23 Dec 2006
-# Author: Cosimo Streppone <cosimo@cpan.org>
+# Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id: API.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
-# 
+# $Id$
+
 package Win32::API::Test;
 
 sub compiler_name () {
@@ -35,21 +33,14 @@ sub compiler_version () {
 # that used to build perl.
 # For example, Cosimo does. For testing, of course.
 #
-# ***
-# *** IT DOES NOT WORK NOW.
-# *** FOR REASONS I DON'T KNOW, CL.EXE OUTPUTS ITS
-# *** VERSION STRING IN THE FIRST TWO LINES THAT
-# *** I'M NOT ABLE TO CATCH...
-# ***
-#
 sub compiler_version_from_shell () {
 	my $cc = compiler_name();
 	my $ver;
 	# MSVC
 	if($cc eq 'cl')
 	{
-		my @ver = `$cc`;
-		my $ver = join('',@ver);
+		my @ver = `$cc 2>&1`;            # Interesting output in STDERR
+		$ver = join('',@ver);
 		print 'VER:'.$ver.':'."\n";
 		if($ver =~ /Version (\d[\d\.]+)/ms )
 		{
@@ -68,7 +59,7 @@ sub compiler_version_from_shell () {
 	# Borland C
 	elsif($cc eq 'bcc32' || $cc eq 'bcc')
 	{
-		$ver = join('', `$cc`);
+		$ver = join('', `$cc 2>&1`);
 		if($ver =~ /Borland C\+\+ (\d[\d\.]+)/ms )
 		{
 			$ver = $1;
