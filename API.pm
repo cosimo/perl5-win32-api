@@ -23,12 +23,10 @@ require Exporter;       # to export the constants to the main:: space
 require DynaLoader;     # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
 
-use vars qw( $DEBUG );
-$DEBUG = 0;
-
+$Win32::API::DEBUG = 0;
 sub DEBUG { 
     if ($Win32::API::DEBUG) { 
-        printf @_ if @_ or return 1; 
+        warn @_ if @_ or return 1; 
     } else {
         return 0;
     }
@@ -37,6 +35,7 @@ sub DEBUG {
 use Win32::API::Type;
 use Win32::API::Struct;
 use File::Basename ();
+use Carp;
 
 #######################################################################
 # STATIC OBJECT PROPERTIES
@@ -73,20 +72,16 @@ sub new {
     }
 
     #### avoid loading a library more than once
-    if(exists($Libraries{$dll})) {
+    if($Libraries{$dll}) {
         DEBUG "Win32::API::new: Library '$dll' already loaded, handle=$Libraries{$dll}\n";
         $hdll = $Libraries{$dll};
     } else {
         DEBUG "Win32::API::new: Loading library '$dll'\n";
-        $hdll = Win32::API::LoadLibrary($dll);
-#        $Libraries{$dll} = $hdll;
+        $hdll = Win32::API::LoadLibrary($dll) and $Libraries{$dll} = $hdll;
     }
 
-    #### if the dll can't be loaded, set $! to Win32's GetLastError()
     if(!$hdll) {
-        $! = Win32::GetLastError();
-		DEBUG "FAILED Loading library '$dll': $!\n";
-		delete $Libraries{$dll};
+	DEBUG "FAILED Loading library '$dll': $^E\n";
         return undef;
     }
 
@@ -107,9 +102,11 @@ sub new {
                 push(@{ $self->{in} }, type_to_num($_));
             }           
         }
+	$self->{intypes} = [];
         $self->{out} = type_to_num($out);
         $self->{cdecl} = calltype_to_num($callconvention);
     }
+    DEBUG "$proc: IN=[@{$self->{in}}],OUT=$self->{out},TYPES=[@{$self->{intypes}}],CALL=$self->{cdecl}\n"; 
 
     #### first try to import the function of given name...
     my $hproc = Win32::API::GetProcAddress($hdll, $proc);
@@ -118,14 +115,15 @@ sub new {
     if(!$hproc) {
         my $tproc = $proc;
         $tproc .= (IsUnicode() ? "W" : "A");
-        # print "Win32::API::new: procedure not found, trying '$tproc'...\n";
+        DEBUG "Win32::API::new: procedure not found, trying '$tproc'...\n";
         $hproc = Win32::API::GetProcAddress($hdll, $tproc);
     }
 
-    #### ...if all that fails, set $! accordingly
     if(!$hproc) {
-        $! = Win32::GetLastError();
-		DEBUG "FAILED GetProcAddress for Proc '$proc': $!\n";
+        #$! = Win32::GetLastError(); // Let the user use $^E
+	DEBUG "FAILED GetProcAddress for Proc '$proc': ($^E)\n";
+	# Free library if not used
+       	Win32::API::FreeLibrary($Libraries{$dll}) unless($Procedures{$dll});
         return undef;
     }
 	DEBUG "GetProcAddress('$proc') = '$hproc'\n";
@@ -137,14 +135,10 @@ sub new {
     $self->{proc}     = $hproc;
 
     #### keep track of the imported function
-    $Libraries{$dll} = $hdll;
     $Procedures{$dll}++;
 
-	DEBUG "Object blessed!\n";
-
     #### cast the spell
-    bless($self, $class);
-    return $self;
+    return bless $self, $class;
 }
 
 sub Import {
@@ -258,35 +252,38 @@ sub parse_prototype {
         $params =~ s/^\s+//;
         $params =~ s/\s+$//;
         
-        DEBUG "(PM)parse_prototype: got PROC '%s'\n", $proc;
-        DEBUG "(PM)parse_prototype: got PARAMS '%s'\n", $params;
+        DEBUG "(PM)parse_prototype: got PROC '$proc'\n";
+        DEBUG "(PM)parse_prototype: got PARAMS '$params'\n";
         
         foreach my $param (split(/\s*,\s*/, $params)) {
+
             my($type, $name);
             if($param =~ /(\S+)\s+(\S+)/) {
                 ($type, $name) = ($1, $2);
+            } else {
+               $type = $param;
             }
-            
+
             if(Win32::API::Type::is_known($type)) {
                 if(Win32::API::Type::is_pointer($type)) {
-                    DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
+                    DEBUG sprintf "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
                         $type, 
                         Win32::API::Type->packing( $type ), 
                         type_to_num('P');
                     push(@in_params, type_to_num('P'));
                 } else {        
-                    DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
+                    DEBUG sprintf "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
                         $type, 
                         Win32::API::Type->packing( $type ), 
                         type_to_num( Win32::API::Type->packing( $type ) );
                     push(@in_params, type_to_num( Win32::API::Type->packing( $type ) ));
                 }
             } elsif( Win32::API::Struct::is_known( $type ) ) {
-                DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
+                DEBUG sprintf "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
                     $type, 'S', type_to_num('S');
                 push(@in_params, type_to_num('S'));
             } else {
-                warn "Win32::API::parse_prototype: WARNING unknown parameter type '$type'";
+                carp "Win32::API::parse_prototype: WARNING unknown parameter type '$type'";
                 push(@in_params, type_to_num('I'));
             }
             push(@in_types, $type);
@@ -294,8 +291,6 @@ sub parse_prototype {
         }
         DEBUG "parse_prototype: IN=[ @in_params ]\n";
 
-
-            
         if(Win32::API::Type::is_known($ret)) {
             if(Win32::API::Type::is_pointer($ret)) {
                 DEBUG "parse_prototype: OUT='%s' PACKING='%s' API_TYPE=%d\n",
