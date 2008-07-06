@@ -41,7 +41,7 @@ sub compiler_version_from_shell () {
 	{
 		my @ver = `$cc 2>&1`;            # Interesting output in STDERR
 		$ver = join('',@ver);
-		print 'VER:'.$ver.':'."\n";
+		#print 'VER:'.$ver.':'."\n";
 		if($ver =~ /Version (\d[\d\.]+)/ms )
 		{
 			$ver = $1;
