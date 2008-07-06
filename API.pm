@@ -13,7 +13,7 @@
 # Changes for gcc/cygwin: Daniel Risacher <magnus@alum.mit.edu>
 #  ported from 0.41 based on Daniel's patch by Reini Urban <rurban@x-ray.at>
 #
-# $Id: API.pm 77 2008-03-23 10:25:43Z Cosimo $
+# $Id$
 #
 #######################################################################
 
