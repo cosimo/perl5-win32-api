@@ -10,7 +10,7 @@ package Win32::API::Type;
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id: Type.pm,v 1.0 2001/10/30 13:57:31 dada Exp $
+# $Id$
 #######################################################################
 
 $VERSION = '0.56';

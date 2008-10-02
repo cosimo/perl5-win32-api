@@ -68,4 +68,3 @@ ok(
 	'tied interface works'
 );
 
-

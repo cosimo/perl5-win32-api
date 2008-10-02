@@ -1,5 +1,21 @@
 History of Win32::API perl extension.
 
+2008-10-03  Win32::API v0.56     Cosimo
+
+   - RT#39730 (http://rt.cpan.org/Ticket/Display.html?id=39730)
+
+     Now passing a Perl undefined value to an API imported with
+     a prototype, automatically turns it into a NULL value.
+     Thanks to Ikegami for his bug report and patch.
+     Added a new test case.
+
+   - Fixed MSVC compiler version detection in Win32::API::Test.
+     Thanks to Salvador Ortiz Garcia (sog at msg com mx)
+
+   - Fixed several compilation warnings on `Callback.xs'
+
+   - Started some work to support double*. Halfway through.
+
 2008-03-23  Win32::API v0.55     Cosimo
 
    - Integrated patch from Salvador Ortiz Garcia (sog at msg com mx)

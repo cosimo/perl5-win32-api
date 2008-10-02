@@ -8,7 +8,7 @@
     # TODO: This does not work yet with the 64bit gcc cygwin-thread-multi-64int 
     #       (cygwin default)
     #
-    # $Id: Callback.xs 62 2008-03-03 22:39:50Z Cosimo $
+    # $Id: Callback.xs 109 2008-10-02 22:09:43Z Cosimo $
  */
 
 #define  WIN32_LEAN_AND_MEAN
@@ -342,8 +342,6 @@ int PerformCallback(SV* self, int nparams, APIPARAM* params) {
 	SV* mycode;
 	int i = 0;
 	char ikey[80];
-	unsigned int checkpoint;
-	I32 size;
 	int r;
 #ifdef dTHX
 	dTHX;
@@ -822,23 +820,13 @@ CallbackCreate(self)
 	SV* self
 PREINIT:
     APIPARAM *params;
-    int    iParam;
-    long   lParam;
-    float  fParam;
-    double dParam;
-	char   cParam;
-    char  *pParam;
-    LPBYTE ppParam;
     HV*		obj;
     SV**	obj_sub;
     SV*		sub;
-    SV**	obj_proto;
     SV**	obj_in;
     SV**	obj_out;
-    SV**	obj_intypes;
     SV**	in_type;
     AV*		inlist;
-    AV*		intypes;
     int nin, tout, i;
 CODE:
 #ifdef WIN32_API_DEBUG
@@ -894,7 +882,6 @@ PushSelf(self)
 PREINIT:
 	HV*		obj;
 	SV**	obj_selfpos;
-	unsigned char *selfpos;
 CODE:
 #ifdef WIN32_API_DEBUG
 	printf("(XS)PushSelf: got self='%s' (SV=0x%08x)\n", SvPV_nolen(self), self);

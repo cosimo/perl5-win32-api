@@ -6,7 +6,7 @@
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
-	# $Id: API.h,v 1.0 2002/03/19 18:21:00 dada Exp $
+	# $Id$
  */
 
 // #define WIN32_API_DEBUG

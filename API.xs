@@ -4,7 +4,7 @@
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
-    # $Id: API.xs 62 2008-03-03 22:39:50Z Cosimo $
+    # $Id$
  */
 
 #define  WIN32_LEAN_AND_MEAN
@@ -352,8 +352,13 @@ PPCODE:
                 params[i].t = T_POINTER;
                 origST[i] = ST(i+1);
                 if(has_proto) {
-					pointerCallPack(ST(i+1), i, intypes);
-					params[i].p = (char *) SvPV_nolen(ST(i+1));
+                    if(SvOK(ST(i+1))) {
+                        pointerCallPack(ST(i+1), i, intypes);
+                        params[i].p = (char *) SvPV_nolen(ST(i+1));
+                    /* When arg is undef, use NULL pointer */
+                    } else {
+                        params[i].p = NULL;
+                    }
 				} else {
 					if(SvIOK(ST(i+1)) && SvIV(ST(i+1)) == 0) {
 						params[i].p = NULL;
@@ -676,7 +681,9 @@ PPCODE:
 	/* #### THIRD PASS: postfix pointers/structures #### */
     for(i = 0; i <= nin; i++) {
 		if(params[i].t == T_POINTER && has_proto) {
-			pointerCallUnpack(origST[i], i, intypes);
+            if(SvOK(origST[i])) {
+                pointerCallUnpack(origST[i], i, intypes);
+            }
 		}
 		if(params[i].t == T_STRUCTURE) {
 			ENTER;
