@@ -14,6 +14,7 @@ API_test.dll
 t/00_API.t
 t/01_Struct.t
 t/02_GetProcess.t
+t/03_undef.t
 Callback/Callback.xs
 Callback/Makefile.PL
 Callback/t/02_Callback.t
