@@ -14,15 +14,15 @@
 
 package Win32::API::Callback;
 
-$VERSION = '0.56';
+$VERSION = '0.57';
 
 require Exporter;       # to export the constants to the main:: space
 require DynaLoader;     # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
 
 sub DEBUG { 
-    if ($Win32::API::DEBUG) { 
-	warn @_ if @_ or return 1; 
+	if ($WIN32::API::DEBUG) { 
+		printf @_ if @_ or return 1; 
 	} else {
 		return 0;
 	}
@@ -68,16 +68,11 @@ bootstrap Win32::API::Callback;
 #
 sub new {
     my($class, $proc, $in, $out) = @_;
-    my %self = (
-	in => [],
-	coderef => $proc,
-	selfpos => undef,
-	code => undef,
-    );
+    my %self = ();
 
-    DEBUG sprintf "(PM)Callback::new: got proc='%s', in='%s', out='%s'\n",
-		  $proc, $in, $out;
+	# printf "(PM)Callback::new: got proc='%s', in='%s', out='%s'\n", $proc, $in, $out;
 		
+	$self{in} = [];
 	if(ref($in) eq 'ARRAY') {
 		foreach (@$in) {
 			push(@{ $self{in} }, Win32::API::type_to_num($_));
@@ -89,17 +84,25 @@ sub new {
 		}			
 	}
 	$self{out} = Win32::API::type_to_num($out);
+	$self{sub} = $proc;
+	my $self = bless \%self, $class;
 	
-    my $self = bless \%self, $class;
-    DEBUG "(PM)Callback::new: calling CallbackCreate($self})...\n";
+	DEBUG "(PM)Callback::new: calling CallbackCreate($self)...\n";
     my $hproc = CallbackCreate($self);
+
 	DEBUG "(PM)Callback::new: hproc=$hproc\n";
+
+    #### ...if that fails, set $! accordingly
     if(!$hproc) {
-        # $! = Win32::GetLastError(); # Let the user use $^E
+        $! = Win32::GetLastError();
         return undef;
     }
+    
     #### ok, let's stuff the object
     $self->{code} = $hproc;
+    $self->{sub}  = $proc;
+
+    #### cast the spell
     return $self;
 }
 
@@ -109,12 +112,6 @@ sub MakeStruct {
 	my $struct = Win32::API::Struct->new($self->{intypes}->[$n]);	
 	$struct->FromMemory($addr);
 	return $struct;
-}
-
-sub GetAddress {
-    my $self = shift;
-    DEBUG "(PM)Win32::API::Callback::GetAddress\n";
-    return $self->{code};
 }
 
 1;
@@ -175,4 +172,3 @@ Cosimo Streppone ( I<cosimo@cpan.org> ).
 
 =cut
 
-# vim:sts=4:sw=4

@@ -1,0 +1,13 @@
+LIBRARY "API_test"
+EXPORTS
+  sum_integers
+  sum_integers_ref
+  sum_doubles
+  sum_doubles_ref
+  sum_floats
+  sum_floats_ref
+  has_char
+  find_char
+  dump_struct
+  mangle_simple_struct
+  do_callback

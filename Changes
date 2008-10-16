@@ -1,5 +1,11 @@
 History of Win32::API perl extension.
 
+2008-10-16  Win32::API v0.57     Cosimo
+
+   - Re-added source code for the API_test DLL.
+     Still needs to be adapted to be built with GCC/MinGW
+     and different Makes, but it's a start.
+
 2008-10-03  Win32::API v0.56     Cosimo
 
    - RT#39730 (http://rt.cpan.org/Ticket/Display.html?id=39730)

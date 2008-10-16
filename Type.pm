@@ -11,9 +11,10 @@ package Win32::API::Type;
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
 # $Id$
+#
 #######################################################################
 
-$VERSION = '0.56';
+$VERSION = '0.57';
 
 use Carp;
 
