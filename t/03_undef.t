@@ -1,5 +1,6 @@
 #!perl -w
 #
+# RT #39730, http://rt.cpan.org/Ticket/Display.html?id=39730
 # Test passing APIs undefined values
 #
 # $Id: $
@@ -56,5 +57,5 @@ if (! $success) {
 ok(kill(TERM => $pid), 'reclaiming child worked');
 #diag("kill: $!");
 
-ok($success, 'sample API (PeekNamedPipe) works passing undef values');
+ok($success, '(RT #39730) sample API (PeekNamedPipe) works with undef values');
 
