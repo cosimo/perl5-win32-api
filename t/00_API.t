@@ -1,6 +1,6 @@
 #!perl -w
 
-# $Id: test.t,v 1.0 2001/10/30 13:57:31 dada Exp $
+# $Id$
 
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl test.pl'
@@ -8,7 +8,7 @@
 use strict;
 use Config; # ?not used
 use File::Spec;
-use Test::More; plan tests => 24;
+use Test::More; plan tests => 25;
 use vars qw($function $result $test_dll);
 
 use_ok('Win32::API');
@@ -104,10 +104,15 @@ is(
     'sum_integers_ref() call works'
 );
 
+TODO: {
+    local $TODO = 'Calling by ref does not seem to change its ref arg';
+    is($result, 5, 'sum_integers_ref() modifies ref argument');
+}
+
 #### sum 2 doubles
 SKIP: {
     # Now with VC6 this works, please check with others
-    #skip('because function call with double as return type isn't tested', 2);
+    skip('because function call with double as return type isn\'t tested', 2);
     $function = new Win32::API($test_dll, 'double sum_doubles(double a, double b)');
     ok(defined($function), 'API_test.dll sum_doubles function defined');
     diag("$function->{procname} \$^E=",$^E);
@@ -130,19 +135,19 @@ ok(defined($function), 'sum_floats() function defined');
 diag("$function->{procname} \$^E=", $^E);
 SKIP: {
     # Now its works with MSVC6, please check others
-    #skip('because function call with floats segfaults', 1);
+    skip('because function call with floats segfaults', 1);
     # Never ever compare reals with '=='!!
     ok(abs($function->Call(2.5, 3.2) - 5.70) < 0.0005,
        'sum_floats() result correct');
 }
 
 #### same as above, with a pointer
-$function = new Win32::API($test_dll, 'int sum_floats_ref(float a, float b, float* c)');
+$function = new Win32::API($test_dll, 'int sum_floats_ref(float* a, float* b, float* c)');
 ok(defined($function), 'sum_floats_ref() function defined');
-diag("$function->{procname} \$^E=", $^E);
+#diag("$function->{procname} \$^E=", $^E);
 $result = 0.0;
 $function->Call(2.5, 3.2, $result);
-diag('$result='.$result);
+diag('sum_floats_ref result='.$result);
 ok(abs($result-5.70)<0.0005, 'sum_floats_ref() call works');
 
 #### find a char in a string

@@ -2,7 +2,7 @@
 #
 # kernel32.dll GetCurrentProcessId() function test
 #
-# $Id: $
+# $Id$
 
 use strict;
 use warnings;

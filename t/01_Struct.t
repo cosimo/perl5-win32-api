@@ -1,6 +1,6 @@
 ##!perl -w
 
-# $Id: test.t,v 1.0 2001/10/30 13:57:31 dada Exp $
+# $Id$
 
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl test.pl'
