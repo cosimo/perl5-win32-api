@@ -504,17 +504,18 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 		distance++;
 	}
 
-	section_START 	= checkpoint_PUSHI;
-	section_PUSHI	= checkpoint_PUSHL	- checkpoint_PUSHI;
-	section_PUSHL	= checkpoint_PUSHP	- checkpoint_PUSHL;
-	section_PUSHP	= checkpoint_PUSHS	- checkpoint_PUSHP;
-	section_PUSHS	= checkpoint_END 	- checkpoint_PUSHS;
-	section_END		= checkpoint_DONE	- checkpoint_END;
+	section_START = checkpoint_PUSHI;
+	section_PUSHI = checkpoint_PUSHL	- checkpoint_PUSHI;
+	section_PUSHL = checkpoint_PUSHP	- checkpoint_PUSHL;
+	section_PUSHP = checkpoint_PUSHS	- checkpoint_PUSHP;
+	section_PUSHS = checkpoint_END 	- checkpoint_PUSHS;
+	section_END   = checkpoint_DONE	- checkpoint_END;
 
-	toalloc = section_START;
-
+	toalloc  = section_START;
 	toalloc += section_END;
-	toalloc += 3; // we'll need 3 extra bytes for the callback epilogue
+
+	/* We'll need 4 extra bytes for the callback epilogue */
+	toalloc += 4;
 
 #ifdef WIN32_API_DEBUG
 	printf("(C)CallbackCreate: toalloc=%d\n", toalloc);
