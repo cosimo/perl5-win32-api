@@ -94,8 +94,6 @@ API_TEST_API void __stdcall dump_struct(const char *name, simple_struct *x) {
 }
 
 API_TEST_API int __stdcall mangle_simple_struct(simple_struct *x) {
-	unsigned int i;
-	unsigned int j;
 	char *tmp;
 
 	simple_struct mine;
