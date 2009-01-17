@@ -8,7 +8,7 @@
     # TODO: This does not work yet with the 64bit gcc cygwin-thread-multi-64int 
     #       (cygwin default)
     #
-    # $Id: Callback.xs 109 2008-10-02 22:09:43Z Cosimo $
+    # $Id$
  */
 
 #define  WIN32_LEAN_AND_MEAN
