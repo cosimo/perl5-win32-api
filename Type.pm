@@ -214,7 +214,7 @@ sub Unpack {
 
     DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$arg'\n"; 
     $arg = unpack($pack_type, $arg);
-    DEBUG "(PM)Type::Unpack: returning '$arg'\n";  
+    DEBUG "(PM)Type::Unpack: returning '" . ($arg || '') . "'\n";  
     return $arg;
 }
 
