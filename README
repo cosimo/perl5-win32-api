@@ -3,7 +3,7 @@
 # Win32::API - Perl Win32 API Import Facility
 # ^^^^^^^^^^
 #
-# Version: 0.58 (17 Jan 2009)
+# Version: 0.59 (02 Jul 2009)
 #
 # Original author:    Aldo Calpini <dada@perl.it>
 # Current maintainer: Cosimo Streppone <cosimo@cpan.org>

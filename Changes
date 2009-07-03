@@ -1,5 +1,10 @@
 History of Win32::API perl extension.
 
+2009-07-02  Win32::API v0.59     Cosimo
+
+   - Fixed compilation with gcc/mingw 4.4.0, thanks to Reini Urban.
+     (RT#47398, https://rt.cpan.org/Ticket/Display.html?id=47398)
+
 2009-01-17  Win32::API v0.58     Cosimo
 
    No significant updates for normal users.
