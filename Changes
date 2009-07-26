@@ -1,5 +1,11 @@
 History of Win32::API perl extension.
 
+xxxx-xx-xx  Win32::API v0.60     Cosimo
+
+   - Fixed RT #48006
+     (https://rt.cpan.org/Ticket/Display.html?id=48006)
+   - Added a minimal TODO file, so I can remember where I left off 
+
 2009-07-02  Win32::API v0.59     Cosimo
 
    - Fixed compilation with gcc/mingw 4.4.0, thanks to Reini Urban.

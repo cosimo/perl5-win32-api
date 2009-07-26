@@ -112,22 +112,35 @@ sub members {
 }
 
 sub sizeof {
+
     my $self = shift;
     my $size = 0;
     my $align = 0;
     my $first = undef;
-    foreach my $member (@{ $self->{typedef} }) {
-        my($name, $packing, $type) = @$member;
-        
-        if(ref( $self->{$name} ) eq "Win32::API::Struct") {
+
+    for my $member (@{ $self->{typedef} }) {
+
+        my($name, $packing, $type) = @{$member};
+       
+	   	# If member is a struct, recursively calculate its size
+		# FIXME for subclasses
+        if (ref $self->{$name} eq q{Win32::API::Struct}) {
             $size += $self->{$name}->sizeof();
             # $align = $self->{$name}->sizeof() if $self->{$name}->sizeof() > $align;
-        } else {        
-            if($packing =~ /\w\*(\d+)/) {           
+        }
+
+		# Member is a simple type (LONG, DWORD, etc...)
+		else {
+
+			# Arrays (ex: 'c*260')
+            if($packing =~ /\w\*(\d+)/) {
                 $size += Win32::API::Type::sizeof($type) * $1;
             	$first = Win32::API::Type::sizeof($type) * $1 unless defined $first;
                 DEBUG "(PM)Struct::sizeof: sizeof with member($name) now = ". $size. "\n";
-            } else {            
+            }
+
+			# Simple types
+			else {            
                 $size += Win32::API::Type::sizeof($type);
                 $first = Win32::API::Type::sizeof($type) unless defined $first;
             	$align = Win32::API::Type::sizeof($type)
@@ -136,16 +149,17 @@ sub sizeof {
             }
         }
     }
+
     DEBUG "(PM)Struct::sizeof first=$first align=$align\n";
-    #DEBUG "(PM)Struct::sizeof returning %d\n", $first + (scalar(@{ $self->{typedef} })-1) * $align;    
-    #return $first + (scalar(@{ $self->{typedef} })-1) * $align;    
-    DEBUG "(PM)Struct::sizeof returning %d\n", scalar(@{ $self->{typedef} }) * $align;    
-	if(defined $align and $align > 0) {
-    	return scalar(@{ $self->{typedef} }) * $align;
-    } else {
-    	return $size;
-    }
-    return $size;
+
+	my $struct_size = $size;
+	if (defined $align && $align > 0) {
+		$struct_size += ($size % $align);
+	}
+
+    DEBUG "(PM)Struct::sizeof returning %d\n", $struct_size;
+
+    return $struct_size;
 }
 
 sub align {

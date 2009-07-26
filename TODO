@@ -1,0 +1,12 @@
+Last updated: 2009/07/25
+
+* Review Win32::API::Struct
+
+  1) make code style consistent
+  2) remove warnings
+  3) implement test cases for the various structure types,
+     including compound structures, struct containing arrays,
+	 and types non aligned to 4 bytes
+  4) implement a 64-bit flag, so that all word sizes are automatically
+     calculated as 8 bytes instead of hardwiring 4 bytes
+  
