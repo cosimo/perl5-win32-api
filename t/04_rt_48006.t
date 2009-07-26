@@ -12,9 +12,9 @@ use strict;
 use warnings;
 use Test::More;
 
-BEGIN {
-	$Win32::API::DEBUG = 1;
-}
+# BEGIN {
+#     $Win32::API::DEBUG = 1;
+# }
 
 plan tests => 3;
 
