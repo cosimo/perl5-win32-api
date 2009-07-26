@@ -1,5 +1,3 @@
-package Win32::API::Struct;
-
 # See the bottom of this file for the POD documentation.  Search for the
 # string '=head'.
 
@@ -13,7 +11,9 @@ package Win32::API::Struct;
 # $Id$
 #######################################################################
 
-$VERSION = '0.50';
+package Win32::API::Struct;
+
+$VERSION = '0.51';
 
 use Win32::API::Type;
 
@@ -152,9 +152,14 @@ sub align {
     my $self = shift;
 	my $align = shift;
 	
-	if(not defined $align) {
-		return $self->{align} unless $self->{align} eq 'auto';
+	if (not defined $align) {
+
+		if (! (defined $self->{align} && $self->{align} eq 'auto')) {
+			return $self->{align};
+		}
+
 		$align = 0;
+
 		foreach my $member (@{ $self->{typedef} }) {
 			my($name, $packing, $type) = @$member;
 
@@ -210,15 +215,18 @@ sub getPack {
                 push(@items, $self->{$name});
             }
             $packing .= $type;
-            
+
             if($Win32::API::Type::PackSize{$type} < $align) {
             	$packing .= ("x" x ($align - $Win32::API::Type::PackSize{$type}));
             }
-            
+
             push(@recipients, $self);
         }
+
     }
+
     DEBUG "(PM)Struct::getPack: $self->{__typedef__}(buffer) = pack($packing, @items)\n";
+
     return($packing, [@items], [@recipients]);
 }
     
@@ -226,13 +234,17 @@ sub getPack {
 sub Pack {
     my $self = shift;
     my($packing, $items, $recipients) = $self->getPack();
+
     DEBUG "(PM)Struct::Pack: $self->{__typedef__}(buffer) = pack($packing, @$items)\n";
+
     $self->{buffer} = pack($packing, @$items);
-    if(DEBUG) {
+
+    if (DEBUG) {
         for my $i (0..$self->sizeof-1) {
             printf "    %3d: 0x%02x\n", $i, ord(substr($self->{buffer}, $i, 1));
         }
     }
+
     $self->{buffer_recipients} = $recipients
 }
 
