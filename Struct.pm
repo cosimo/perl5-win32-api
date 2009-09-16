@@ -1,7 +1,3 @@
-# See the bottom of this file for the POD documentation.  Search for the
-# string '=head'.
-
-#######################################################################
 #
 # Win32::API::Struct - Perl Win32 API struct Facility
 # 
@@ -9,19 +5,17 @@
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
 # $Id$
-#######################################################################
 
 package Win32::API::Struct;
 
 $VERSION = '0.51';
 
+use Carp;
 use Win32::API::Type;
 
-use Carp;
-
-require Exporter;       # to export the constants to the main:: space
-require DynaLoader;     # to dynuhlode the module.
-@ISA = qw( Exporter DynaLoader );
+require Exporter;
+require DynaLoader;
+@ISA = qw(Exporter DynaLoader);
 
 my %Known = ();
 
@@ -55,19 +49,21 @@ sub typedef {
 sub recognize {
     my($type, $name) = @_;
     my($size, $packing);
-    if(exists $Known{$type}) {
-        $packing = ">";
-        return $name, $packing, $type;
-    } else {
+
+    if (is_known($type)) {
+        $packing = '>';
+        return ($name, $packing, $type);
+    }
+	else {
         $packing = Win32::API::Type::packing($type);
         return undef unless defined $packing;           
         if($name =~ s/\[(.*)\]$//) {
             $size = $1;     
-            $packing = $packing."*".$size;  
+            $packing = $packing . '*' . $size;  
         }
         DEBUG "(PM)Struct::recognize got '$name', '$type' -> '$packing'\n";
-        return $name, $packing, $type;
-    }   
+        return ($name, $packing, $type);
+    }
 }
 
 sub new {
@@ -77,7 +73,7 @@ sub new {
         typedef => [],
     };
     if($#_ == 0) {
-        if(exists $Known{$_[0]}) {
+        if (is_known($_[0])) {
             DEBUG "(PM)Struct::new: got '$_[0]'\n";
             $self->{typedef} = $Known{$_[0]}->{typedef};
             foreach my $member (@{ $self->{typedef} }) {
