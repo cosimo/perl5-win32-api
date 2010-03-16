@@ -43,7 +43,13 @@
 #	define call_method(name, flags) perl_call_method(name, flags)
 #endif
 
+#if defined(_M_AMD64) || defined(__x86_64)
+#include "call_x86_64.h"
+#elif defined(_M_IX86) || defined(__i386)
 #include "call_i686.h"
+#else
+#error "Don't know what architecture I'm on."
+#endif
 
 void pointerCallPack(SV* param, int idx, AV* types) {
 	dSP;
@@ -460,8 +466,9 @@ PPCODE:
 		}
     }
 
+	/* nin is actually number of parameters minus one. I don't know why. */
 	retval.t = tout;
-	Call_asm(ApiFunction, params, nin, &retval, c_call);
+	Call_asm(ApiFunction, params, nin + 1, &retval, c_call);
 
 	/* #### THIRD PASS: postfix pointers/structures #### */
     for(i = 0; i <= nin; i++) {

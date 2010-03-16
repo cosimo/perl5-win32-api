@@ -50,7 +50,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 
 	/* #### PUSH THE PARAMETER ON THE (ASSEMBLER) STACK #### */
 	words_pushed = 0;
-	for(i = nparams; i >= 0; i--) {
+	for(i = nparams-1; i >= 0; i--) {
 		switch(params[i].t) {
 		case T_POINTER:
 		case T_STRUCTURE:
