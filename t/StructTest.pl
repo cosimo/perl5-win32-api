@@ -40,7 +40,6 @@ my $test_cases = {
 	empty_with_spaces => {
 		typedef => [ qw( \n \n ) ],
 		sizeof => 0,
-		todo => 'Breaks atm',
 	},
 	one_word => {
 		typedef => [ qw(DWORD dwSize;) ],
@@ -100,7 +99,6 @@ my $test_cases = {
 		CHAR szString[7];
 		) ],
 		sizeof => words(1) + chars(7)+1,#Need size to be a multiple of 4
-		todo => 'Breaks atm',
 	},
 };
 
@@ -115,7 +113,6 @@ for my $name (sort keys %{ $test_cases }) {
 	: 'auto';
 
 	typedef Win32::API::Struct $name => @struct_def;
-	print "\n$name\n";
 
 	$struct = new Win32::API::Struct ($name);
 	ok($struct, qq{"$name" struct defined});
@@ -129,6 +126,6 @@ for my $name (sort keys %{ $test_cases }) {
 		$size = $struct->sizeof;
 		is($size, $data->{sizeof}, qq{Size of struct "$name" is calculated correctly ($size)});
 	}
-	print $struct->{__packing__}."\n";
+	diag($name . ' => ' . $struct->{__packing__});
 
 }
