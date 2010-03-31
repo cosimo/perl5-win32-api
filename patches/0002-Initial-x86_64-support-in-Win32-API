@@ -1,0 +1,297 @@
+From 840d56f16b63db9537471da3798f0425af3455ed Mon Sep 17 00:00:00 2001
+From: Stephen Bennett <sbennett@accelrys.com>
+Date: Tue, 16 Mar 2010 18:06:23 +0000
+Subject: [PATCH 2/3] Initial x86_64 support in Win32::API.
+
+---
+ API.xs                |    9 ++++-
+ Makefile.PL           |   22 ++++++++++
+ call_asm_x64_msvc.asm |   70 +++++++++++++++++++++++++++++++
+ call_i686.h           |    2 +-
+ call_x86_64.h         |  111 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 212 insertions(+), 2 deletions(-)
+ create mode 100644 call_asm_x64_msvc.asm
+ create mode 100644 call_x86_64.h
+
+diff --git a/API.xs b/API.xs
+index 8755182..b655daa 100755
+--- a/API.xs
++++ b/API.xs
+@@ -43,7 +43,13 @@
+ #	define call_method(name, flags) perl_call_method(name, flags)
+ #endif
+ 
++#if defined(_M_AMD64) || defined(__x86_64)
++#include "call_x86_64.h"
++#elif defined(_M_IX86) || defined(__i386)
+ #include "call_i686.h"
++#else
++#error "Don't know what architecture I'm on."
++#endif
+ 
+ void pointerCallPack(SV* param, int idx, AV* types) {
+ 	dSP;
+@@ -460,8 +466,9 @@ PPCODE:
+ 		}
+     }
+ 
++	/* nin is actually number of parameters minus one. I don't know why. */
+ 	retval.t = tout;
+-	Call_asm(ApiFunction, params, nin, &retval, c_call);
++	Call_asm(ApiFunction, params, nin + 1, &retval, c_call);
+ 
+ 	/* #### THIRD PASS: postfix pointers/structures #### */
+     for(i = 0; i <= nin; i++) {
+diff --git a/Makefile.PL b/Makefile.PL
+index 661cb31..d7d95f6 100755
+--- a/Makefile.PL
++++ b/Makefile.PL
+@@ -5,6 +5,11 @@
+ my $running_on_windows = $^O eq 'MSWin32' || $^O eq 'cygwin';
+ die qq(OS unsupported\n) unless $running_on_windows;
+ 
++# Must be a better way to do this, surely...
++use Config;
++my $is_64bit_build = ($Config{ptrsize} == 8);
++my $is_msvc_compiler = ($Config{cc} =~ /cl/);
++
+ use ExtUtils::MakeMaker;
+ WriteMakefile(
+     'NAME'	=> 'Win32::API',
+@@ -37,6 +42,14 @@ WriteMakefile(
+         eval "$ExtUtils::MakeMaker::VERSION" >= 6.10_03
+             ? ( 'NO_META' => 1 )
+             : ()
++    ),
++    (
++        eval $is_64bit_build
++	    ? ( $is_msvc_compiler
++		    ? ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_asm_x64_msvc$(OBJ_EXT)' )
++		    : ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_asm_x64_gnu$(OBJ_EXT)' )
++		)
++	    : ( )
+     )
+ );
+ 
+@@ -48,3 +61,12 @@ sub MY::depend
+     return "\ntest_dynamic :: \n\t\$(CHMOD) \$(PERM_RWX) API_test.dll";
+ }
+ 
++sub MY::postamble
++{
++    return unless $is_64bit_build;
++    return <<'EOM';
++.asm$(OBJ_EXT):
++	$(AS) $(ASFLAGS) -c $<
++
++EOM
++}
+diff --git a/call_asm_x64_msvc.asm b/call_asm_x64_msvc.asm
+new file mode 100644
+index 0000000..7f8b2b0
+--- /dev/null
++++ b/call_asm_x64_msvc.asm
+@@ -0,0 +1,70 @@
++.CODE
++
++; void Call_x64_real(FARPROC ApiFunction, size_t *int_registers, double *float_registers, stackitem *stack, size_t nstack, size_t *iret, double *dret)
++Call_x64_real PROC FRAME
++
++    ; store register parameters
++    mov qword ptr[rsp+32], r9  ; stack
++    mov qword ptr[rsp+24], r8  ; float_registers
++    mov qword ptr[rsp+16], rdx ; int_registers
++    mov qword ptr[rsp+8],  rcx ; ApiFunction
++
++    mov qword ptr[rsp-16], rbp
++    mov rbp, rsp
++    .SETFRAME rbp, 0
++    .ENDPROLOG
++
++    sub rsp, 32
++
++    ; Load up integer registers first...
++    mov rax, qword ptr [rbp+16]
++
++    mov rcx, qword ptr [rax]
++    mov rdx, qword ptr [rax+8]
++    mov r8,  qword ptr [rax+16]
++    mov r9,  qword ptr [rax+24]
++
++    ; Now floating-point registers
++    mov rax, qword ptr [rbp+24]
++    movsd xmm0, qword ptr [rax]
++    movsd xmm1, qword ptr [rax+8]
++    movsd xmm2, qword ptr [rax+16]
++    movsd xmm3, qword ptr [rax+24]
++
++    ; Now the stack
++    mov rsi, qword ptr [rbp+32]
++    mov rax, qword ptr [rbp+40]
++
++    ; Except not if there isn't any
++    test rax, rax
++    jz docall
++    sub rax, 1
++
++copystack:
++    mov r10, qword ptr [rsi+8*rax]
++    push r10
++    sub rax, 1
++    test rax, rax
++    jnz copystack
++
++docall:
++    ; And call
++    sub rsp, 32
++    mov r10, qword ptr [rbp+8]
++    call r10
++
++    ; Store return value
++    mov r10, qword ptr [rbp+48]
++    mov qword ptr [r10], rax
++    mov r10, qword ptr [rbp+56]
++    movsd qword ptr [r10], xmm0
++
++    ; Cleanup
++    mov rsp, rbp
++    mov rbp, qword ptr [rsp-16]
++
++    ret
++
++Call_x64_real ENDP
++
++END
+diff --git a/call_i686.h b/call_i686.h
+index 54a8d90..06a8268 100644
+--- a/call_i686.h
++++ b/call_i686.h
+@@ -50,7 +50,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
+ 
+ 	/* #### PUSH THE PARAMETER ON THE (ASSEMBLER) STACK #### */
+ 	words_pushed = 0;
+-	for(i = nparams; i >= 0; i--) {
++	for(i = nparams-1; i >= 0; i--) {
+ 		switch(params[i].t) {
+ 		case T_POINTER:
+ 		case T_STRUCTURE:
+diff --git a/call_x86_64.h b/call_x86_64.h
+new file mode 100644
+index 0000000..901d63e
+--- /dev/null
++++ b/call_x86_64.h
+@@ -0,0 +1,111 @@
++
++/* size_t because it's definitely pointer-size. AFAIK no other int type is on both MSVC and gcc */
++typedef union {
++	size_t i;
++	double d;
++	float f;
++} stackitem;
++
++void Call_x64_real(FARPROC, size_t *, double *, stackitem *, size_t, size_t *, double *);
++
++enum {
++	available_registers = 4
++};
++
++void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retval, BOOL c_call)
++{
++	size_t nRegisters = 0, nStack = 0;
++	size_t required_registers = 0, required_stack = 0;
++
++	double float_registers[available_registers] = { 0., 0., 0., 0. };
++	size_t int_registers[available_registers] = { 0, 0, 0, 0 };
++
++	stackitem *stack = NULL;
++
++	size_t iret;
++	double dret;
++
++	int i;
++
++	required_registers = nparams > available_registers ? available_registers : nparams;
++	required_stack = nparams > available_registers ? nparams - available_registers : 0;
++
++	if (required_stack)
++	{
++		stack = malloc(required_stack * sizeof(*stack));
++		memset(stack, 0, required_stack * sizeof(*stack));
++	}
++
++	for (i = 0; i < nparams; ++i)
++	{
++		if (i < available_registers)
++		{
++			/* First four arguments go in registers, either integer or floating point. */
++			switch (params[i].t)
++			{
++				case T_NUMBER:
++				case T_INTEGER:
++				case T_CHAR:
++					int_registers[i] = params[i].l;
++					break;
++				case T_POINTER:
++				case T_STRUCTURE:
++					int_registers[i] = params[i].p;
++					break;
++				case T_FLOAT:
++					float_registers[i] = params[i].f;
++					break;
++				case T_DOUBLE:
++					float_registers[i] = params[i].d;
++					break;
++			}
++		}
++		else
++		{
++			switch (params[i].t)
++			{
++				case T_NUMBER:
++				case T_INTEGER:
++					stack[i - available_registers].i = params[i].l;
++					break;
++				case T_POINTER:
++				case T_STRUCTURE:
++					stack[i - available_registers].i = params[i].p;
++					break;
++				case T_CHAR:
++					stack[i - available_registers].i = params[i].c;
++					break;
++				case T_FLOAT:
++					stack[i - available_registers].f = params[i].f;
++					break;
++				case T_DOUBLE:
++					stack[i - available_registers].d = params[i].d;
++					break;
++			}
++		}
++	}
++
++	Call_x64_real(ApiFunction, int_registers, float_registers, stack, required_stack, &iret, &dret);
++
++	switch (retval->t)
++	{
++		case T_NUMBER:
++		case T_INTEGER:
++			retval->l = iret;
++			break;
++		case T_POINTER:
++			retval->p = iret;
++			break;
++		case T_CHAR:
++			retval->c = iret;
++			break;
++		case T_FLOAT:
++			retval->f = dret;
++			break;
++		case T_DOUBLE:
++			retval->d = dret;
++			break;
++	}
++}
++
++
+-- 
+1.7.0.2.276.g60daf
+
