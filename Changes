@@ -1,6 +1,13 @@
 History of Win32::API perl extension.
 
-xxxx-xx-xx  Win32::API v0.60     Cosimo
+2010-04-01  Win32::API v0.60_64  Cosimo
+
+   - Added *preliminary* x64, 64-bit, support.
+     Now the test dll also ships with a x64 build
+     and an updated VS solution file with Release and Debug x64 builds.
+     Many thanks to Stephen Bennett from Accelrys.com
+
+     Please test as much as you can and report bugs!!!
 
    - Fixed RT #48006
      (https://rt.cpan.org/Ticket/Display.html?id=48006)

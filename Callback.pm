@@ -14,7 +14,7 @@
 
 package Win32::API::Callback;
 
-$VERSION = '0.59';
+$VERSION = '0.60';
 
 require Exporter;       # to export the constants to the main:: space
 require DynaLoader;     # to dynuhlode the module.
