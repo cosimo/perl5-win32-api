@@ -7,6 +7,11 @@
 
 package Win32::API::Test;
 
+sub is_perl_64bit () {
+	use Config;
+	return 1 if $Config{archname} =~ /x64/;
+}
+
 sub compiler_name () {
 	use Config;
 	my $cc = $Config{ccname};
@@ -68,9 +73,15 @@ sub compiler_version_from_shell () {
 	return($ver);
 }
 
-sub find_test_dll () {
+sub find_test_dll {
 	require File::Spec;
-	my $dll_name = $_[0];
+
+	my $default_dll_name = is_perl_64bit()
+		? 'API_test64.dll'
+		: 'API_test.dll';
+
+	my $dll_name = $_[0] || $default_dll_name;
+
 	my @paths = qw(.. ../t ../t/dll . ./dll ./t/dll);
 	while(my $path = shift @paths)
 	{

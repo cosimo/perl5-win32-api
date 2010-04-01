@@ -21,8 +21,8 @@ use_ok('Win32::API::Test');
 
 ok(1, 'loaded');
 
-$test_dll = Win32::API::Test::find_test_dll('API_test.dll');
-ok(-s $test_dll, 'found API_Test.dll');
+$test_dll = Win32::API::Test::find_test_dll();
+ok(-s $test_dll, 'found API test dll');
 
 typedef Win32::API::Struct('simple_struct', qw(
 	int a;

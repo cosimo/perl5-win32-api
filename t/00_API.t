@@ -23,9 +23,9 @@ $^E = 0;
 # On cygwin, $$ is different from Win32 process id
 my $cygwin = $^O eq 'cygwin';
 
-$test_dll = Win32::API::Test::find_test_dll('API_test.dll');
-diag('API_Test.dll found at ('.$test_dll.')');
-ok(-e $test_dll, 'found API_Test.dll');
+$test_dll = Win32::API::Test::find_test_dll();
+diag('API test dll found at ('.$test_dll.')');
+ok(-e $test_dll, 'found API test dll');
 
 SKIP: {
 
