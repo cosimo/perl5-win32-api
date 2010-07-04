@@ -68,5 +68,8 @@ sub MY::postamble
 .asm$(OBJ_EXT):
 	$(AS) $(ASFLAGS) -c $<
 
+.s$(OBJ_EXT):
+	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
+
 EOM
 }
