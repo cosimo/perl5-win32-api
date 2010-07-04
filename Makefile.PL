@@ -66,7 +66,7 @@ sub MY::postamble
     return unless $is_64bit_build;
     return <<'EOM';
 .asm$(OBJ_EXT):
-	$(AS) $(ASFLAGS) -c $<
+	ml64 $(ASFLAGS) -c $<
 
 .s$(OBJ_EXT):
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
