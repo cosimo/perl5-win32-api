@@ -17,6 +17,7 @@ package Win32::API::Type;
 $VERSION = '0.60';
 
 use Carp;
+use Config;
 
 require Exporter;       # to export the constants to the main:: space
 require DynaLoader;     # to dynuhlode the module.
@@ -51,10 +52,16 @@ foreach (<DATA>) {
     if($section eq 'TYPE') {
         my($name, $packing) = split(/\s+/);
         # DEBUG "(PM)Type::INIT: Known('$name') => '$packing'\n";
+        if ($packing eq '_P') {
+            $packing = pointer_pack_type();
+        }
         $Known{$name} = $packing;
     } elsif($section eq 'PACKSIZE') {
         my($packing, $size) = split(/\s+/);
         # DEBUG "(PM)Type::INIT: PackSize('$packing') => '$size'\n";
+        if ($size eq '_P') {
+            $size = $Config{ptrsize};
+        }
         $PackSize{$packing} = $size;
     } elsif($section eq 'MODIFIER') {
         my($modifier, $mapto) = split(/\s+/, $_, 2);
@@ -106,6 +113,10 @@ sub is_known {
     } else {
         return defined packing($type);
     }
+}
+
+sub pointer_pack_type {
+    return $Config{ptrsize} == 8 ? 'Q' : 'L';
 }
 
 sub sizeof {
@@ -297,6 +308,7 @@ COLORREF				L
 DWORD                   L
 DWORD32                 L
 DWORD64                 Q
+DWORD_PTR               _P
 FLOAT                   f
 HACCEL                  L
 HANDLE                  L
@@ -396,7 +408,7 @@ q   8
 Q   8
 s   2
 S   2
-p   4
+p   _P
 
 [MODIFIER]
 unsigned    int=I long=L short=S char=C

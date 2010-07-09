@@ -88,10 +88,11 @@ API_TEST_API void __stdcall dump_struct(const char *name, simple_struct *x) {
 	printf("dump_struct: [%s at 0x%08x] ", name, x);
 	printf("a=%d ", x->a);
 	printf("b=%f ", x->b);
-	printf("c=0x%08x ", x->c);
+	printf("c=0x%p ", x->c);
 	if(x->c != NULL) {
-		printf("'%s'", x->c);
+		printf("'%s' ", x->c);
 	}
+	printf("d=0x%p ", x->d);
 	printf("\n"); 
 
 }
@@ -104,12 +105,14 @@ API_TEST_API int __stdcall mangle_simple_struct(simple_struct *x) {
 	mine.a = 5;
 	mine.b = 2.5;
 	mine.c = NULL;
+	mine.d = 0x12345678;
 
 	dump_struct("mine", &mine);
 	dump_struct("yours", x);
 
 	x->a /= 2;
 	x->b *= 2;
+	x->d = ~x->d;
 
 /*	tmp = (char *) malloc(strlen(x->c)); */
 	tmp = x->c;
@@ -123,6 +126,7 @@ API_TEST_API int __stdcall mangle_simple_struct(simple_struct *x) {
 		tmp[0] = toupper(tmp[0]);
 		tmp++;
 	}
+	printf("x.d=0x%08x\n", x->d);
 	return 1;
 }
 

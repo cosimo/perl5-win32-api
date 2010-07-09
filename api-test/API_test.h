@@ -20,6 +20,7 @@ typedef struct _simple_struct {
 	int a;
 	double b;
 	char * c;
+	DWORD_PTR d;
 } simple_struct, LPsimple_struct;
 
 // typedef int callback_func(int);

@@ -28,6 +28,7 @@ typedef Win32::API::Struct('simple_struct', qw(
 	int a;
 	double b;
 	LPSTR c;
+	DWORD_PTR d;
 ));
 
 my $simple_struct = Win32::API::Struct->new( 'simple_struct' );
@@ -37,6 +38,15 @@ $simple_struct->align('auto');
 $simple_struct->{a} = 5;
 $simple_struct->{b} = 2.5;
 $simple_struct->{c} = "test";
+$simple_struct->{d} = 0x12345678;
+
+my $mangled_d;
+
+if (Win32::API::Test::is_perl_64bit()) {
+    $mangled_d = 18446744073404131719; #0xffffffffedcba987; perl errors on hex constants that large, but for some reason not decimal ones
+} else {
+    $mangled_d = 0xedcba987;
+}
 
 $function = new Win32::API($test_dll, 'mangle_simple_struct', 'S', 'I');
 ok(defined($function), 'mangle_simple_struct() function');
@@ -44,10 +54,14 @@ diag('$^E=',$^E);
 
 $result = $function->Call( $simple_struct );
 
+#print "\n\n\na=$simple_struct->{a} b=$simple_struct->{b} c=$simple_struct->{c} d=$simple_struct->{d}\n\n\n";
+printf "\n\n\na=%s b=%s c=%s d=%08x\n\n\n", $simple_struct->{a}, $simple_struct->{b}, $simple_struct->{c}, $simple_struct->{d};
+
 ok(
 	$simple_struct->{a} == 2 &&
 	$simple_struct->{b} == 5 &&
-	$simple_struct->{c} eq 'TEST',
+	$simple_struct->{c} eq 'TEST' &&
+	$simple_struct->{d} eq $mangled_d,
 	'mangling of simple structures work'
 );
 
@@ -58,13 +72,16 @@ tied(%simple_struct)->align('auto');
 $simple_struct{a} = 5;
 $simple_struct{b} = 2.5;
 $simple_struct{c} = "test";
+$simple_struct{d} = $mangled_d;
 
+printf "\n\n\na=%s b=%s c=%s d=%08x\n\n\n", $simple_struct->{a}, $simple_struct->{b}, $simple_struct->{c}, $simple_struct->{d};
 $result = $function->Call( \%simple_struct );
 
 ok(
 	$simple_struct{a} == 2 &&
 	$simple_struct{b} == 5 &&
-	$simple_struct{c} eq 'TEST',
+	$simple_struct{c} eq 'TEST' &&
+	$simple_struct->{d} eq $mangled_d,
 	'tied interface works'
 );
 
