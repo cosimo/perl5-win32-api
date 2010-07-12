@@ -44,8 +44,10 @@
 #endif
 
 #if defined(_M_AMD64) || defined(__x86_64)
+typedef unsigned long long long_ptr;
 #include "call_x86_64.h"
 #elif defined(_M_IX86) || defined(__i386)
+typedef unsigned long long_ptr;
 #include "call_i686.h"
 #else
 #error "Don't know what architecture I'm on."
@@ -100,12 +102,12 @@ CODE:
 OUTPUT:
     RETVAL
 
-long
+long_ptr
 GetProcAddress(library, name)
     HINSTANCE library;
     char *name;
 CODE:
-    RETVAL = (long) GetProcAddress(library, name);
+    RETVAL = (long_ptr) GetProcAddress(library, name);
 OUTPUT:
     RETVAL
 
@@ -184,12 +186,12 @@ void
 PointerTo(...)
 PPCODE:
     EXTEND(SP, 1);
-    XST_mIV(0, (long) SvPV_nolen(ST(0)));
+    XST_mIV(0, (long_ptr) SvPV_nolen(ST(0)));
     XSRETURN(1);
 
 void
 PointerAt(addr)
-    long addr
+    long_ptr addr
 PPCODE:
     EXTEND(SP, 1);
     XST_mPV(0, (char *) SvIV(ST(0)));
@@ -197,7 +199,7 @@ PPCODE:
 
 void
 ReadMemory(addr, len)
-    long addr
+    long_ptr addr
     long len
 PPCODE:
     EXTEND(SP, 1);
