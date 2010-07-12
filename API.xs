@@ -16,6 +16,12 @@
 #include "XSUB.h"
 #define CROAK croak
 
+#ifdef _WIN64
+typedef unsigned long long long_ptr;
+#else
+typedef unsigned long long_ptr;
+#endif
+
 #include "API.h"
 
 #pragma optimize("", off)
@@ -44,10 +50,8 @@
 #endif
 
 #if defined(_M_AMD64) || defined(__x86_64)
-typedef unsigned long long long_ptr;
 #include "call_x86_64.h"
 #elif defined(_M_IX86) || defined(__i386)
-typedef unsigned long long_ptr;
 #include "call_i686.h"
 #else
 #error "Don't know what architecture I'm on."
@@ -233,7 +237,8 @@ PPCODE:
 
 	SV** code;
 
-    int nin, tin, tout, i;
+    int nin, tout, i;
+    long_ptr tin;
     int words_pushed;
     BOOL c_call;
 	BOOL has_proto = FALSE;
@@ -256,7 +261,7 @@ PPCODE:
     obj_out = hv_fetch(obj, "out", 3, FALSE);
     inlist = (AV*) SvRV(*obj_in);
     nin  = av_len(inlist);
-    tout = SvIV(*obj_out);
+    tout = (int) SvIV(*obj_out);
 
     // Detect call type from obj hash key `cdecl'
     call_type = hv_fetch(obj, "cdecl", 5, FALSE);
@@ -279,7 +284,7 @@ PPCODE:
             switch(tin) {
             case T_NUMBER:
                 params[i].t = T_NUMBER;
-				params[i].l = SvIV(ST(i+1));
+				params[i].l = (long_ptr) SvIV(ST(i+1));  //xxx not sure about T_NUMBER length on Win64
 #ifdef WIN32_API_DEBUG
 				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%ld\n", i, params[i].t, params[i].l);
 #endif
@@ -290,7 +295,7 @@ PPCODE:
 #ifdef WIN32_API_DEBUG
 				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%s\n", i, params[i].t, params[i].p);
 #endif
-				params[i].l = (long) (params[i].p)[0];
+				params[i].l = (long_ptr) (params[i].p)[0];
 #ifdef WIN32_API_DEBUG
 				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%c\n", i, params[i].t, params[i].l);
 #endif
@@ -298,14 +303,14 @@ PPCODE:
                 break;
             case T_FLOAT:
                 params[i].t = T_FLOAT;
-               	params[i].f = SvNV(ST(i+1));
+               	params[i].f = (float) SvNV(ST(i+1));
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%f\n", i, params[i].t, params[i].f);
 #endif
                 break;
             case T_DOUBLE:
                 params[i].t = T_DOUBLE;
-               	params[i].d = SvNV(ST(i+1));
+               	params[i].d = (double) SvNV(ST(i+1));
 #ifdef WIN32_API_DEBUG
                	printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%f\n", i, params[i].t, params[i].d);
 #endif
@@ -351,7 +356,7 @@ PPCODE:
                 break;
             case T_INTEGER:
                 params[i].t = T_NUMBER;
-                params[i].l = (long) (int) SvIV(ST(i+1));
+                params[i].l = (long_ptr) (int) SvIV(ST(i+1));
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%d\n", i, params[i].t, params[i].l);
 #endif

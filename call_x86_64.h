@@ -50,7 +50,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 					break;
 				case T_POINTER:
 				case T_STRUCTURE:
-					int_registers[i] = params[i].p;
+					int_registers[i] = (size_t) params[i].p;
 					break;
 				case T_FLOAT:
 					float_registers[i] = params[i].f;
@@ -65,12 +65,14 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 			switch (params[i].t)
 			{
 				case T_NUMBER:
-				case T_INTEGER:
 					stack[i - available_registers].i = params[i].l;
+					break;
+				case T_INTEGER:
+					stack[i - available_registers].i = params[i].t;
 					break;
 				case T_POINTER:
 				case T_STRUCTURE:
-					stack[i - available_registers].i = params[i].p;
+					stack[i - available_registers].i = (size_t) params[i].p;
 					break;
 				case T_CHAR:
 					stack[i - available_registers].i = params[i].c;
@@ -91,19 +93,19 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 	{
 		case T_NUMBER:
 		case T_INTEGER:
-			retval->l = iret;
+			retval->l = (long_ptr) iret; //xxx not sure how long (4/8 bytes) should T_INTEGER/T_INTEGER be on Win64
 			break;
 		case T_POINTER:
-			retval->p = iret;
+			retval->p = (char *) iret;
 			break;
 		case T_CHAR:
-			retval->c = iret;
+			retval->c = (char) iret;
 			break;
 		case T_FLOAT:
-			retval->f = dret;
+			retval->f = (float) dret;
 			break;
 		case T_DOUBLE:
-			retval->d = dret;
+			retval->d = (double) dret;
 			break;
 	}
 }

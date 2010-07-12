@@ -32,11 +32,11 @@ typedef void   ApiVoid(void);
 typedef int    ApiInteger(void);
 
 typedef struct {
-    int t;
+	int t;
 	LPBYTE b;
 	char c;
 	char *p;
-	long l;
+	long_ptr l; // 4 bytes on 32bit; 8 bytes on 64bbit; not sure if it is correct
 	float f;
 	double d;
 } APIPARAM;
