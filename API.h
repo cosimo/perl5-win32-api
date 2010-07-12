@@ -11,6 +11,12 @@
 
 // #define WIN32_API_DEBUG
 
+#ifdef _WIN64
+typedef unsigned long long long_ptr;
+#else
+typedef unsigned long long_ptr;
+#endif
+
 #define T_VOID				0
 #define T_NUMBER			1
 #define T_POINTER			2

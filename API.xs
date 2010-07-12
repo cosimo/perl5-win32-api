@@ -16,12 +16,6 @@
 #include "XSUB.h"
 #define CROAK croak
 
-#ifdef _WIN64
-typedef unsigned long long long_ptr;
-#else
-typedef unsigned long long_ptr;
-#endif
-
 #include "API.h"
 
 #pragma optimize("", off)
