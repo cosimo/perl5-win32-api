@@ -61,7 +61,7 @@ ok(
 	$simple_struct->{a} == 2 &&
 	$simple_struct->{b} == 5 &&
 	$simple_struct->{c} eq 'TEST' &&
-	$simple_struct->{d} eq $mangled_d,
+	$simple_struct->{d} == $mangled_d,
 	'mangling of simple structures work'
 );
 
@@ -81,7 +81,7 @@ ok(
 	$simple_struct{a} == 2 &&
 	$simple_struct{b} == 5 &&
 	$simple_struct{c} eq 'TEST' &&
-	$simple_struct->{d} eq $mangled_d,
+	$simple_struct->{d} == $mangled_d,
 	'tied interface works'
 );
 
