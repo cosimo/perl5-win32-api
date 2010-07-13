@@ -78,6 +78,7 @@ sub new {
             $self->{typedef} = $Known{$_[0]}->{typedef};
             foreach my $member (@{ $self->{typedef} }) {
                 ($name, $packing, $type) = @$member;
+                next unless defined $name;
                 if($packing eq '>') {
                     $self->{$name} = Win32::API::Struct->new($type);
                 }
@@ -112,12 +113,12 @@ sub sizeof {
     my $self = shift;
     my $size = 0;
     my $align = 0;
-    my $first = undef;
+    my $first = '';
 
     for my $member (@{ $self->{typedef} }) {
 
         my($name, $packing, $type) = @{$member};
-       
+        next unless defined $name;
 	   	# If member is a struct, recursively calculate its size
 		# FIXME for subclasses
         if (ref $self->{$name} eq q{Win32::API::Struct}) {
@@ -147,7 +148,6 @@ sub sizeof {
     }
 
     DEBUG "(PM)Struct::sizeof first=$first align=$align\n";
-
 	my $struct_size = $size;
 	if (defined $align && $align > 0) {
 		$struct_size += ($size % $align);
