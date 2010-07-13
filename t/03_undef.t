@@ -54,7 +54,7 @@ if (! $success) {
 }
 
 # Not very gentle, but closing $to_child and $fr_child don't end it.
-ok(kill(TERM => $pid), 'reclaiming child worked');
+ok(kill(KILL => $pid), 'reclaiming child worked');
 #diag("kill: $!");
 
 ok($success, '(RT #39730) sample API (PeekNamedPipe) works with undef values');
