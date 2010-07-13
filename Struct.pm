@@ -12,6 +12,7 @@ $VERSION = '0.51';
 
 use Carp;
 use Win32::API::Type;
+use Config;
 
 require Exporter;
 require DynaLoader;
@@ -219,7 +220,7 @@ sub getPack {
             DEBUG "(PM)Struct::getPack($self->{__typedef__}) ++ $type\n"; 
             
             if($type eq 'p') {
-                $type = "L";
+                $type = ($Config{ptrsize} == 8) ? 'Q' : 'L';
                 push(@items, Win32::API::PointerTo($self->{$name}));
             } else {
                 push(@items, $self->{$name});
