@@ -38,12 +38,11 @@ Call_x64_real PROC FRAME
     ; Except not if there isn't any
     test rax, rax
     jz docall
-    sub rax, 1
 
 copystack:
+    sub rax, 1
     mov r10, qword ptr [rsi+8*rax]
     push r10
-    sub rax, 1
     test rax, rax
     jnz copystack
 

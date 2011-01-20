@@ -37,12 +37,11 @@ _Call_x64_real:
 	# Except not if there isn't any 
 	testq	%rax,%rax
 	je	docall
-	subq	$1,%rax
 
 copystack:
+	subq	$1,%rax
 	movq	(%rsi,%rax,8),%r10
 	pushq	%r10
-	subq	$1,%rax
 	testq	%rax,%rax
 	jne	copystack
 
