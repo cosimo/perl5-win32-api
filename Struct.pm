@@ -4,11 +4,10 @@
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id$
 
 package Win32::API::Struct;
 
-$VERSION = '0.60_64';
+$VERSION = '0.60';
 
 use Carp;
 use Win32::API::Type;

@@ -10,11 +10,9 @@ package Win32::API::Type;
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id$
-#
 #######################################################################
 
-$VERSION = '0.60_64';
+$VERSION = '0.60';
 
 use Carp;
 use Config;

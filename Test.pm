@@ -3,7 +3,6 @@
 # 
 # Cosimo Streppone <cosimo@cpan.org>
 #
-# $Id$
 
 package Win32::API::Test;
 

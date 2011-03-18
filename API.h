@@ -6,7 +6,6 @@
     # Author: Aldo Calpini <dada@perl.it>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
-	# $Id$
  */
 
 // #define WIN32_API_DEBUG
