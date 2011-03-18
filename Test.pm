@@ -8,7 +8,9 @@ package Win32::API::Test;
 
 sub is_perl_64bit () {
 	use Config;
-	return 1 if $Config{archname} =~ /x64/;
+	# was $Config{archname} =~ /x64/;
+	return 1 if $Config{ptrsize} == 8;
+	return;
 }
 
 sub compiler_name () {
