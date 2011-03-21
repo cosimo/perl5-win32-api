@@ -7,7 +7,7 @@
 
 package Win32::API::Struct;
 
-$VERSION = '0.60';
+$VERSION = '0.61';
 
 use Carp;
 use Win32::API::Type;

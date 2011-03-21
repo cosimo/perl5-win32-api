@@ -1,5 +1,10 @@
 History of Win32::API perl extension.
 
+2011-03-22  Win32::API v0.61    Cosimo
+
+   - Fixed build process that was failing due to missing *.h
+     and *.asm files in the MANIFEST
+
 2011-03-19  Win32::API v0.60    Cosimo
 
    - Added *preliminary* x64, 64-bit, support.
