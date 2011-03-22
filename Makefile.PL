@@ -3,7 +3,10 @@
 # If we are on platforms other than Win32 or Cygwin,
 # exit now. This should play nice for CPAN testers
 my $running_on_windows = $^O eq 'MSWin32' || $^O eq 'cygwin';
-die qq(OS unsupported\n) unless $running_on_windows;
+die qq(OS unsupported\n)
+    unless $running_on_windows
+    or $ENV{WIN32_API_BUILD}     # So I can build it on Linux too
+    ;
 
 # Must be a better way to do this, surely...
 use Config;
