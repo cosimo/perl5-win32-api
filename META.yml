@@ -1,11 +1,11 @@
 --- #YAML:1.0
 name:                Win32-API
-version:             0.55
+version:             0.62
 abstract:            Perl Win32 API Import Facility
 license:             perl
 author:              
-    - Aldo Calpini <dada@perl.it>
     - Cosimo Streppone <cosimo@cpan.org>
+    - Aldo Calpini <dada@perl.it>
 generated_by:        ExtUtils::MakeMaker version 6.42
 distribution_type:   module
 keywords:

@@ -1,5 +1,10 @@
 History of Win32::API perl extension.
 
+2011-03-26  Win32::API v0.62    Cosimo
+
+   - Skip Callback/t/03_Jim_Shaw.t test as it's reported failing
+     on both 32-bit and 64-bit architectures.
+
 2011-03-22  Win32::API v0.61    Cosimo
 
    - Fixed build process that was failing due to missing *.h

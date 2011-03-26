@@ -37,7 +37,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.61';
+$VERSION = '0.62';
 
 #### some package-global hash to 
 #### keep track of the imported 
