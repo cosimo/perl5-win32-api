@@ -1,5 +1,10 @@
 History of Win32::API perl extension.
 
+NEXT
+
+   - Fix for the strawberry perl 5.14.1/x64   
+     the upgraded gcc toolchain (4.4.6) uses different underscoring
+
 2011-03-26  Win32::API v0.62    Cosimo
 
    - Skip Callback/t/03_Jim_Shaw.t test as it's reported failing

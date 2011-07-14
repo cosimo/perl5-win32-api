@@ -69,6 +69,21 @@ sub MY::depend
 sub MY::postamble
 {
     return unless $is_64bit_build;
+    
+    #old 64bit strawberryperl hack
+    if ($Config{'gccversion'} =~ /4.4.3/ &&$Config{'myuname'} =~ /Win32 strawberryperl/) {
+      return <<'EOM1';
+.asm$(OBJ_EXT):
+	ml64 $(ASFLAGS) -c $<
+
+.s$(OBJ_EXT):
+	perl -pi.bak -e "s/^(.globl )?Call_x64_real/$$1_Call_x64_real/" call_asm_x64_gnu.s
+	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
+
+EOM1
+    }
+    #end-of old 64bit strawberryperl hack
+     
     return <<'EOM';
 .asm$(OBJ_EXT):
 	ml64 $(ASFLAGS) -c $<

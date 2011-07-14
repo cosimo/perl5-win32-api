@@ -1,6 +1,6 @@
 
-.globl _Call_x64_real
-_Call_x64_real:
+.globl Call_x64_real
+Call_x64_real:
 
 	pushq	%rbp
 	movq	%rsp,%rbp
