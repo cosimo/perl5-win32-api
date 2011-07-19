@@ -1,6 +1,6 @@
 History of Win32::API perl extension.
 
-NEXT
+2011-07-19  Win32::API v0.63    kmx
 
    - Fix for the strawberry perl 5.14.1/x64   
      the upgraded gcc toolchain (4.4.6) uses different underscoring
