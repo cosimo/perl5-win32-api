@@ -1,5 +1,11 @@
 History of Win32::API perl extension.
 
+2011-08-28  Win32::API v0.64    Cosimo
+
+   - Small improvement to Makefile.PLs to build or not build
+     the Callback module depending on architecture (64 bit archs
+     by default don't build Callback, it's known to fail tests).
+
 2011-07-19  Win32::API v0.63    kmx
 
    - Fix for the strawberry perl 5.14.1/x64   
