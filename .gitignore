@@ -1,5 +1,6 @@
 *.bs
 *.c
+*.xsc
 *.def
 *.obj
 Makefile
@@ -9,4 +10,3 @@ pm_to_blib
 vc90.pdb
 MANIFEST.bak
 Win32-API-*.tar.gz
-
