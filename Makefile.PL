@@ -13,6 +13,10 @@ use Config;
 my $is_64bit_build = ($Config{ptrsize} == 8);
 my $is_msvc_compiler = ($Config{cc} =~ /cl/);
 
+# Don't build the Callback module by default
+# on 64 bit architectures, since it's known to fail
+my $build_callback = $is_64bit_build ? 0 : 1;
+
 use ExtUtils::MakeMaker;
 WriteMakefile(
     'NAME'	=> 'Win32::API',
@@ -25,14 +29,14 @@ WriteMakefile(
         'Type.pm'     => '$(INST_LIBDIR)/API/Type.pm',
         'Struct.pm'   => '$(INST_LIBDIR)/API/Struct.pm',
         'Test.pm'     => '$(INST_LIBDIR)/API/Test.pm',
-        $is_64bit_build
-			? ()
-			: ('Callback.pm' => '$(INST_LIBDIR)/API/Callback.pm'),
+        $build_callback
+			? ('Callback.pm' => '$(INST_LIBDIR)/API/Callback.pm')
+			: (),
 	},
 
     'VERSION_FROM' => 'API.pm',
 
-    'dist'  => {
+    'dist' => {
         COMPRESS => 'gzip -9f', 
         SUFFIX   => 'gz'
     },
@@ -49,7 +53,7 @@ WriteMakefile(
             : ()
     ),
     (
-        eval $is_64bit_build
+        $is_64bit_build
 	    ? ( $is_msvc_compiler
 		    ? ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_asm_x64_msvc$(OBJ_EXT)' )
 		    : ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_asm_x64_gnu$(OBJ_EXT)' )

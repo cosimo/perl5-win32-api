@@ -7,9 +7,11 @@ use ExtUtils::MakeMaker qw/WriteEmptyMakefile/;
 use Config;
 my $is_64bit_build = ($Config{ptrsize} == 8);
 
-if ($is_64bit_build) {
-    WriteEmptyMakefile();
-} else {
+# Don't build the Callback module by default
+# on 64 bit architectures, since it's known to fail
+my $build_callback = $is_64bit_build ? 0 : 1;
+
+if ($build_callback) {
     WriteMakefile(
         'NAME'	=> 'Win32::API::Callback',
         ($] < 5.005 ? () : (
@@ -20,3 +22,8 @@ if ($is_64bit_build) {
         'dist'	=> {COMPRESS => 'gzip -9f', SUFFIX => 'gz'},
     );
 }
+
+else {
+    WriteEmptyMakefile();
+}
+
