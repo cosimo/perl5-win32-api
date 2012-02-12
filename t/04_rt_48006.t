@@ -21,19 +21,19 @@ plan tests => 3;
 use_ok('Win32::API::Struct');
 
 typedef Win32::API::Struct PROCESSENTRY32 => qw(
-	DWORD dwSize;
-	DWORD cntUsage;
-	DWORD th32ProcessID;
-	DWORD th32DefaultHeapID;
-	DWORD th32ModuleID;
-	DWORD cntThreads;
-	DWORD th32ParentProcessID;
-	LONG pcPriClassBase;
-	DWORD dwFlags;
-	char szExeFile[260];
-); # 9*4=36+260=296
+    DWORD dwSize;
+    DWORD cntUsage;
+    DWORD th32ProcessID;
+    DWORD th32DefaultHeapID;
+    DWORD th32ModuleID;
+    DWORD cntThreads;
+    DWORD th32ParentProcessID;
+    LONG pcPriClassBase;
+    DWORD dwFlags;
+    char szExeFile[260];
+    );    # 9*4=36+260=296
 
-my $pe32 = new Win32::API::Struct ('PROCESSENTRY32');
+my $pe32 = new Win32::API::Struct('PROCESSENTRY32');
 ok($pe32, 'ProcessEntry32 struct defined');
 
 my $size = $pe32->sizeof;

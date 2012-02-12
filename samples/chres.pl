@@ -12,21 +12,11 @@ use Getopt::Mixed;
 my $VERSION = '0.51';
 
 # the required APIs
-my $EnumDisplaySettings =   new Win32::API( 
-    "user32", "EnumDisplaySettings",   "PNP",  "N" 
-);
-my $ChangeDisplaySettings = new Win32::API( 
-    "user32", "ChangeDisplaySettings", "PN",   "N" 
-);
-my $CreateDC =              new Win32::API( 
-    "gdi32",  "CreateDC",              "PPPP", "N" 
-);
-my $GetDeviceCaps =         new Win32::API( 
-    "gdi32",  "GetDeviceCaps",         "NN",   "N" 
-);
-my $DeleteDC =              new Win32::API( 
-    "gdi32",  "DeleteDC",              "N",    "V" 
-);
+my $EnumDisplaySettings = new Win32::API("user32", "EnumDisplaySettings", "PNP", "N");
+my $ChangeDisplaySettings = new Win32::API("user32", "ChangeDisplaySettings", "PN", "N");
+my $CreateDC      = new Win32::API("gdi32", "CreateDC",      "PPPP", "N");
+my $GetDeviceCaps = new Win32::API("gdi32", "GetDeviceCaps", "NN",   "N");
+my $DeleteDC      = new Win32::API("gdi32", "DeleteDC",      "N",    "V");
 
 # process command line options
 Getopt::Mixed::getOptions qw(
@@ -46,8 +36,8 @@ Getopt::Mixed::getOptions qw(
 
 # beautify list for BPPs
 my %colors = (
-    4 => "16 Colors",
-    8 => "256 Colors",
+    4  => "16 Colors",
+    8  => "256 Colors",
     16 => "High Color",
     24 => "True Color",
     32 => "True Color",
@@ -57,68 +47,73 @@ $opt_colordepth = color2bpp($opt_colordepth) if $opt_colordepth;
 
 # process non-options on command line
 $doing = "x";
-while(@ARGV) {
+while (@ARGV) {
     $argv = shift @ARGV;
-    if($doing eq "x") {
-        if($argv =~ /(\d+)x(\d+)/i) {
+    if ($doing eq "x") {
+        if ($argv =~ /(\d+)x(\d+)/i) {
             $opt_x = $1;
             $opt_y = $2;
             $doing = "colordepth";
-        } else {
+        }
+        else {
             $opt_x = $argv;
             $doing = "y";
         }
-    } elsif($doing eq "y") {
+    }
+    elsif ($doing eq "y") {
         $opt_y = $argv;
         $doing = "colordepth";
-    } elsif($doing eq "colordepth") {
+    }
+    elsif ($doing eq "colordepth") {
         $opt_colordepth = color2bpp($argv);
-        $doing = "frequency";
-    } elsif($doing eq "frequency") {
+        $doing          = "frequency";
+    }
+    elsif ($doing eq "frequency") {
         $opt_frequency = $argv;
-        $doing = "skip";
+        $doing         = "skip";
     }
 }
 
-if($opt_test) {
+if ($opt_test) {
     $flag = 0x02;
-} elsif($opt_permanent) {
+}
+elsif ($opt_permanent) {
     $flag = 0x01;
-} elsif($opt_global) {
+}
+elsif ($opt_global) {
     $flag = 0x08;
-} else {
+}
+else {
     $flag = 0;
 }
 
-if($opt_help) {
+if ($opt_help) {
     display_help();
     exit();
 }
 
-if($opt_reset) {
-    $res = $ChangeDisplaySettings->Call( 0, 0 );
+if ($opt_reset) {
+    $res = $ChangeDisplaySettings->Call(0, 0);
     print "Default mode restored.\n" unless $opt_quiet;
     exit($res);
 }
 
-if($opt_info) {
+if ($opt_info) {
     ($X, $Y, $BPP, $HZ) = getres();
-    printf "%dx%d %s (%d Bit) %dHz\n", 
-        $X, $Y, $colors{$BPP}, $BPP, $HZ unless $opt_quiet;
+    printf "%dx%d %s (%d Bit) %dHz\n", $X, $Y, $colors{$BPP}, $BPP, $HZ unless $opt_quiet;
     exit();
 }
 
-if($opt_list) {
-    exit( list_modes($opt_x, $opt_y, $opt_colordepth, $opt_frequency) );
+if ($opt_list) {
+    exit(list_modes($opt_x, $opt_y, $opt_colordepth, $opt_frequency));
 }
 
-if(
-    not defined $opt_x 
-    and not defined $opt_y 
-    and not defined $opt_colordepth 
-    and not defined $opt_frequency
-) {
-    if(not $opt_quiet) {
+if (    not defined $opt_x
+    and not defined $opt_y
+    and not defined $opt_colordepth
+    and not defined $opt_frequency)
+{
+    if (not $opt_quiet) {
         print "Nothing to do.\n";
         print "Type $0 --help for more information.\n";
     }
@@ -127,102 +122,104 @@ if(
 
 $res = chres($opt_x, $opt_y, $opt_colordepth, $opt_frequency, $flag);
 
-unless( $opt_quiet ) {
-    if($res ==  0) { 
-        if($opt_test) { print "Test successful.\n"; }
-        else          { print "Mode changed.\n"; }
+unless ($opt_quiet) {
+    if ($res == 0) {
+        if   ($opt_test) { print "Test successful.\n"; }
+        else             { print "Mode changed.\n"; }
     }
-    if($res ==  1) { print "The computer must be restarted.\n"; }
-    if($res == -1) { 
-        print "The display driver failed the specified graphics mode.\n"; 
+    if ($res == 1) { print "The computer must be restarted.\n"; }
+    if ($res == -1) {
+        print "The display driver failed the specified graphics mode.\n";
     }
-    if($res == -2) { print "The graphics mode is not supported.\n"; }
-    if($res == -3) { print "Unable to write settings to the registry.\n"; }
-    if($res == -4) { print "Invalid parameters.\n"; }
-    if($res == -5) { print "Invalid parameters.\n"; }
+    if ($res == -2) { print "The graphics mode is not supported.\n"; }
+    if ($res == -3) { print "Unable to write settings to the registry.\n"; }
+    if ($res == -4) { print "Invalid parameters.\n"; }
+    if ($res == -5) { print "Invalid parameters.\n"; }
 }
 exit($res);
 
 sub chres {
-    my($wanted_X, $wanted_Y, $wanted_BPP, $wanted_HZ, $flags) = @_;
+    my ($wanted_X, $wanted_Y, $wanted_BPP, $wanted_HZ, $flags) = @_;
 
     $flags = 0 unless defined $flags;
 
-    my($actual_X, $actual_Y, $actual_BPP, $actual_HZ) = @_;
-    if(not defined $wanted_X
-    or not defined $wanted_X
-    or not defined $wanted_BPP
-    or not defined $wanted_HZ) {
+    my ($actual_X, $actual_Y, $actual_BPP, $actual_HZ) = @_;
+    if (   not defined $wanted_X
+        or not defined $wanted_X
+        or not defined $wanted_BPP
+        or not defined $wanted_HZ)
+    {
         ($actual_X, $actual_Y, $actual_BPP, $actual_HZ) = getres();
     }
 
     my $wanted;
-    $wanted =        ((defined $wanted_X)   ? $wanted_X   : $actual_X);
+    $wanted = ((defined $wanted_X) ? $wanted_X : $actual_X);
     $wanted .= "," . ((defined $wanted_Y)   ? $wanted_Y   : $actual_Y);
     $wanted .= "," . ((defined $wanted_BPP) ? $wanted_BPP : $actual_BPP);
     $wanted .= "," . ((defined $wanted_HZ)  ? $wanted_HZ  : $actual_HZ);
 
     my $devmode = init_devmode();
     my $newmode = undef;
-    my $i = 0;
-    my $res = $EnumDisplaySettings->Call( 0, $i, $devmode );
-    while( $res != 0) {
+    my $i       = 0;
+    my $res     = $EnumDisplaySettings->Call(0, $i, $devmode);
+    while ($res != 0) {
         ($BPP, $X, $Y, undef, $HZ) = unpack("x104 LLLLL", $devmode);
         $mode = "$X,$Y,$BPP,$HZ";
-        if($mode eq $wanted) {
+        if ($mode eq $wanted) {
             $newmode = $devmode;
             last;
         }
-        $res = $EnumDisplaySettings->Call( 0, ++$i, $devmode );
+        $res = $EnumDisplaySettings->Call(0, ++$i, $devmode);
     }
 
-    if(defined $newmode) {
-        $res = $ChangeDisplaySettings->Call( $newmode, $flags );
-    } else {
+    if (defined $newmode) {
+        $res = $ChangeDisplaySettings->Call($newmode, $flags);
+    }
+    else {
         $res = -2;
     }
     return $res;
 }
-    
+
 sub getres {
     my $hdc = $CreateDC->Call("DISPLAY", 0, 0, 0);
-    if(!$hdc) {
+    if (!$hdc) {
         return undef;
     }
-    my $HORZRES = 8;
-    my $VERTRES = 10;
+    my $HORZRES   = 8;
+    my $VERTRES   = 10;
     my $BITSPIXEL = 12;
-    my $VREFRESH = 116;
+    my $VREFRESH  = 116;
 
-    my $X = $GetDeviceCaps->Call($hdc, $HORZRES);
-    my $Y = $GetDeviceCaps->Call($hdc, $VERTRES);
+    my $X   = $GetDeviceCaps->Call($hdc, $HORZRES);
+    my $Y   = $GetDeviceCaps->Call($hdc, $VERTRES);
     my $BPP = $GetDeviceCaps->Call($hdc, $BITSPIXEL);
-    my $HZ = $GetDeviceCaps->Call($hdc, $VREFRESH);
+    my $HZ  = $GetDeviceCaps->Call($hdc, $VREFRESH);
 
     $DeleteDC->Call($hdc);
     return ($X, $Y, $BPP, $HZ);
 }
 
 sub list_modes {
-    my($wanted_X, $wanted_Y, $wanted_BPP, $wanted_HZ) = @_;
+    my ($wanted_X, $wanted_Y, $wanted_BPP, $wanted_HZ) = @_;
 
-    my $modes = 0;
+    my $modes   = 0;
     my $devmode = init_devmode();
-    my $i = 0;
-    my $res = $EnumDisplaySettings->Call( 0, $i, $devmode );
-    while( $res != 0) {
+    my $i       = 0;
+    my $res     = $EnumDisplaySettings->Call(0, $i, $devmode);
+    while ($res != 0) {
         ($BPP, $X, $Y, undef, $HZ) = unpack("x104 LLLLL", $devmode);
-        
-        if( (not defined $wanted_X   or $wanted_X   == $X)
-        and (not defined $wanted_Y   or $wanted_Y   == $Y)
-        and (not defined $wanted_BPP or $wanted_BPP == $BPP)
-        and (not defined $wanted_HZ  or $wanted_HZ  == $HZ)
-        ) {
-            printf "%dx%d %s (%d Bit) %dHz\n", 
-                $X, $Y, $colors{$BPP}, $BPP, $HZ unless $opt_quiet;
+
+        if (    (not defined $wanted_X or $wanted_X == $X)
+            and (not defined $wanted_Y   or $wanted_Y == $Y)
+            and (not defined $wanted_BPP or $wanted_BPP == $BPP)
+            and (not defined $wanted_HZ  or $wanted_HZ == $HZ))
+        {
+            printf "%dx%d %s (%d Bit) %dHz\n", $X, $Y, $colors{$BPP}, $BPP, $HZ
+                unless $opt_quiet;
             $modes++;
         }
-        $res = $EnumDisplaySettings->Call( 0, ++$i, $devmode );
+        $res = $EnumDisplaySettings->Call(0, ++$i, $devmode);
     }
     print "No matching graphics modes.\n" if not $opt_quiet and $modes == 0;
     return $modes;
@@ -231,60 +228,61 @@ sub list_modes {
 sub init_devmode {
     return pack(
         "B" x 32 . "SSSSLsssssssssssss" . "B" x 32 . "SLLLLL",
-        (0 x 32),       # dmDeviceName
-        0,              # dmSpecVersion
-        0,              # dmDriverVersion
-        124,            # dmSize
-        0,              # dmDriverExtra
-        0,              # dmFields
-        0,              # dmOrientation
-        0,              # dmPaperSize
-        0,              # dmPaperLength
-        0,              # dmPaperWidth
-        0,              # dmScale
-        0,              # dmCopies
-        0,              # dmDefaultSource
-        0,              # dmPrintQuality
-        0,              # dmColor
-        0,              # dmDuplex
-        0,              # dmYResolution
-        0,              # dmTTOption
-        0,              # dmCollate
-        (0 x 32),       # dmFormName
-        0,              # dmLogPixels
-        0,              # dmBitsPerPel
-        0,              # dmPelsWidth
-        0,              # dmPelsHeight
-        0,              # dmDisplayFlags
-        0,              # dmDisplayFrequency
+        (0 x 32),    # dmDeviceName
+        0,           # dmSpecVersion
+        0,           # dmDriverVersion
+        124,         # dmSize
+        0,           # dmDriverExtra
+        0,           # dmFields
+        0,           # dmOrientation
+        0,           # dmPaperSize
+        0,           # dmPaperLength
+        0,           # dmPaperWidth
+        0,           # dmScale
+        0,           # dmCopies
+        0,           # dmDefaultSource
+        0,           # dmPrintQuality
+        0,           # dmColor
+        0,           # dmDuplex
+        0,           # dmYResolution
+        0,           # dmTTOption
+        0,           # dmCollate
+        (0 x 32),    # dmFormName
+        0,           # dmLogPixels
+        0,           # dmBitsPerPel
+        0,           # dmPelsWidth
+        0,           # dmPelsHeight
+        0,           # dmDisplayFlags
+        0,           # dmDisplayFrequency
     );
 }
 
 sub color2bpp {
-    my($arg) = shift;
+    my ($arg) = shift;
     $arg = lc $arg;
     my %table = (
-        1 => 1,
-        2 => 2,
-        16 => 4,
-        256 => 8,
+        1     => 1,
+        2     => 2,
+        16    => 4,
+        256   => 8,
         65000 => 16,
         '64k' => 16,
         '65k' => 16,
-        high => 16,
+        high  => 16,
         '16m' => 24,
-        true => 32,
-    );      
-    if($arg =~ /^(\d+)b$/) {
+        true  => 32,
+    );
+    if ($arg =~ /^(\d+)b$/) {
         return $1;
-    } elsif(exists $table{$arg}) {
+    }
+    elsif (exists $table{$arg}) {
         return $table{$arg};
     }
 }
 
 sub display_help {
 
-print qq(
+    print qq(
 $0 version $VERSION, (c) 2001 Aldo Calpini <dada\@perl.it>
 
 usage: $0 [OPTIONS] [NNNxNNN] [COLORS] [FREQ]

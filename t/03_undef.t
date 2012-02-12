@@ -16,8 +16,7 @@ plan tests => 3;
 
 diag('Win32::API ' . Win32::API->VERSION());
 
-ok(
-    Win32::API->Import(
+ok( Win32::API->Import(
         'kernel32',
         'BOOL PeekNamedPipe(
             HANDLE hNamedPipe,
@@ -37,23 +36,24 @@ my $pid;
 my $success = eval {
 
     $pid = open3(my $to_child, my $fr_child, undef, qq{"$^X"})
-        or die( "open3: $!\n" );
+        or die("open3: $!\n");
 
-    ( my $fd_pipe = GetOsFHandle( $fr_child ) ) != INVALID_HANDLE_VALUE
-        or die( "GetOsFHandle: $^E\n" );
+    (my $fd_pipe = GetOsFHandle($fr_child)) != INVALID_HANDLE_VALUE
+        or die("GetOsFHandle: $^E\n");
 
-    PeekNamedPipe( $fd_pipe, undef, 0, undef, my $nAvail, undef )
-        or die( "PeekNamedPipe: $^E\n" );
+    PeekNamedPipe($fd_pipe, undef, 0, undef, my $nAvail, undef)
+        or die("PeekNamedPipe: $^E\n");
 
-    1
+    1;
 };
 
-if (! $success) {
+if (!$success) {
     diag($@);
 }
 
 # Not very gentle, but closing $to_child and $fr_child don't end it.
 ok(kill(KILL => $pid), 'reclaiming child worked');
+
 #diag("kill: $!");
 
 ok($success, '(RT #39730) sample API (PeekNamedPipe) works with undef values');

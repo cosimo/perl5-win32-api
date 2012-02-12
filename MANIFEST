@@ -33,6 +33,8 @@ Makefile.PL
 MANIFEST			This list of files
 MANIFEST.SKIP
 META.yml
+MYMETA.json
+MYMETA.yml
 README
 samples/callback1.pl
 samples/callback2.pl

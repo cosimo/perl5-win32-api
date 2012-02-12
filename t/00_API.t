@@ -6,9 +6,11 @@
 # `make test'. After `make install' it should work as `perl test.pl'
 
 use strict;
+
 #use Config; # ?not used
 use File::Spec;
-use Test::More; plan tests => 25;
+use Test::More;
+plan tests => 25;
 use vars qw($function $result $test_dll);
 
 use_ok('Win32::API');
@@ -24,28 +26,23 @@ $^E = 0;
 my $cygwin = $^O eq 'cygwin';
 
 $test_dll = Win32::API::Test::find_test_dll();
-diag('API test dll found at ('.$test_dll.')');
+diag('API test dll found at (' . $test_dll . ')');
 ok(-e $test_dll, 'found API test dll');
 
 SKIP: {
 
     # TODO Check if this test still makes sense in 2008
-    if(not Win32::IsWinNT())
-    {
+    if (not Win32::IsWinNT()) {
         skip('because GetCurrentProcessId() not available on non-WinNT platforms', 3);
     }
 
     # Simple test, from kernel32
     $function = new Win32::API("kernel32", "GetCurrentProcessId", "", "N");
-    ok(
-        defined($function),
-        'GetCurrentProcessId() function found'
-    );
+    ok(defined($function), 'GetCurrentProcessId() function found');
 
     $result = $function->Call();
 
-    if ($cygwin)
-    {
+    if ($cygwin) {
         $result = Cygwin::winpid_to_pid($result);
         diag('Cygwin::winpid_to_pid()=', $result);
     }
@@ -53,25 +50,23 @@ SKIP: {
 
     # Same as above, with prototype
     $function = new Win32::API("kernel32", "DWORD GetCurrentProcessId(  )");
+
     #diag("$function->{procname} \$^E=", $^E);
     $result = $function->Call();
-   
-    if ($cygwin)
-    {
+
+    if ($cygwin) {
         $result = Cygwin::winpid_to_pid($result);
         diag('Cygwin::winpid_to_pid()=', $result);
     }
     ok($result == $$, 'GetCurrentProcessId() result ok');
 
     # Same as above, with Import
-    ok(
-        Win32::API->Import("kernel32", "DWORD GetCurrentProcessId(  )"),
+    ok( Win32::API->Import("kernel32", "DWORD GetCurrentProcessId(  )"),
         'Import of GetCurrentProcessId() function from kernel32.dll'
     );
     $result = GetCurrentProcessId();
 
-    if ($cygwin)
-    {
+    if ($cygwin) {
         $result = Cygwin::winpid_to_pid($result);
         diag('Cygwin::winpid_to_pid()=', $result);
     }
@@ -84,25 +79,18 @@ SKIP: {
 # Sum 2 integers
 $function = new Win32::API($test_dll, 'int sum_integers(int a, int b)');
 ok(defined($function), 'sum_integers() function defined');
+
 #diag("$function->{procname} \$^E=", $^E);
-is(
-    $function->Call(2, 3), 5,
-    'function call with integer arguments and return value'
-);
+is($function->Call(2, 3), 5, 'function call with integer arguments and return value');
 
 # Same as above, with a pointer
 $function = new Win32::API($test_dll, 'int sum_integers_ref(int a, int b, int* c)');
 ok(defined($function), 'sum_integers_ref() function defined');
+
 #diag("$function->{procname} \$^E=", $^E);
 $result = 0;
-is(
-    $function->Call(2, 3, $result), 1,
-    'sum_integers_ref() returns the expected value'
-);
-is(
-    unpack('C', $result), 5,
-    'sum_integers_ref() correctly modifies its ref argument'
-);
+is($function->Call(2, 3, $result), 1, 'sum_integers_ref() returns the expected value');
+is(unpack('C', $result), 5, 'sum_integers_ref() correctly modifies its ref argument');
 
 # Sum 2 doubles
 SKIP: {
@@ -112,59 +100,53 @@ SKIP: {
 
     $function = new Win32::API($test_dll, 'double sum_doubles(double a, double b)');
     ok(defined($function), 'API_test.dll sum_doubles function defined');
+
     #diag("$function->{procname} \$^E=",$^E);
-    ok(
-        $function->Call(2.5, 3.2) == 5.7,
-        'function call with double arguments'
-    );
+    ok($function->Call(2.5, 3.2) == 5.7, 'function call with double arguments');
 }
 
 # Same as above, with a pointer
-$function = new Win32::API($test_dll, 'int sum_doubles_ref(double a, double b, double* c)');
+$function =
+    new Win32::API($test_dll, 'int sum_doubles_ref(double a, double b, double* c)');
 ok(defined($function), 'sum_doubles_ref() function defined');
+
 #diag("$function->{procname} \$^E=", $^E);
 $result = 1.0;
-is(
-    $function->Call(2.5, 3.2, $result), 1,
-    'sum_doubles_ref() call works'
-);
+is($function->Call(2.5, 3.2, $result), 1, 'sum_doubles_ref() call works');
 
 # Sum 2 floats
 $function = new Win32::API($test_dll, 'float sum_floats(float a, float b)');
 ok(defined($function), 'sum_floats() function defined');
+
 #diag("$function->{procname} \$^E=", $^E);
 SKIP: {
+
     # Now its works with MSVC6, please check others
     skip('because function call with floats segfaults', 1);
 
     # Never ever compare reals with '=='
-    ok(
-        abs($function->Call(2.5, 3.2) - 5.70) < 0.0005,
-       'sum_floats() result correct'
-    );
+    ok(abs($function->Call(2.5, 3.2) - 5.70) < 0.0005, 'sum_floats() result correct');
 }
 
 # Same as above, with a pointer
 $function = new Win32::API($test_dll, 'int sum_floats_ref(float* a, float* b, float* c)');
 ok(defined($function), 'sum_floats_ref() function defined');
+
 #diag("$function->{procname} \$^E=", $^E);
 $result = 0.0;
-is(
-    $function->Call(2.5, 3.2, $result), 1,
-    'sum_floats_ref() returns the expected value (1)'
-);
+is($function->Call(2.5, 3.2, $result),
+    1, 'sum_floats_ref() returns the expected value (1)');
+
 #ok(defined $result, 'sum_floats_ref() call works');
 
 # Find a char in a string
 $function = new Win32::API($test_dll, 'char* find_char(char* string, char ch)');
 ok(defined($function), 'find_char() function defined');
+
 #diag("$function->{procname} \$^E=", $^E);
 my $string = 'japh';
-my $char = 'a';
-is(
-    $function->Call($string, $char), 'aph',
-    'find_char() function call works'
-);
+my $char   = 'a';
+is($function->Call($string, $char), 'aph', 'find_char() function call works');
 
 __END__
 

@@ -6,51 +6,53 @@ use Win32::API;
 $VERSION = '0.50';
 
 %APIs = (
-    Beep                      => [[N, N], N],
-    CopyFile                  => [[P, P, N], N],
-    GetBinaryType             => [[P, P], N],
-    GetCommandLine            => [[], P],
-    GetCompressedFileSize     => [[P, P], N],
-    GetCurrencyFormat         => [[N, N, P, P, P, N], N],
-    GetDiskFreeSpace          => [[P, P, P, P, P], N],
-    GetDriveType              => [[P], N],
-    GetSystemTime             => [[P], V],
-    GetTempPath               => [[N, P], N],
-    GetVolumeInformation      => [[P, P, N, P, P, P, P, N], N],
-    MultiByteToWideChar       => [[N, N, P, N, P, N], N],
-    QueryDosDevice            => [[P, P, N], N],
+    Beep => [[N, N], N],
+    CopyFile       => [[P, P,  N], N],
+    GetBinaryType  => [[P, P], N],
+    GetCommandLine => [[], P],
+    GetCompressedFileSize => [[P, P], N],
+    GetCurrencyFormat => [[N,  N, P, P, P,  N], N],
+    GetDiskFreeSpace  => [[P,  P, P, P, P], N],
+    GetDriveType      => [[P], N],
+    GetSystemTime     => [[P], V],
+    GetTempPath => [[N, P], N],
+    GetVolumeInformation      => [[P,  P, N,  P, P, P,  P, N], N],
+    MultiByteToWideChar       => [[N,  N, P,  N, P, N], N],
+    QueryDosDevice            => [[P,  P, N], N],
     QueryPerformanceCounter   => [[P], N],
     QueryPerformanceFrequency => [[P], N],
-    SearchPath                => [[P, P, P, N, P, P], N],
-    SetLastError              => [[N], V],
-    Sleep                     => [[N], V],
-    VerLanguageName           => [[N, P, N], N],
-    WideCharToMultiByte       => [[N, N, P, N, P, N, P, P], N],
+    SearchPath   => [[P,  P, P, N, P, P], N],
+    SetLastError => [[N], V],
+    Sleep        => [[N], V],
+    VerLanguageName => [[N, P, N], N],
+    WideCharToMultiByte => [[N, N, P, N, P, N, P, P], N],
 );
 
 %SUBs = (
     Beep => sub {
-        my($freq, $duration) = @_;
+        my ($freq, $duration) = @_;
         return $Win32::kernel32::Beep->Call($freq, $duration);
     },
     CopyFile => sub {
-        my($old, $new, $flag) = @_;
+        my ($old, $new, $flag) = @_;
         $flag = 1 unless defined($flag);
         return $Win32::kernel32::CopyFile->Call($old, $new, $flag);
     },
     GetBinaryType => sub {
-        warn "The Win32::GetBinaryType API works only on Windows NT" unless Win32::IsWinNT();
-        my($appname) = @_;
+        warn "The Win32::GetBinaryType API works only on Windows NT"
+            unless Win32::IsWinNT();
+        my ($appname) = @_;
         my $type = pack("L", 0);
         my $result = $Win32::kernel32::GetBinaryType->Call($appname, $type);
         return ($result) ? unpack("L", $type) : undef;
     },
     GetCompressedFileSize => sub {
-        warn "The Win32::GetCompressedFileSize API works only on Windows NT" unless Win32::IsWinNT();
-        my($filename) = @_;
+        warn "The Win32::GetCompressedFileSize API works only on Windows NT"
+            unless Win32::IsWinNT();
+        my ($filename) = @_;
         my $hiword = pack("L", 0);
         my $loword = $Win32::kernel32::GetCompressedFileSize->Call($filename, $hiword);
-        return $loword + $hiword * 4*1024**3;
+        return $loword + $hiword * 4 * 1024**3;
     },
     GetCommandLine => sub {
         my $cmdline = $Win32::kernel32::GetCommandLine->Call();
@@ -59,52 +61,47 @@ $VERSION = '0.50';
         return $string;
     },
     GetCurrencyFormat => sub {
-        my($number, $locale) = @_;
+        my ($number, $locale) = @_;
         $locale = 2048 unless defined($locale);
         my $output = "\0" x 1024;
-        my $result = $Win32::kernel32::GetCurrencyFormat->Call(
-            $locale,
-            0,
-            $number,
-            0,
-            $output,
-            1024,
-        );
-        if($result) {
-            return substr($output, 0, $result-1);
-        } else {
+        my $result =
+            $Win32::kernel32::GetCurrencyFormat->Call($locale, 0, $number, 0, $output,
+            1024,);
+        if ($result) {
+            return substr($output, 0, $result - 1);
+        }
+        else {
             return undef;
         }
     },
     GetDiskFreeSpace => sub {
-        my($root) = @_;
+        my ($root) = @_;
         $root = 0 unless defined($root);
         my $SectorsPerCluster = pack("L", 0);
-        my $BytesPerSector = pack("L", 0);
-        my $FreeClusters = pack("L", 0);
-        my $TotalClusters = pack("L", 0);
-        my $result = $Win32::kernel32::GetDiskFreeSpace->Call(
-            $root,
-            $SectorsPerCluster,
-            $BytesPerSector,
-            $FreeClusters,
-            $TotalClusters,
-        );
-        if($result) {
+        my $BytesPerSector    = pack("L", 0);
+        my $FreeClusters      = pack("L", 0);
+        my $TotalClusters     = pack("L", 0);
+        my $result =
+            $Win32::kernel32::GetDiskFreeSpace->Call($root, $SectorsPerCluster,
+            $BytesPerSector, $FreeClusters, $TotalClusters,);
+        if ($result) {
             $SectorsPerCluster = unpack("L", $SectorsPerCluster);
-            $BytesPerSector = unpack("L", $BytesPerSector);
-            $FreeClusters = unpack("L", $FreeClusters);
-            $TotalClusters = unpack("L", $TotalClusters);
-            return wantarray ? (
-                $BytesPerSector*$SectorsPerCluster*$FreeClusters,
-                $BytesPerSector*$SectorsPerCluster*$TotalClusters,
-            ) : $BytesPerSector*$SectorsPerCluster*$FreeClusters;
-        } else {
+            $BytesPerSector    = unpack("L", $BytesPerSector);
+            $FreeClusters      = unpack("L", $FreeClusters);
+            $TotalClusters     = unpack("L", $TotalClusters);
+            return wantarray
+                ? (
+                $BytesPerSector * $SectorsPerCluster * $FreeClusters,
+                $BytesPerSector * $SectorsPerCluster * $TotalClusters,
+                )
+                : $BytesPerSector * $SectorsPerCluster * $FreeClusters;
+        }
+        else {
             return undef;
         }
     },
     GetDriveType => sub {
-        my($root) = @_;
+        my ($root) = @_;
         $root = 0 unless defined($root);
         return $Win32::kernel32::GetDriveType->Call($root);
     },
@@ -120,106 +117,95 @@ $VERSION = '0.50';
         return undef;
     },
     GetVolumeInformation => sub {
-        my($root) = @_;
+        my ($root) = @_;
         $root = 0 unless defined($root);
-        my $name = "\0" x 256;
+        my $name   = "\0" x 256;
         my $serial = pack("L", 0);
         my $maxlen = pack("L", 0);
-        my $flags = pack("L", 0);
+        my $flags  = pack("L", 0);
         my $fstype = "\0" x 256;
-        my $result = $Win32::kernel32::GetVolumeInformation->Call(
-            $root, 
-            $name,
-            256,
-            $serial,
-            $maxlen,
-            $flags,
-            $fstype,
-            256,
-        );
-        if($result) {
-            $name =~ s/\0*$//;
+        my $result =
+            $Win32::kernel32::GetVolumeInformation->Call($root, $name, 256, $serial,
+            $maxlen, $flags, $fstype, 256,);
+
+        if ($result) {
+            $name   =~ s/\0*$//;
             $fstype =~ s/\0*$//;
-            return wantarray ? (
+            return wantarray
+                ? (
                 $name,
-                unpack("L", $serial), 
-                unpack("L", $maxlen), 
-                unpack("L", $flags), 
-                $fstype,
-            ) : $name;
-        } else {
+                unpack("L", $serial),
+                unpack("L", $maxlen),
+                unpack("L", $flags), $fstype,
+                )
+                : $name;
+        }
+        else {
             return undef;
         }
     },
     MultiByteToWideChar => sub {
-        my($string, $codepage) = @_;
+        my ($string, $codepage) = @_;
         $codepage = 0 unless defined($codepage);
-        my $result = $Win32::kernel32::MultiByteToWideChar->Call(
-            $codepage, 
-            0, 
-            $string, length($string), 
-            0, 0,
-        );
+        my $result =
+            $Win32::kernel32::MultiByteToWideChar->Call($codepage, 0, $string,
+            length($string), 0, 0,);
         return undef unless $result;
-        my $ustring = " " x ($result*2);
-        $result = $Win32::kernel32::MultiByteToWideChar->Call(
-            $codepage, 
-            0, 
-            $string, length($string), 
-            $ustring, $result,
-        );
+        my $ustring = " " x ($result * 2);
+        $result =
+            $Win32::kernel32::MultiByteToWideChar->Call($codepage, 0, $string,
+            length($string), $ustring, $result,);
         return undef unless $result;
         return $ustring;
     },
     QueryDosDevice => sub {
-        warn "The Win32::QueryDosDevice API works only on Windows NT" unless Win32::IsWinNT();
-        my($name) = @_;
+        warn "The Win32::QueryDosDevice API works only on Windows NT"
+            unless Win32::IsWinNT();
+        my ($name) = @_;
         $name = 0 unless defined($name);
         my $path = "\0" x 1024;
         my $result = $Win32::kernel32::QueryDosDevice->Call($name, $path, 1024);
-        if($result) {
-            return wantarray ?
-                split(/\0/, $path)
-            :   join(";", split(/\0/, $path));
-        } else {
+        if ($result) {
+            return wantarray
+                ? split(/\0/, $path)
+                : join(";", split(/\0/, $path));
+        }
+        else {
             return undef;
         }
     },
     QueryPerformanceCounter => sub {
         my $count = pack("b64", 0);
-        if($Win32::kernel32::QueryPerformanceCounter->Call($count)) {
-            my($clo, $chi) = unpack("ll", $count);
-            return $clo+$chi*4*1024**3;
-        } else {
+        if ($Win32::kernel32::QueryPerformanceCounter->Call($count)) {
+            my ($clo, $chi) = unpack("ll", $count);
+            return $clo + $chi * 4 * 1024**3;
+        }
+        else {
             return undef;
         }
     },
     QueryPerformanceFrequency => sub {
         my $freq = pack("b64", 0);
-        if($Win32::kernel32::QueryPerformanceFrequency->Call($freq)) {
-            my($flo, $fhi) = unpack("ll", $freq);
-            return $flo+$fhi*4*1024**3;
-        } else {
+        if ($Win32::kernel32::QueryPerformanceFrequency->Call($freq)) {
+            my ($flo, $fhi) = unpack("ll", $freq);
+            return $flo + $fhi * 4 * 1024**3;
+        }
+        else {
             return undef;
         }
     },
     SearchPath => sub {
-        my($name, $ext) = @_;
+        my ($name, $ext) = @_;
         $ext = 0 unless defined($ext);
         my $path = "\0" x 1024;
         my $pext = pack("L", 0);
-        my $result = $Win32::kernel32::SearchPath->Call(
-            0,
-            $name, 
-            $extension, 
-            1024,
-            $path,
-            $pext,
-        );
-        if($result) {
+        my $result =
+            $Win32::kernel32::SearchPath->Call(0, $name, $extension, 1024, $path, $pext,);
+        if ($result) {
             $path =~ s/\0*$//;
             return $path;
-        } else {
+        }
+        else {
             return undef;
         }
     },
@@ -230,36 +216,30 @@ $VERSION = '0.50';
         $Win32::kernel32::Sleep->Call($_[0]) if $_[0];
     },
     VerLanguageName => sub {
-        my($lang) = @_;
-        if($lang) {
+        my ($lang) = @_;
+        if ($lang) {
             my $langdesc = "\0" x 256;
             my $result = $Win32::kernel32::VerLanguageName->Call($lang, $langdesc, 256);
-            if($result > 0 and $result < 256) {
+            if ($result > 0 and $result < 256) {
                 return substr($langdesc, 0, $result);
-            } else {
+            }
+            else {
                 return 0;
             }
         }
     },
     WideCharToMultiByte => sub {
-        my($ustring, $codepage) = @_;
+        my ($ustring, $codepage) = @_;
         $codepage = 0 unless defined($codepage);
-        my $result = $Win32::kernel32::WideCharToMultiByte->Call(
-            $codepage, 
-            0, 
-            $ustring, -1,
-            0, 0,
-            0, 0,
-        );
+        my $result =
+            $Win32::kernel32::WideCharToMultiByte->Call($codepage, 0, $ustring, -1, 0, 0,
+            0, 0,);
         return undef unless $result;
         my $string = " " x $result;
-        $result = $Win32::kernel32::WideCharToMultiByte->Call(
-            $codepage, 
-            0, 
-            $ustring, -1,
-            $string, $result,
-            0, 0,
-        );
+        $result =
+            $Win32::kernel32::WideCharToMultiByte->Call($codepage, 0, $ustring, -1,
+            $string, $result, 0, 0,);
+
         # $string =~ s/\0.*$//;
         return undef unless $result;
         return $string;
@@ -278,15 +258,17 @@ sub import {
 sub import_API {
     my ($function) = @_;
     my $params;
-    if(exists($APIs{$function})) {
+    if (exists($APIs{$function})) {
         $params = $APIs{$function};
-    } else {
+    }
+    else {
         $params = [[], V];
         warn "Unknown API: $function";
     }
     $$function = new Win32::API("kernel32", $function, @$params);
-    warn "Win32::kernel32 failed to import API $function from KERNEL32.DLL" unless $$function;
-    *{'Win32::'.$function} = $SUBs{$function};
+    warn "Win32::kernel32 failed to import API $function from KERNEL32.DLL"
+        unless $$function;
+    *{'Win32::' . $function} = $SUBs{$function};
 }
 
 1;

@@ -18,14 +18,14 @@ plan tests => 2;
 
 use_ok('Win32::API::Callback');
 
-Win32::API->Import('kernel32', 'SetConsoleCtrlHandler', 'KL', 'L');
+Win32::API->Import('kernel32', 'SetConsoleCtrlHandler',    'KL', 'L');
 Win32::API->Import('kernel32', 'GenerateConsoleCtrlEvent', 'LL', 'L');
-Win32::API->Import('kernel32', 'GetLastError', '', 'L');
+Win32::API->Import('kernel32', 'GetLastError',             '',   'L');
 
 sub cb {
     my ($dwCtrlType) = @_;
 
-    open (FILE, '>', 'QUIT.TXT');
+    open(FILE, '>', 'QUIT.TXT');
     print FILE "RECEIVED SIGNAL: $dwCtrlType\n";
     close FILE;
 
@@ -34,15 +34,16 @@ sub cb {
 
 my $callback = Win32::API::Callback->new(\&cb, "L", "L");
 
-SetConsoleCtrlHandler($callback, 1) # add handler
- or die "Error: " . GetLastError() . "\n";
+SetConsoleCtrlHandler($callback, 1)    # add handler
+    or die "Error: " . GetLastError() . "\n";
 END { unlink "QUIT.TXT"; }
 
 diag("callback installed, sleep 1, generate Ctrl-C signal");
 sleep(1);
+
 #GenerateConsoleCtrlEvent(0, 0); # generate the Ctrl-C signal
-GenerateConsoleCtrlEvent(1, 0); # generate the Ctrl-Break signal
+GenerateConsoleCtrlEvent(1, 0);        # generate the Ctrl-Break signal
 diag("callback called or not");
 sleep(2);
-ok (-f "QUIT.TXT", "QUIT.TXT exists, ctrl-c signalhandler called");
-SetConsoleCtrlHandler($callback, 0); # remove handler
+ok(-f "QUIT.TXT", "QUIT.TXT exists, ctrl-c signalhandler called");
+SetConsoleCtrlHandler($callback, 0);    # remove handler

@@ -6,7 +6,7 @@ package Win32::API::Type;
 #######################################################################
 #
 # Win32::API::Type - Perl Win32 API type definitions
-# 
+#
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
@@ -17,24 +17,25 @@ $VERSION = '0.62';
 use Carp;
 use Config;
 
-require Exporter;       # to export the constants to the main:: space
-require DynaLoader;     # to dynuhlode the module.
+require Exporter;      # to export the constants to the main:: space
+require DynaLoader;    # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
 
 use vars qw( %Known %PackSize %Modifier %Pointer );
 
-sub DEBUG { 
-    if ($Win32::API::DEBUG) { 
-        printf @_ if @_ or return 1; 
-    } else {
+sub DEBUG {
+    if ($Win32::API::DEBUG) {
+        printf @_ if @_ or return 1;
+    }
+    else {
         return 0;
     }
 }
 
-%Known      = ();
-%PackSize   = ();
-%Modifier   = ();
-%Pointer    = ();
+%Known    = ();
+%PackSize = ();
+%Modifier = ();
+%Pointer  = ();
 
 # Initialize data structures at startup.
 # Aldo wants to keep the <DATA> approach.
@@ -43,35 +44,42 @@ my $section = 'nothing';
 foreach (<DATA>) {
     next if /^\s*#/ or /^\s*$/;
     chomp;
-    if( /\[(.+)\]/) {
+    if (/\[(.+)\]/) {
         $section = $1;
         next;
     }
-    if($section eq 'TYPE') {
-        my($name, $packing) = split(/\s+/);
+    if ($section eq 'TYPE') {
+        my ($name, $packing) = split(/\s+/);
+
         # DEBUG "(PM)Type::INIT: Known('$name') => '$packing'\n";
         if ($packing eq '_P') {
             $packing = pointer_pack_type();
         }
         $Known{$name} = $packing;
-    } elsif($section eq 'PACKSIZE') {
-        my($packing, $size) = split(/\s+/);
+    }
+    elsif ($section eq 'PACKSIZE') {
+        my ($packing, $size) = split(/\s+/);
+
         # DEBUG "(PM)Type::INIT: PackSize('$packing') => '$size'\n";
         if ($size eq '_P') {
             $size = $Config{ptrsize};
         }
         $PackSize{$packing} = $size;
-    } elsif($section eq 'MODIFIER') {
-        my($modifier, $mapto) = split(/\s+/, $_, 2);
+    }
+    elsif ($section eq 'MODIFIER') {
+        my ($modifier, $mapto) = split(/\s+/, $_, 2);
         my %maps = ();
         foreach my $item (split(/\s+/, $mapto)) {
-            my($k, $v) = split(/=/, $item);
+            my ($k, $v) = split(/=/, $item);
             $maps{$k} = $v;
-        }           
+        }
+
         # DEBUG "(PM)Type::INIT: Modifier('$modifier') => '%maps'\n";
-        $Modifier{$modifier} = { %maps };
-    } elsif($section eq 'POINTER') {
-        my($pointer, $pointto) = split(/\s+/);
+        $Modifier{$modifier} = {%maps};
+    }
+    elsif ($section eq 'POINTER') {
+        my ($pointer, $pointto) = split(/\s+/);
+
         # DEBUG "(PM)Type::INIT: Pointer('$pointer') => '$pointto'\n";
         $Pointer{$pointer} = $pointto;
     }
@@ -79,21 +87,21 @@ foreach (<DATA>) {
 close(DATA);
 
 sub new {
-    my $class = shift;
-    my($type) = @_; 
+    my $class   = shift;
+    my ($type)  = @_;
     my $packing = packing($type);
-    my $size = sizeof($type);
-    my $self = {
-        type => $type,
+    my $size    = sizeof($type);
+    my $self    = {
+        type    => $type,
         packing => $packing,
-        size => $size,
+        size    => $size,
     };
     return bless $self;
 }
 
 sub typedef {
     my $class = shift;
-    my($name, $type) = @_;  
+    my ($name, $type) = @_;
     my $packing = packing($type, $name);
     DEBUG "(PM)Type::typedef: packing='$packing'\n";
     my $size = sizeof($type);
@@ -106,9 +114,10 @@ sub is_known {
     my $self = shift;
     my $type = shift;
     $type = $self unless defined $type;
-    if(ref($type) =~ /Win32::API::Type/) {
+    if (ref($type) =~ /Win32::API::Type/) {
         return 1;
-    } else {
+    }
+    else {
         return defined packing($type);
     }
 }
@@ -121,77 +130,92 @@ sub sizeof {
     my $self = shift;
     my $type = shift;
     $type = $self unless defined $type;
-    if(ref($type) =~ /Win32::API::Type/) {
+    if (ref($type) =~ /Win32::API::Type/) {
         return $self->{size};
-    } else {
+    }
+    else {
         my $packing = packing($type);
-        if($packing =~ /(\w)\*(\d+)/) {
-            return $PackSize{ $1 } * $2;
-        } else {
-            return $PackSize{ $packing };
+        if ($packing =~ /(\w)\*(\d+)/) {
+            return $PackSize{$1} * $2;
         }
-    }   
+        else {
+            return $PackSize{$packing};
+        }
+    }
 }
 
 sub packing {
-    # DEBUG "(PM)Type::packing: called by ". join("::", (caller(1))[0,3]). "\n";  
-    my $self = shift;
+
+    # DEBUG "(PM)Type::packing: called by ". join("::", (caller(1))[0,3]). "\n";
+    my $self       = shift;
     my $is_pointer = 0;
-    if(ref($self) =~ /Win32::API::Type/) {
-        # DEBUG "(PM)Type::packing: got an object\n"; 
+    if (ref($self) =~ /Win32::API::Type/) {
+
+        # DEBUG "(PM)Type::packing: got an object\n";
         return $self->{packing};
     }
     my $type = ($self eq 'Win32::API::Type') ? shift : $self;
     my $name = shift;
-    
-    # DEBUG "(PM)Type::packing: got '$type', '$name'\n";  
-    my($modifier, $size, $packing);
-    if(exists $Pointer{$type}) {        
+
+    # DEBUG "(PM)Type::packing: got '$type', '$name'\n";
+    my ($modifier, $size, $packing);
+    if (exists $Pointer{$type}) {
+
         # DEBUG "(PM)Type::packing: got '$type', is really '$Pointer{$type}'\n";
-        $type = $Pointer{$type};
+        $type       = $Pointer{$type};
         $is_pointer = 1;
-    } elsif($type =~ /(\w+)\s+(\w+)/) {
+    }
+    elsif ($type =~ /(\w+)\s+(\w+)/) {
         $modifier = $1;
-        $type = $2;
+        $type     = $2;
+
         # DEBUG "(PM)packing: got modifier '$modifier', type '$type'\n";
     }
-    
+
     $type =~ s/\*$//;
-    
-    if(exists $Known{$type}) {
-        if(defined $name and $name =~ s/\[(.*)\]$//) {
-            $size = $1;
-            $packing = $Known{$type}[0]."*".$size;  
+
+    if (exists $Known{$type}) {
+        if (defined $name and $name =~ s/\[(.*)\]$//) {
+            $size    = $1;
+            $packing = $Known{$type}[0] . "*" . $size;
+
             # DEBUG "(PM)Type::packing: composite packing: '$packing' '$size'\n";
-        } else {
+        }
+        else {
             $packing = $Known{$type};
-            if($is_pointer and $packing eq 'c') {
-               $packing = "p";
+            if ($is_pointer and $packing eq 'c') {
+                $packing = "p";
             }
+
             # DEBUG "(PM)Type::packing: simple packing: '$packing'\n";
         }
-        if(defined $modifier and exists $Modifier{$modifier}->{$type}) {
-            # DEBUG "(PM)Type::packing: applying modifier '$modifier' -> '$Modifier{$modifier}->{$type}'\n";
+        if (defined $modifier and exists $Modifier{$modifier}->{$type}) {
+
+# DEBUG "(PM)Type::packing: applying modifier '$modifier' -> '$Modifier{$modifier}->{$type}'\n";
             $packing = $Modifier{$modifier}->{$type};
         }
         return $packing;
-    } else {
+    }
+    else {
+
         # DEBUG "(PM)Type::packing: NOT FOUND\n";
         return undef;
     }
-}   
+}
 
 
 sub is_pointer {
     my $self = shift;
     my $type = shift;
     $type = $self unless defined $type;
-    if(ref($type) =~ /Win32::API::Type/) {
+    if (ref($type) =~ /Win32::API::Type/) {
         return 1;
-    } else {    
-        if($type =~ /\*$/) {
+    }
+    else {
+        if ($type =~ /\*$/) {
             return 1;
-        } else {
+        }
+        else {
             return exists $Pointer{$type};
         }
     }
@@ -202,7 +226,7 @@ sub Pack {
 
     my $pack_type = packing($type);
 
-    if($pack_type eq 'p') {
+    if ($pack_type eq 'p') {
         $pack_type = 'Z*';
     }
 
@@ -216,14 +240,14 @@ sub Unpack {
 
     my $pack_type = packing($type);
 
-    if($pack_type eq 'p') {       
+    if ($pack_type eq 'p') {
         DEBUG "(PM)Type::Unpack: got packing 'p': is a pointer\n";
         $pack_type = 'Z*';
     }
 
-    DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$arg'\n"; 
+    DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$arg'\n";
     $arg = unpack($pack_type, $arg);
-    DEBUG "(PM)Type::Unpack: returning '" . ($arg || '') . "'\n";  
+    DEBUG "(PM)Type::Unpack: returning '" . ($arg || '') . "'\n";
     return $arg;
 }
 

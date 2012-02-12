@@ -1,5 +1,9 @@
 History of Win32::API perl extension.
 
+2012-02-12  Win32::API v0.65    Cosimo
+
+   - No changes other than passing all files through perltidy
+
 2011-08-28  Win32::API v0.64    Cosimo
 
    - Small improvement to Makefile.PLs to build or not build
@@ -8,7 +12,7 @@ History of Win32::API perl extension.
 
 2011-07-19  Win32::API v0.63    kmx
 
-   - Fix for the strawberry perl 5.14.1/x64   
+   - Fix for the strawberry perl 5.14.1/x64
      the upgraded gcc toolchain (4.4.6) uses different underscoring
 
 2011-03-26  Win32::API v0.62    Cosimo
@@ -33,7 +37,7 @@ History of Win32::API perl extension.
    - Fixed RT #48006
      (https://rt.cpan.org/Ticket/Display.html?id=48006)
 
-   - Added a minimal TODO file, so I can remember where I left off 
+   - Added a minimal TODO file, so I can remember where I left off
 
 2009-07-02  Win32::API v0.59     Cosimo
 
@@ -76,7 +80,7 @@ History of Win32::API perl extension.
 
    - Integrated patch from Salvador Ortiz Garcia (sog at msg com mx)
      which fixes RT #14660. There was a bug in arguments type packing
-     unpacking of char* (and other pointer types). 
+     unpacking of char* (and other pointer types).
 
 2008-03-04  Win32::API v0.54     Cosimo
 
@@ -141,7 +145,7 @@ History of Win32::API perl extension.
    - API_test.dll building phase has been removed. Now there is only
      a prebuilt version of it, suitable for all compilers to link and
      use, I hope.
-  
+
      Why does Cygwin gcc compile an entirely different API_test.dll?
      I checked the tdump of msvc and gcc and the gcc version is
      missing all the kernel32 imports. I don't know why this happens.

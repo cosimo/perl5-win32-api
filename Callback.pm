@@ -4,7 +4,7 @@
 #######################################################################
 #
 # Win32::API::Callback - Perl Win32 API Import Facility
-# 
+#
 # Author: Aldo Calpini <dada@perl.it>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
@@ -12,18 +12,19 @@
 
 package Win32::API::Callback;
 
-$VERSION = '0.64';
+$VERSION = '0.65';
 
-require Exporter;       # to export the constants to the main:: space
-require DynaLoader;     # to dynuhlode the module.
+require Exporter;      # to export the constants to the main:: space
+require DynaLoader;    # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
 
-sub DEBUG { 
-	if ($WIN32::API::DEBUG) { 
-		printf @_ if @_ or return 1; 
-	} else {
-		return 0;
-	}
+sub DEBUG {
+    if ($WIN32::API::DEBUG) {
+        printf @_ if @_ or return 1;
+    }
+    else {
+        return 0;
+    }
 }
 
 use Win32::API;
@@ -37,18 +38,21 @@ use Win32::API::Struct;
 #
 
 sub AUTOLOAD {
-    my($constname);
+    my ($constname);
     ($constname = $AUTOLOAD) =~ s/.*:://;
+
     #reset $! to zero to reset any current errors.
-    $!=0;
+    $! = 0;
     my $val = constant($constname, @_ ? $_[0] : 0);
     if ($! != 0) {
         if ($! =~ /Invalid/) {
             $AutoLoader::AUTOLOAD = $AUTOLOAD;
             goto &AutoLoader::AUTOLOAD;
-        } else {
-            ($pack,$file,$line) = caller;
-            die "Your vendor has not defined Win32::API::Callback macro $constname, used at $file line $line.";
+        }
+        else {
+            ($pack, $file, $line) = caller;
+            die
+                "Your vendor has not defined Win32::API::Callback macro $constname, used at $file line $line.";
         }
     }
     eval "sub $AUTOLOAD { $val }";
@@ -65,37 +69,38 @@ bootstrap Win32::API::Callback;
 # PUBLIC METHODS
 #
 sub new {
-    my($class, $proc, $in, $out) = @_;
+    my ($class, $proc, $in, $out) = @_;
     my %self = ();
 
-	# printf "(PM)Callback::new: got proc='%s', in='%s', out='%s'\n", $proc, $in, $out;
-		
-	$self{in} = [];
-	if(ref($in) eq 'ARRAY') {
-		foreach (@$in) {
-			push(@{ $self{in} }, Win32::API::type_to_num($_));
-		}	
-	} else {
-		my @in = split '', $in;
-		foreach (@in) {
-			push(@{ $self{in} }, Win32::API::type_to_num($_));
-		}			
-	}
-	$self{out} = Win32::API::type_to_num($out);
-	$self{sub} = $proc;
-	my $self = bless \%self, $class;
-	
-	DEBUG "(PM)Callback::new: calling CallbackCreate($self)...\n";
+    # printf "(PM)Callback::new: got proc='%s', in='%s', out='%s'\n", $proc, $in, $out;
+
+    $self{in} = [];
+    if (ref($in) eq 'ARRAY') {
+        foreach (@$in) {
+            push(@{$self{in}}, Win32::API::type_to_num($_));
+        }
+    }
+    else {
+        my @in = split '', $in;
+        foreach (@in) {
+            push(@{$self{in}}, Win32::API::type_to_num($_));
+        }
+    }
+    $self{out} = Win32::API::type_to_num($out);
+    $self{sub} = $proc;
+    my $self = bless \%self, $class;
+
+    DEBUG "(PM)Callback::new: calling CallbackCreate($self)...\n";
     my $hproc = CallbackCreate($self);
 
-	DEBUG "(PM)Callback::new: hproc=$hproc\n";
+    DEBUG "(PM)Callback::new: hproc=$hproc\n";
 
     #### ...if that fails, set $! accordingly
-    if(!$hproc) {
+    if (!$hproc) {
         $! = Win32::GetLastError();
         return undef;
     }
-    
+
     #### ok, let's stuff the object
     $self->{code} = $hproc;
     $self->{sub}  = $proc;
@@ -105,11 +110,11 @@ sub new {
 }
 
 sub MakeStruct {
-	my($self, $n, $addr) = @_;	
-	DEBUG "(PM)Win32::API::Callback::MakeStruct: got self='$self'\n";
-	my $struct = Win32::API::Struct->new($self->{intypes}->[$n]);	
-	$struct->FromMemory($addr);
-	return $struct;
+    my ($self, $n, $addr) = @_;
+    DEBUG "(PM)Win32::API::Callback::MakeStruct: got self='$self'\n";
+    my $struct = Win32::API::Struct->new($self->{intypes}->[$n]);
+    $struct->FromMemory($addr);
+    return $struct;
 }
 
 1;

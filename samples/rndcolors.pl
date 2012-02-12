@@ -3,16 +3,16 @@ use strict;
 use Win32::API;
 
 my %colordesc = (
-     0 => "Scrollbars",
-     1 => "Background",
-     2 => "Active Caption",
-     3 => "Inactive Caption",
-     4 => "Menu",
-     5 => "Window",
-     6 => "Window Frame",
-     7 => "Menu Text",
-     8 => "Window Text",
-     9 => "Caption Text",
+    0  => "Scrollbars",
+    1  => "Background",
+    2  => "Active Caption",
+    3  => "Inactive Caption",
+    4  => "Menu",
+    5  => "Window",
+    6  => "Window Frame",
+    7  => "Menu Text",
+    8  => "Window Text",
+    9  => "Caption Text",
     10 => "Active Border",
     11 => "Inactive Border",
     12 => "Application Workspace",
@@ -34,40 +34,33 @@ my %colordesc = (
 );
 
 
-my $GSC = new Win32::API(
-    "user32",
-    "GetSysColor",
-    ['N'], 'N',
-);
+my $GSC = new Win32::API("user32", "GetSysColor", ['N'], 'N',);
 
-my $SSC = new Win32::API(
-    "user32",
-    "SetSysColors",
-    ['N', 'P', 'P'], 'N',
-);
+my $SSC = new Win32::API("user32", "SetSysColors", ['N', 'P', 'P'], 'N',);
 
-my($i, $r, $g, $b, $w, $c);
+my ($i, $r, $g, $b, $w, $c);
 my @c;
 my @oc;
-for $i (0..28) {
+for $i (0 .. 28) {
     next if $i == 25;
     push(@oc, $GSC->Call($i));
 }
 
 srand();
-for $i (0..28) {
+for $i (0 .. 28) {
     next if $i == 25;
-    $r = int(rand()*255);
-    $g = int(rand()*255);
-    $b = int(rand()*255);
-    push(@c, $r + $g*255 + $b*(255**2));
+    $r = int(rand() * 255);
+    $g = int(rand() * 255);
+    $b = int(rand() * 255);
+    push(@c, $r + $g * 255 + $b * (255**2));
+
     # ffff'));
 }
-$w = pack("I" x 28, (0..24), (26..28));
+$w = pack("I" x 28, (0 .. 24), (26 .. 28));
 $c = pack("I" x 28, @c);
 $SSC->Call(28, $w, $c);
 
-for $i (0..28) {
+for $i (0 .. 28) {
     next if $i == 25;
     PrintColor($i);
 }
@@ -75,12 +68,12 @@ for $i (0..28) {
 print "\nPress ENTER to restore original colors:";
 my $enter = <STDIN>;
 
-$w = pack("I" x 28, (0..24), (26..28));
+$w = pack("I" x 28, (0 .. 24), (26 .. 28));
 $c = pack("I" x 28, @oc);
 $SSC->Call(28, $w, $c);
 
 sub PrintColor {
-    my($index) = @_;
+    my ($index) = @_;
     print "$colordesc{$index}: ";
     my $C = $GSC->Call($index);
     my $R = $C & 0x0000FF;
