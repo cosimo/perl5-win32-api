@@ -1,5 +1,10 @@
 History of Win32::API perl extension.
 
+2012-02-13  Win32::API v0.66    Cosimo
+
+   - RT#74578 about structs alignment calculation should be fixed.
+     Thanks to Douglas Wilson (DOUGW) and Reini Urban!
+
 2012-02-12  Win32::API v0.65    Cosimo
 
    - No changes other than passing all files through perltidy

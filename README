@@ -1,14 +1,8 @@
-#######################################################################
-#
-# Win32::API - Perl Win32 API Import Facility
-# ^^^^^^^^^^
-#
-# Version: 0.65 (12 Feb 2012)
-#
-# Current maintainer: Cosimo Streppone <cosimo@cpan.org>
-# Original author:    Aldo Calpini <dada@perl.it>
-#
-#######################################################################
+Win32::API - Perl Win32 API Import Facility
+===========================================
+
+Current maintainer: Cosimo Streppone <cosimo@cpan.org>
+Original author:    Aldo Calpini <dada@perl.it>
 
 With this module you can import and call arbitrary functions
 from Win32's Dynamic Link Libraries (DLL), without having
