@@ -212,9 +212,10 @@ sub getPack {
             $packed_size += $subpacksize;
         }
         else {
+            my $repeat = 1;
             if ($type =~ /\w\*(\d+)/) {
-                my $size = $1;
-                $type = "a$size";
+                $repeat = $1;
+                $type = "a$repeat";
             }
 
             DEBUG "(PM)Struct::getPack($self->{__typedef__}) ++ $type\n";
@@ -230,7 +231,7 @@ sub getPack {
             $type_size  = Win32::API::Type::sizeof($orig);
             $type_align = (($packed_size + $type_size) % $type_size);
             $packing .= "x" x $type_align . $type;
-            $packed_size += $type_size + $type_align;
+            $packed_size += ( $type_size * $repeat ) + $type_align;
         }
     }
 
@@ -267,33 +268,34 @@ sub getUnpack {
     foreach my $member (@{$self->{typedef}}) {
         ($name, $type, $orig) = @$member;
         if ($type eq '>') {
-            my ($subpacking, @subitems, $subpacksize) = $self->{$name}->getUnpack();
+            my ($subpacking, $subpacksize, @subitems) = $self->{$name}->getUnpack();
             DEBUG "(PM)Struct::getUnpack($self->{__typedef__}) ++ $subpacking\n";
             $packing .= $subpacking;
             $packed_size += $subpacksize;
             push(@items, @subitems);
         }
         else {
+            my $repeat = 1;
             if ($type =~ /\w\*(\d+)/) {
-                my $size = $1;
-                $type = "Z$size";
+                $repeat = $1;
+                $type = "Z$repeat";
             }
             DEBUG "(PM)Struct::getUnpack($self->{__typedef__}) ++ $type\n";
             $type_size  = Win32::API::Type::sizeof($orig);
             $type_align = (($packed_size + $type_size) % $type_size);
             $packing .= "x" x $type_align . $type;
-            $packed_size += $type_size + $type_align;
+            $packed_size += ( $type_size * $repeat ) + $type_align;
 
             push(@items, $name);
         }
     }
     DEBUG "(PM)Struct::getUnpack($self->{__typedef__}): unpack($packing, @items)\n";
-    return ($packing, @items, $packed_size);
+    return ($packing, $packed_size, @items);
 }
 
 sub Unpack {
     my $self = shift;
-    my ($packing, @items) = $self->getUnpack();
+    my ($packing, undef, @items) = $self->getUnpack();
     my @itemvalue = unpack($packing, $self->{buffer});
     DEBUG "(PM)Struct::Unpack: unpack($packing, buffer) = @itemvalue\n";
     foreach my $i (0 .. $#items) {
