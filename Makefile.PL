@@ -32,7 +32,7 @@ WriteMakefile1(
 
     'NAME'	=> 'Win32::API',
 
-    'AUTHOR'        	=> ['Aldo Calpini <dada@perl.it>', 'Cosimo Streppone <cosimo@cpan.org>'],
+    'AUTHOR'        	=> 'Aldo Calpini <dada@perl.it>, Cosimo Streppone <cosimo@cpan.org>',
     'ABSTRACT'      	=> 'Perl Win32 API Import Facility',
 
     'PM' => {
