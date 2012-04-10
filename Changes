@@ -1,5 +1,10 @@
 History of Win32::API perl extension.
 
+2012-04-10  Win32::API v0.68    Cosimo
+
+   - Temporarily skip RT#53914 related Callback test that's crashing
+     for everyone and CPAN testers too.
+
 2012-02-14  Win32::API v0.67    Cosimo
 
    - Fix a problem in 0.66 that prevented successful build and install
