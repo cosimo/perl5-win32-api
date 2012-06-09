@@ -1,0 +1,3176 @@
+diff -ruNZ old/API.h new/API.h
+--- old/API.h	2012-02-11 12:47:56.000000000 -0500
++++ new/API.h	2012-05-29 10:18:18.046875000 -0400
+@@ -23,11 +23,15 @@
+ #define T_FLOAT				4
+ #define T_DOUBLE			5
+ #define T_CHAR				6
++#define T_SHORT				7
+ 
+ #define T_STRUCTURE			51
+ 
+ #define T_POINTERPOINTER	22
+-#define T_CODE				101
++#define T_CODE				55
++
++#define T_FLAG_UNSIGNED     (0x80)
++#define T_FLAG_NUMERIC      (0x40)
+ 
+ typedef char  *ApiPointer(void);
+ typedef long   ApiNumber(void);
+@@ -35,7 +39,9 @@
+ typedef double ApiDouble(void);
+ typedef void   ApiVoid(void);
+ typedef int    ApiInteger(void);
++typedef short  ApiShort(void);
+ 
++//This is a packing padding nightmare, union or reorder, side effects unknown
+ typedef struct {
+ 	int t;
+ 	LPBYTE b;
+@@ -54,3 +60,17 @@
+ typedef struct {
+ 	SV* object;
+ } APICALLBACK;
++
++#define STATIC_ASSERT(expr) ((void)sizeof(char[1 - 2*!!!(expr)]))
++
++//because of unknown alignment, put 2 wide nulls,
++//some permutation will be 1 wide null char
++#pragma pack(push)
++#pragma pack(push, 1)
++typedef struct {
++    wchar_t null1;
++    wchar_t null2;
++    LARGE_INTEGER counter;
++} SENTINAL_STRUCT;
++#pragma pack(pop)
++#pragma pack(pop)
+diff -ruNZ old/API.pm new/API.pm
+--- old/API.pm	2012-04-10 14:29:10.000000000 -0400
++++ new/API.pm	2012-05-29 02:50:22.765625000 -0400
+@@ -18,10 +18,17 @@
+ require Exporter;      # to export the constants to the main:: space
+ require DynaLoader;    # to dynuhlode the module.
+ @ISA = qw( Exporter DynaLoader );
++@EXPORT_OK = qw( ReadMemory IsBadReadPtr IsBadStringPtr MoveMemory
++WriteMemory ); # symbols to export on request
+ 
+-use vars qw( $DEBUG );
++use vars qw( $DEBUG $sentinal );
+ $DEBUG = 0;
+ 
++BEGIN {
++sub ERROR_NOACCESS () { 998 }
++}
++
++
+ sub DEBUG {
+     if ($Win32::API::DEBUG) {
+         printf @_ if @_ or return 1;
+@@ -38,7 +45,7 @@
+ #######################################################################
+ # STATIC OBJECT PROPERTIES
+ #
+-$VERSION = '0.68';
++$VERSION = '0.69';
+ 
+ #### some package-global hash to
+ #### keep track of the imported
+@@ -56,83 +63,102 @@
+ # PUBLIC METHODS
+ #
+ sub new {
+-    my ($class, $dll, $proc, $in, $out, $callconvention) = @_;
+-    my $hdll;
++    my ($class, $dll, $hproc) = (shift, shift);
++    if(! defined $dll){
++        $hproc = shift;
++    }
++    my ($proc, $in, $out, $callconvention) = @_;
++    my ($hdll, $freedll) = (0, 0);
+     my $self = {};
++    if(! defined $hproc){
++        if ($^O eq 'cygwin' and $dll ne File::Basename::basename($dll)) {
+ 
+-    if ($^O eq 'cygwin' and $dll ne File::Basename::basename($dll)) {
+-
+-        # need to convert $dll to win32 path
+-        # isn't there an API for this?
+-        my $newdll = `cygpath -w "$dll"`;
+-        chomp $newdll;
+-        DEBUG "(PM)new: converted '$dll' to\n  '$newdll'\n";
+-        $dll = $newdll;
+-    }
++            # need to convert $dll to win32 path
++            # isn't there an API for this?
++            my $newdll = `cygpath -w "$dll"`;
++            chomp $newdll;
++            DEBUG "(PM)new: converted '$dll' to\n  '$newdll'\n";
++            $dll = $newdll;
++        }
+ 
+-    #### avoid loading a library more than once
+-    if (exists($Libraries{$dll})) {
+-        DEBUG "Win32::API::new: Library '$dll' already loaded, handle=$Libraries{$dll}\n";
+-        $hdll = $Libraries{$dll};
+-    }
+-    else {
+-        DEBUG "Win32::API::new: Loading library '$dll'\n";
+-        $hdll = Win32::API::LoadLibrary($dll);
++        #### avoid loading a library more than once
++        if (exists($Libraries{$dll})) {
++            DEBUG "Win32::API::new: Library '$dll' already loaded, handle=$Libraries{$dll}\n";
++            $hdll = $Libraries{$dll};
++        }
++        else {
++            DEBUG "Win32::API::new: Loading library '$dll'\n";
++            $hdll = Win32::API::LoadLibrary($dll);
++            $freedll = 1;
++    #        $Libraries{$dll} = $hdll;
++        }
+ 
+-#        $Libraries{$dll} = $hdll;
++        #### if the dll can't be loaded, set $! to Win32's GetLastError()
++        if (!$hdll) {
++            $! = Win32::GetLastError();
++            DEBUG "FAILED Loading library '$dll': $!\n";
++            return undef;
++        }
+     }
+-
+-    #### if the dll can't be loaded, set $! to Win32's GetLastError()
+-    if (!$hdll) {
+-        $! = Win32::GetLastError();
+-        DEBUG "FAILED Loading library '$dll': $!\n";
+-        delete $Libraries{$dll};
+-        return undef;
++    else{
++        if(IsBadReadPtr($hproc, 4)){
++            Win32::SetLastError(ERROR_NOACCESS);
++            DEBUG "FAILED Function pointer '$hproc' is not a valid memory location\n";
++            return undef;
++        }
+     }
+-
+-    #### determine if we have a prototype or not
++    #### determine if we have a prototype or not, outtype is for future use in XS
+     if ((not defined $in) and (not defined $out)) {
+-        ($proc, $self->{in}, $self->{intypes}, $self->{out}, $self->{cdecl}) =
+-            parse_prototype($proc);
+-        return undef unless $proc;
++        ($proc, $self->{in}, $self->{intypes}, $self->{out}, $self->{outtype},
++         $self->{cdecl}) = parse_prototype($class, $proc);
++        if( ! $proc ){
++            Win32::API::FreeLibrary($hdll) if $freedll;
++            return undef;
++        }
+         $self->{proto} = 1;
+     }
+     else {
+         $self->{in} = [];
+         if (ref($in) eq 'ARRAY') {
+             foreach (@$in) {
+-                push(@{$self->{in}}, type_to_num($_));
++                push(@{$self->{in}}, $class->type_to_num($_));
+             }
+         }
+         else {
+             my @in = split '', $in;
+             foreach (@in) {
+-                push(@{$self->{in}}, type_to_num($_));
++                push(@{$self->{in}}, $class->type_to_num($_));
+             }
+         }
+-        $self->{out}   = type_to_num($out);
++        $self->{out}   = $class->type_to_num($out);
+         $self->{cdecl} = calltype_to_num($callconvention);
+     }
+ 
+-    #### first try to import the function of given name...
+-    my $hproc = Win32::API::GetProcAddress($hdll, $proc);
++    if(!$hproc){ #if not non DLL func
++        #### first try to import the function of given name...
++        $hproc = Win32::API::GetProcAddress($hdll, $proc);
++    
++        #### ...then try appending either A or W (for ASCII or Unicode)
++        if (!$hproc) {
++            my $tproc = $proc;
++            $tproc .= (IsUnicode() ? "W" : "A");
+ 
+-    #### ...then try appending either A or W (for ASCII or Unicode)
+-    if (!$hproc) {
+-        my $tproc = $proc;
+-        $tproc .= (IsUnicode() ? "W" : "A");
+-
+-        # print "Win32::API::new: procedure not found, trying '$tproc'...\n";
+-        $hproc = Win32::API::GetProcAddress($hdll, $tproc);
+-    }
+-
+-    #### ...if all that fails, set $! accordingly
+-    if (!$hproc) {
+-        $! = Win32::GetLastError();
+-        DEBUG "FAILED GetProcAddress for Proc '$proc': $!\n";
+-        return undef;
++            # print "Win32::API::new: procedure not found, trying '$tproc'...\n";
++            $hproc = Win32::API::GetProcAddress($hdll, $tproc);
++        }
++    
++        #### ...if all that fails, set $! accordingly
++        if (!$hproc) {
++            $! = Win32::GetLastError();
++            DEBUG "FAILED GetProcAddress for Proc '$proc': $!\n";
++            Win32::API::FreeLibrary($hdll) if $freedll;
++            return undef;
++        }
++        DEBUG "GetProcAddress('$proc') = '$hproc'\n";
++    }
++    else {
++        DEBUG "Using non-DLL function pointer '$hproc' for '$proc'\n";
+     }
+-    DEBUG "GetProcAddress('$proc') = '$hproc'\n";
+ 
+     #### ok, let's stuff the object
+     $self->{procname} = $proc;
+@@ -141,9 +167,10 @@
+     $self->{proc}     = $hproc;
+ 
+     #### keep track of the imported function
+-    $Libraries{$dll} = $hdll;
+-    $Procedures{$dll}++;
+-
++    if(defined $dll){
++        $Libraries{$dll} = $hdll;
++        $Procedures{$dll}++;
++    }
+     DEBUG "Object blessed!\n";
+ 
+     #### cast the spell
+@@ -168,6 +195,7 @@
+ sub DESTROY {
+     my ($self) = @_;
+ 
++    return if ! defined $self->{dllname};
+     #### decrease this library's procedures reference count
+     $Procedures{$self->{dllname}}--;
+ 
+@@ -188,7 +216,7 @@
+     if (!$type || $type eq "__stdcall") {
+         return 0;
+     }
+-    elsif ($type eq "_cdecl") {
++    elsif ($type eq "_cdecl" || $type eq "__cdecl") {
+         return 1;
+     }
+     else {
+@@ -197,15 +225,26 @@
+     }
+ }
+ 
++
+ sub type_to_num {
++    die "wrong class" if shift ne "Win32::API";
+     my $type = shift;
+     my $out  = shift;
+-    my $num;
++    my ($num, $numeric);
++    if(index($type, 'num', 0) == 0){
++        substr($type, 0, length('num'), '');
++        $numeric = 1;
++    }
++    else{
++        $numeric = 0;
++    }
+ 
+     if (   $type eq 'N'
+         or $type eq 'n'
+         or $type eq 'l'
+-        or $type eq 'L')
++        or $type eq 'L'
++        or $type eq 'Q'
++        or $type eq 'q')
+     {
+         $num = 1;
+     }
+@@ -236,7 +275,7 @@
+     }
+     else {
+         $num = 0;
+-    }
++    }#not valid return types of the C func
+     unless (defined $out) {
+         if (   $type eq 's'
+             or $type eq 'S')
+@@ -251,22 +290,124 @@
+         elsif ($type eq 'k'
+             or $type eq 'K')
+         {
+-            $num = 101;
++            $num = 55;
++        }
++    }
++    $num |= 0x40 if $numeric;
++    return $num;
++}
++
++package Win32::API::More;
++
++@ISA = qw ( Win32::API );
++sub type_to_num {
++    die "wrong class" if shift ne "Win32::API::More";
++    my $type = shift;
++    my $out  = shift;
++    my ($num, $numeric);
++    if(index($type, 'num', 0) == 0){
++        substr($type, 0, length('num'), '');
++        $numeric = 1;
++    }
++    else{
++        $numeric = 0;
++    }
++
++    if (   $type eq 'N'
++        or $type eq 'n'
++        or $type eq 'l'
++        or $type eq 'L'
++        or $type eq 'Q'
++        or $type eq 'q'
++        or (! $out and  # in XS short 'in's are interger/numbers code
++            $type eq 'S'
++            || $type eq 's'))
++    {
++        $num = 1;
++        if(defined $out && ($type eq 'N' || $type eq 'L'
++                        ||  $type eq 'S' || $type eq 'Q')){
++            $num |= 0x80;
++        }
++    }
++    elsif ($type eq 'P'
++        or $type eq 'p')
++    {
++        $num = 2;
++    }
++    elsif ($type eq 'I'
++        or $type eq 'i')
++    {
++        $num = 3;
++        if(defined $out && $type eq 'I'){
++            $num |= 0x80;
++        }
++    }
++    elsif ($type eq 'f'
++        or $type eq 'F')
++    {
++        $num = 4;
++    }
++    elsif ($type eq 'D'
++        or $type eq 'd')
++    {
++        $num = 5;
++    }
++    elsif ($type eq 'c'
++        or $type eq 'C')
++    {
++        $num = 6;
++        if(defined $out && $type eq 'C'){
++            $num |= 0x80;
++        }
++    }
++    elsif ($type eq 's') #7 is only used for out params
++    {
++        $num = 7;        
++    }
++    elsif ($type eq 'S')
++    {
++        $num = 7 | 0x80;
++    }    
++    else {
++        $num = 0;
++    } #not valid return types of the C func
++    unless (defined $out) {
++        if (   $type eq 't'
++            or $type eq 'T')
++        {
++            $num = 51;
++        }
++        elsif ($type eq 'b'
++            or $type eq 'B')
++        {
++            $num = 22;
++        }
++        elsif ($type eq 'k'
++            or $type eq 'K')
++        {
++            $num = 55;
+         }
+     }
++    $num |= 0x40 if $numeric;
+     return $num;
+ }
++package Win32::API;
+ 
+ sub parse_prototype {
+-    my ($proto) = @_;
++    my ($class, $proto) = @_;
+ 
+     my @in_params = ();
+-    my @in_types  = ();
+-    if ($proto =~ /^\s*(\S+)(?:\s+(\w+))?\s+(\S+)\s*\(([^\)]*)\)/) {
+-        my $ret            = $1;
+-        my $callconvention = $2;
+-        my $proc           = $3;
+-        my $params         = $4;
++    my @in_types  = (); #one day create a BNF-ish formal grammer parser here
++    if ($proto =~ /^\s*((?:(?:un|)signed\s+|) #optional signedness
++        \S+)(?:\s*(\*)\s*|\s+) #type and maybe a *
++        (?:(\w+)\s+)? # maybe a calling convention
++        (\S+)\s* #func name
++        \(([^\)]*)\) #param list
++        /x) {
++        my $ret            = $1.(defined($2)?$2:'');
++        my $callconvention = $3;
++        my $proc           = $4;
++        my $params         = $5;
+ 
+         $params =~ s/^\s+//;
+         $params =~ s/\s+$//;
+@@ -276,35 +417,41 @@
+ 
+         foreach my $param (split(/\s*,\s*/, $params)) {
+             my ($type, $name);
+-            if ($param =~ /(\S+)\s+(\S+)/) {
+-                ($type, $name) = ($1, $2);
++            #match "in_t* _var" "in_t * _var" "in_t *_var" "in_t _var" "in_t*_var" supported
++            #unsigned or signed or nothing as prefix supported
++            # "in_t ** _var" and "const in_t* var" not supported
++            if ($param =~ /((?:(?:un|)signed\s+|)\w+)(?:\s*(\*)\s*|\s+)(\w+)/) {
++                ($type, $name) = ($1.(defined($2)? $2:''), $3);
++            }
++            {
++                no warnings 'uninitialized';
++                if($type eq '') {goto BADPROTO;} #something very wrong, bail out
+             }
+-
+             if (Win32::API::Type::is_known($type)) {
+                 if (Win32::API::Type::is_pointer($type)) {
+                     DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
+                         $type,
+                         Win32::API::Type->packing($type),
+-                        type_to_num('P');
+-                    push(@in_params, type_to_num('P'));
++                        $class->type_to_num('P');
++                    push(@in_params, $class->type_to_num('P'));
+                 }
+                 else {
+                     DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
+                         $type,
+                         Win32::API::Type->packing($type),
+-                        type_to_num(Win32::API::Type->packing($type));
+-                    push(@in_params, type_to_num(Win32::API::Type->packing($type)));
++                        $class->type_to_num(Win32::API::Type->packing($type, undef, 1));
++                    push(@in_params, $class->type_to_num(Win32::API::Type->packing($type, undef, 1)));
+                 }
+             }
+             elsif (Win32::API::Struct::is_known($type)) {
+                 DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
+-                    $type, 'S', type_to_num('S');
+-                push(@in_params, type_to_num('S'));
++                    $type, 'T', Win32::API::More->type_to_num('T');
++                push(@in_params, Win32::API::More->type_to_num('T'));
+             }
+             else {
+                 warn
+                     "Win32::API::parse_prototype: WARNING unknown parameter type '$type'";
+-                push(@in_params, type_to_num('I'));
++                push(@in_params, $class->type_to_num('I'));
+             }
+             push(@in_types, $type);
+ 
+@@ -317,36 +464,39 @@
+                 DEBUG "parse_prototype: OUT='%s' PACKING='%s' API_TYPE=%d\n",
+                     $ret,
+                     Win32::API::Type->packing($ret),
+-                    type_to_num('P');
+-                return ($proc, \@in_params, \@in_types, type_to_num('P'),
+-                    calltype_to_num($callconvention));
++                    $class->type_to_num('P');
++                return ($proc, \@in_params, \@in_types, $class->type_to_num('P', 1),
++                    $ret, calltype_to_num($callconvention));
+             }
+             else {
+                 DEBUG "parse_prototype: OUT='%s' PACKING='%s' API_TYPE=%d\n",
+                     $ret,
+                     Win32::API::Type->packing($ret),
+-                    type_to_num(Win32::API::Type->packing($ret));
++                    $class->type_to_num(Win32::API::Type->packing($ret, undef, 1), 1);
+                 return (
+                     $proc, \@in_params, \@in_types,
+-                    type_to_num(Win32::API::Type->packing($ret)),
+-                    calltype_to_num($callconvention)
++                    $class->type_to_num(Win32::API::Type->packing($ret, undef, 1), 1),
++                    $ret, calltype_to_num($callconvention)
+                 );
+             }
+         }
+         else {
+             warn
+                 "Win32::API::parse_prototype: WARNING unknown output parameter type '$ret'";
+-            return ($proc, \@in_params, \@in_types, type_to_num('I'),
+-                calltype_to_num($callconvention));
++            return ($proc, \@in_params, \@in_types, $class->type_to_num('I', 1),
++                $ret, calltype_to_num($callconvention));
+         }
+ 
+     }
+     else {
++        BADPROTO:
+         warn "Win32::API::parse_prototype: bad prototype '$proto'";
+         return undef;
+     }
+ }
+ 
++
++
+ 1;
+ 
+ __END__
+@@ -364,23 +514,39 @@
+   #### Method 1: with prototype
+ 
+   use Win32::API;
+-  $function = Win32::API->new(
+-      'mydll, 'int sum_integers(int a, int b)',
++  $function = Win32::API::More->new(
++      'mydll', 'int sum_integers(int a, int b)',
+   );
+   $return = $function->Call(3, 2);
+   
+-  #### Method 2: with parameter list
++  #### Method 2: with prototype and your function pointer
+   
+   use Win32::API;
+-  $function = Win32::API->new(
++  $function = Win32::API::More->new(
++      undef, 38123456, 'int name_ignored(int a, int b)',
++  );
++  $return = $function->Call(3, 2);
++
++  #### Method 3: with parameter list 
++  
++  use Win32::API;
++  $function = Win32::API::More->new(
+       'mydll', 'sum_integers', 'II', 'I',
+   );
+   $return = $function->Call(3, 2);
+   
+-  #### Method 3: with Import
++  #### Method 4: with parameter list and your function pointer
++  
++  use Win32::API;
++  $function = Win32::API::More->new(
++      undef, 38123456, 'name_ignored', 'II', 'I',
++  );
++  $return = $function->Call(3, 2);
++  
++  #### Method 5: with Import
+  
+   use Win32::API;
+-  Win32::API->Import(
++  Win32::API::More->Import(
+       'mydll', 'int sum_integers(int a, int b)',
+   );  
+   $return = sum_integers(3, 2);
+@@ -395,7 +561,8 @@
+ =head1 ABSTRACT
+ 
+ With this module you can import and call arbitrary functions
+-from Win32's Dynamic Link Libraries (DLL), without having
++from Win32's Dynamic Link Libraries (DLL) or arbitrary functions for
++which you have a pointer (MS COM, etc), without having
+ to write an XS extension. Note, however, that this module 
+ can't do everything. In fact, parameters input and output is
+ limited to simpler cases.
+@@ -411,9 +578,13 @@
+ the current process, eg. same as Perl's internal C<$$>):
+ 
+     use Win32::API;
+-    Win32::API->Import("kernel32", "int GetCurrentProcessId()");
++    Win32::API::More->Import("kernel32", "int GetCurrentProcessId()");
+     $PID = GetCurrentProcessId();
+ 
++Starting with 0.69. Win32::API initiated objects are deprecated due to numerous
++bugs and improvements, use Win32::API::More now. The use statement remains
++as C<use Win32::API;>.
++
+ The possibilities are nearly infinite (but not all are good :-).
+ Enjoy it.
+ 
+@@ -424,23 +595,23 @@
+     use Win32::API;
+ 
+ You can now use the C<new()> function of the Win32::API module to create a
+-new Win32::API object (see L<IMPORTING A FUNCTION>) and then invoke the 
++new Win32::API::More object (see L<IMPORTING A FUNCTION>) and then invoke the 
+ C<Call()> method on this object to perform a call to the imported API
+ (see L<CALLING AN IMPORTED FUNCTION>).
+ 
+-Starting from version 0.40, you can also avoid creating a Win32::API object
++Starting from version 0.40, you can also avoid creating a Win32::API::More object
+ and instead automatically define a Perl sub with the same name of the API
+ function you're importing. The details of the API definitions are the same,
+ just the call is different:
+ 
+-    my $GetCurrentProcessId = Win32::API->new(
++    my $GetCurrentProcessId = Win32::API::More->new(
+         "kernel32", "int GetCurrentProcessId()"
+     );
+     my $PID = $GetCurrentProcessId->Call();
+ 
+     #### vs.
+ 
+-    Win32::API->Import("kernel32", "int GetCurrentProcessId()");
++    Win32::API::More->Import("kernel32", "int GetCurrentProcessId()");
+     $PID = GetCurrentProcessId();
+ 
+ Note that C<Import> returns 1 on success and 0 on failure (in which case you
+@@ -449,8 +620,9 @@
+ =head2 IMPORTING A FUNCTION
+ 
+ You can import a function from a 32 bit Dynamic Link Library (DLL) file 
+-with the C<new()> function. This will create a Perl object that contains the
+-reference to that function, which you can later C<Call()>.
++with the C<new()> function or, starting in 0.69, supply your own
++function pointer. This will create a Perl object that contains
++the reference to that function, which you can later C<Call()>.
+ 
+ What you need to know is the prototype of the function you're going to import
+ (eg. the definition of the function expressed in C syntax).
+@@ -461,17 +633,28 @@
+ 
+ =head2 IMPORTING A FUNCTION BY PROTOTYPE
+ 
+-You need to pass 2 parameters:
++You need to pass 2 or 3 parameters:
+ 
+ =over 4
+ 
+ =item 1.
+ 
+-The name of the library from which you want to import the function.
++The name of the library from which you want to import the function. If the
++name is undef, you are requesting a object created from a function pointer,
++and must supply item 2.
+ 
+ =item 2.
+ 
+-The C prototype of the function.
++This parameter is optional, most people should skip it, skip does not mean
++supplying undef. Supply a function pointer in the format of number 1234, not
++string "\x01\x02\x03\x04". Undef will be returned if the pointer is not
++readable, GetLastError will be ERROR_NOACCESS.
++
++=item 3.
++
++The C prototype of the function. If you are using a function pointer, the name
++of the function should be something "friendly" to you and no attempt is made
++to retrive such a name from any DLL's export table.
+ 
+ =back
+ 
+@@ -482,9 +665,15 @@
+ See L<Win32::API::Type> for a list of the known parameter types and
+ L<Win32::API::Struct> for information on how to define a structure.
+ 
++If a prototype type is exactly C<signed char> or C<unsigned char> for an 
++"in" parameter or the return parameter, and for "in" parameters only
++C<signed char *> or C<unsigned char *> the parameters will be treated as a
++number, C<0x01>, not C<"\x01">. "UCHAR" is not "unsigned char". Change the
++C prototype if you want numeric handling for your chars.
++
+ =head2 IMPORTING A FUNCTION WITH A PARAMETER LIST
+ 
+-You need to pass 4 parameters:
++You need to pass at minimum 4 parameters.
+ 
+ =over 4
+ 
+@@ -492,15 +681,23 @@
+ The name of the library from which you want to import the function.
+ 
+ =item 2.
+-The name of the function (as exported by the library).
++This parameter is optional, most people should skip it, skip does not mean
++supplying undef. Supply a function pointer in the format of number C<1234>,
++not string C<"\x01\x02\x03\x04">. Undef will be returned if the pointer is not
++readable, GetLastError will be ERROR_NOACCESS.
+ 
+ =item 3.
+-The number and types of the arguments the function expects as input.
++The name of the function (as exported by the library) or for function pointers
++a name that is "friendly" to you. No attempt is made to retrive such a
++name from any DLL's export table in the 2nd case.
+ 
+ =item 4.
+-The type of the value returned by the function.
++The number and types of the arguments the function expects as input.
+ 
+ =item 5.
++The type of the value returned by the function.
++
++=item 6.
+ And optionally you can specify the calling convention, this defaults to
+ '__stdcall', alternatively you can specify '_cdecl'.
+ 
+@@ -545,11 +742,16 @@
+ So, you don't have to write F<C:\windows\system\kernel32.dll>; 
+ only F<kernel32> is enough:
+ 
+-    $GetTempPath = new Win32::API('kernel32', ...
++    $GetTempPath = new Win32::API::More('kernel32', ...
+ 
+ =item B<2.>
+ 
+-Now for the second parameter: the name of the function.
++Since this function is from a DLL, skip the 2nd parameter. Skip does not
++mean supplying undef.
++
++=item B<3.>
++
++Now for the real second parameter: the name of the function.
+ It must be written exactly as it is exported 
+ by the library (case is significant here). 
+ If you are using Windows 95 or NT 4.0, you can use the B<Quick View> 
+@@ -560,7 +762,11 @@
+ when you see that all the exported functions are in upper case,
+ the DLL is a 16 bit one and you can't use it. 
+ If their capitalization looks correct, then it's probably a 32 bit
+-DLL.
++DLL. If you have Platform SDK or Visual Studio, you can use the Dumpbin
++tool. Call it as "dumpbin /exports name_of_dll.dll" on the command line.
++If you have Mingw GCC, use objdump as
++"objdump -x name_of_dll.dll > dlldump.txt" and search for the word exports in
++the very long output.
+ 
+ Also note that many Win32 APIs are exported twice, with the addition of
+ a final B<A> or B<W> to their name, for - respectively - the ASCII 
+@@ -570,11 +776,11 @@
+ Unicode system, then it will try with the B<W> instead.
+ So our function name will be:
+ 
+-    $GetTempPath = new Win32::API('kernel32', 'GetTempPath', ...
++    $GetTempPath = new Win32::API::More('kernel32', 'GetTempPath', ...
+ 
+ In our case C<GetTempPath> is really loaded as C<GetTempPathA>.
+ 
+-=item B<3.>
++=item B<4.>
+ 
+ The third parameter, the input parameter list, specifies how many 
+ arguments the function wants, and their types. It can be passed as
+@@ -597,10 +803,16 @@
+ =over 4
+ 
+ =item C<I>: 
+-value is an integer (int)
++value is an unsigned integer (unsigned int)
++
++=item C<i>: 
++value is an signed integer (signed int or int)
+ 
+ =item C<N>: 
+-value is a number (long)
++value is a unsigned pointer sized number (unsigned long)
++
++=item C<n>: 
++value is a signed pointer sized number (signed long or long)
+ 
+ =item C<F>: 
+ value is a floating point number (float)
+@@ -608,13 +820,24 @@
+ =item C<D>: 
+ value is a double precision number (double)
+ 
++=item C<S>: 
++value is a unsigned short (unsigned short)
++
++=item C<s>: 
++value is a signed short (signed short or short)
++
+ =item C<C>: 
+-value is a char (char)
++value is a char (char), pass as C<"a>", not C<97>, C<"abc"> will truncate to C<"a">
+ 
+ =item C<P>: 
+ value is a pointer (to a string, structure, etc...)
++padding out the buffer string is required, buffer overflow detection is
++performed. Pack and unpack the data yourself. If P is a return type, only
++null terminated strings or NULL pointer are supported. It is suggested to
++not use P as a return type and instead use N and read the memory yourself, and
++free the pointer if applicable.
+ 
+-=item C<S>: 
++=item C<T>: 
+ value is a Win32::API::Struct object (see below)
+ 
+ =item C<K>:
+@@ -632,10 +855,10 @@
+ The fourth and final parameter is the type of the value returned by the 
+ function. It can be one of the types seen above, plus another type named B<V> 
+ (for C<void>), used for functions that do not return a value.
+-In our example the value returned by GetTempPath() is a C<DWORD>, so 
+-our return type will be B<N>:
++In our example the value returned by GetTempPath() is a C<DWORD>, which is a
++typedef for unsigned long, so our return type will be B<N>:
+ 
+-    $GetTempPath = new Win32::API('kernel32', 'GetTempPath', 'NP', 'N');
++    $GetTempPath = new Win32::API::More('kernel32', 'GetTempPath', 'NP', 'N');
+ 
+ Now the line is complete, and the GetTempPath() API is ready to be used
+ in Perl. Before calling it, you should test that $GetTempPath is 
+@@ -644,7 +867,7 @@
+ by Windows.
+ Our definition, with error checking added, should then look like this:
+ 
+-    $GetTempPath = new Win32::API('kernel32', 'GetTempPath', 'NP', 'N');
++    $GetTempPath = new Win32::API::More('kernel32', 'GetTempPath', 'NP', 'N');
+     if(not defined $GetTempPath) {
+         die "Can't import API GetTempPath: $!\n";
+     }
+@@ -668,10 +891,9 @@
+ The two parameters needed here are the length of the buffer
+ that will hold the returned temporary path, and a pointer to the 
+ buffer itself.
+-For numerical parameters, you can use either a constant expression
+-or a variable, while B<for pointers you must use a variable name> (no 
+-Perl references, just a plain variable name).
+-Also note that B<memory must be allocated before calling the function>,
++For numerical parameters except for char, you can use either a constant expression
++or a variable, it will be numified similar to the expression C<($var+0)>.
++For pointers, also note that B<memory must be allocated before calling the function>,
+ just like in C.
+ For example, to pass a buffer of 80 characters to GetTempPath(),
+ it must be initialized before with:
+@@ -679,14 +901,14 @@
+     $lpBuffer = " " x 80;
+ 
+ This allocates a string of 80 characters. If you don't do so, you'll
+-probably get C<Runtime exception> errors, and generally nothing will 
+-work. The call should therefore include:
++probably get a fatal buffer overflow error starting in 0.69.
++The call should therefore include:
+ 
+     $lpBuffer = " " x 80;
+     $GetTempPath->Call(80, $lpBuffer);
+ 
+ And the result will be stored in the $lpBuffer variable.
+-Note that you don't need to pass a reference to the variable
++Note that you never need to pass a reference to the variable
+ (eg. you B<don't need> C<\$lpBuffer>), even if its value will be set 
+ by the function. 
+ 
+@@ -762,18 +984,98 @@
+ 
+ you have to pack() the required elements in a variable:
+ 
+-    $lpPoint = pack('LL', 0, 0); # store two LONGs
++    $lpPoint = pack('ll', 0, 0); # store two LONGs
+ 
+ =item 2.
+ 
+ to access the values stored in a structure, unpack() it as required:
+ 
+-    ($x, $y) = unpack('LL', $lpPoint); # get the actual values
++    ($x, $y) = unpack(';;', $lpPoint); # get the actual values
+ 
+ =back
+ 
+ The rest is left as an exercise to the reader...
+ 
++=head2 EXPORTED FUNCTIONS
++
++=head3 ReadMemory
++
++    $copy_of_memblock = ReadMemory($SourcePtr, $length);
++
++Reads the source pointer for C<$length> number of bytes. Returns a copy of
++the memory block in a scalar. No readability checking is done on C<$SourcePtr>.
++C<$SourcePtr>'s format is 123456, not C<"\x01\x02\x03\x04">.
++
++=head3 WriteMemory
++
++    WriteMemory($DestPtr, $sourceScalar, $length);
++
++Copies the string contents of the C<$sourceScalar> scalar to C<$DestPtr> for
++C<$length> bytes. $length must be less than or equal to the length of
++C<$sourceScalar>, otherwise the function croaks. No readability checking is
++done on C<$DestPtr>. C<$DestPtr>'s format is 123456, not
++C<"\x01\x02\x03\x04">. Returns nothing.
++
++=head3 MoveMemory
++
++    MoveMemory($destPtr, $sourcePtr, $length);
++
++Copies a block of memory from one location to another. The source and
++destination blocks may overlap. All pointers are in the format of 123456,
++not C<"\x01\x02\x03\x04">.  No readability checking is done. Returns nothing.
++
++=head3 IsBadReadPtr
++
++    if(IsBadReadPtr($ptr, $length)) {die "bad ptr";}
++
++Probes a memory block for C<$length> bytes for readability. Returns true if
++access violation occurs, otherwise false is returned. This function is useful
++to avoid dereferencing pointers which will crash the perl process. This function
++has many limitations, including not detecting uninitialized memory, not
++detecting freed memory, and not detecting giberrish. It can not tell whether a
++function pointer is valid x86 machine code. Ideally, you should never use it,
++or remove it once your code is stable. C<$ptr> is in the format of 123456,
++not C<"\x01\x02\x03\x04">. See MS's documentation for alot more
++on this function of the same name.
++
++
++=head1 HISTORY
++
++=over 4
++
++=item return value signedness
++
++Prior to 0.69, for numeric integer types, the return scalar was always signed.
++Unsigned-ness was ignored.
++
++=item shorts
++
++Prior to 0.69, shorts were not supported. 'S' meant a sturct. To fix this
++Win32::API::More class was created for 0.69. 'S'/'s' now means short, per pack's
++letters. Struct has been moved to letter 'T'. Win32::API will continue to exist
++for legacy code.
++
++=item float return types
++
++Prior to 0.69, if a function had a return type of float, it was silently
++not called.
++
++=item buffer overflow protection
++
++Introduced in 0.69. If disabling is required, which is highly
++B<not recommended>, set an enviromental variable called
++WIN32_API_SORRY_I_WAS_AN_IDIOT to 1.
++
++=item automatic un/pack
++
++Starting with 0.69, when using Win32::API::More, there is automatic un/packing
++of pointers to numbers-ish things for in parameters when using the C
++prototype interface.
++
++=back
++
++See the C<Changes> file for more details.
++
+ =head1 AUTHOR
+ 
+ Aldo Calpini ( I<dada@perl.it> ).
+diff -ruNZ old/API.xs new/API.xs
+--- old/API.xs	2011-12-25 16:09:32.000000000 -0500
++++ new/API.xs	2012-05-29 10:23:14.296875000 -0400
+@@ -10,7 +10,7 @@
+ #define  WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+ #include <memory.h>
+-
++#define PERL_NO_GET_CONTEXT
+ #include "EXTERN.h"
+ #include "perl.h"
+ #include "XSUB.h"
+@@ -51,39 +51,38 @@
+ #error "Don't know what architecture I'm on."
+ #endif
+ 
+-void pointerCallPack(SV* param, int idx, AV* types) {
+-	dSP;
+-	SV* type;
++#ifndef mPUSHs
++#  define mPUSHs(s)                      PUSHs(sv_2mortal(s))
++#endif
++
++#ifndef mXPUSHs
++#  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
++#endif
+ 
+-	type = *( av_fetch(types, idx, 0) );
++void pointerCallPack(pTHX_ SV * obj, SV * param, SV * type) {
++	dSP;
+ 	ENTER;
+-	SAVETMPS;
+ 	PUSHMARK(SP);
+-	XPUSHs(sv_2mortal(newSVsv(type)));
+-	XPUSHs(param);
+-	PUTBACK;
+-	call_pv("Win32::API::Type::Pack", G_DISCARD);
++    EXTEND(SP, 3);
++    PUSHs(obj);
++    PUSHs(type);
++	PUSHs(param);
+ 	PUTBACK;
+-
+-	FREETMPS;
++	call_pv("Win32::API::Type::Pack", G_VOID);
+ 	LEAVE;
+ }
+ 
+-void pointerCallUnpack(SV* param, int idx, AV* types) {
+-	dSP;
+-	SV* type;
+ 
+-	type = *( av_fetch(types, idx, 0) );
++void pointerCallUnpack(pTHX_ SV * obj, SV * param, SV * type) {
++	dSP;
+ 	ENTER;
+-	SAVETMPS;
+ 	PUSHMARK(SP);
+-	XPUSHs(sv_2mortal(newSVsv(type)));
+-	XPUSHs(param);
+-	PUTBACK;
+-	call_pv("Win32::API::Type::Unpack", G_DISCARD);
++    EXTEND(SP, 3);
++    PUSHs(obj);
++    PUSHs(type);
++	PUSHs(param);
+ 	PUTBACK;
+-
+-	FREETMPS;
++	call_pv("Win32::API::Type::Unpack", G_VOID);
+ 	LEAVE;
+ }
+ 
+@@ -92,6 +91,39 @@
+ 
+ PROTOTYPES: DISABLE
+ 
++BOOT:
++{
++    SV * sentinal;
++    SENTINAL_STRUCT sentinal_struct;
++    LARGE_INTEGER counter;
++#ifdef WIN32_API_DEBUG
++    const char * const SDumpStr = "(XS)Win32::API::boot: APIPARAM layout, member %s, SzOf %u, offset %u\n";
++#endif
++    STATIC_ASSERT(sizeof(sentinal_struct) == 12); //8+2+2
++#ifdef WIN32_API_DEBUG
++#define  DUMPMEM(type,name) printf(SDumpStr, #type " " #name, sizeof(((APIPARAM *)0)->name), offsetof(APIPARAM, name));
++    DUMPMEM(int,t);
++    DUMPMEM(LPBYTE,b);
++    DUMPMEM(char,c);
++    DUMPMEM(char*,p);
++    DUMPMEM(long_ptr,l);
++    DUMPMEM(float,f);
++    DUMPMEM(double,d);
++    printf("(XS)Win32::API::boot: APIPARAM total size=%u\n", sizeof(APIPARAM));
++#undef DUMPMEM
++#endif
++    //this is not secure against malicious overruns
++    //QPC doesn't like unaligned pointers
++    if(!QueryPerformanceCounter(&counter))
++        croak("Win32::API::boot: internal error\n");
++    sentinal_struct.counter = counter;
++    sentinal_struct.null1 = L'\0';
++    sentinal_struct.null2 = L'\0';
++    sentinal = get_sv("Win32::API::sentinal", 1);
++    sv_setpvn(sentinal, (char*)&sentinal_struct, sizeof(sentinal_struct));
++}
++
++
+ HINSTANCE
+ LoadLibrary(name)
+     char *name;
+@@ -117,6 +149,8 @@
+ OUTPUT:
+     RETVAL
+ 
++#//IsUnicode should be a package level var set from BOOT:
++
+ bool
+ IsUnicode()
+ CODE:
+@@ -129,6 +163,10 @@
+     RETVAL
+ 
+ 
++#//ToUnicode, never make this public API without rewrite, terrible design
++#//no use of SvCUR, no use of svutf8 flag, no writing into XSTARG, malloc usage
++#//Win32 the mod has much nicer converters in XS
++
+ void
+ ToUnicode(string)
+     LPCSTR string
+@@ -151,6 +189,9 @@
+         XSRETURN_NO;
+     }
+ 
++#//FromUnicode, never make this public API without rewrite, terrible design
++#//no use of SvCUR, no usage of svutf8, no writing into XSTARG, malloc usage
++#//Win32 the mod has much nicer converters in XS
+ 
+ void
+ FromUnicode(uString)
+@@ -196,13 +237,62 @@
+     XSRETURN(1);
+ 
+ void
++IsBadReadPtr(addr, len)
++    long_ptr addr
++    UV len
++ALIAS:
++    IsBadStringPtr = 1
++PREINIT:
++    SV * retsv;
++PPCODE:
++    if(ix){
++        if(IsBadStringPtr((void *)addr,len)) goto RET_YES;
++        else goto RET_NO;
++    }
++    if(IsBadReadPtr((void *)addr,len)){
++        RET_YES:
++        retsv = &PL_sv_yes;
++    }
++    else{
++        RET_NO:
++        retsv = &PL_sv_no;
++    }
++    XPUSHs(retsv);
++
++
++void
+ ReadMemory(addr, len)
+     long_ptr addr
+     long len
+ PPCODE:
+-    EXTEND(SP, 1);
+-	XPUSHs(sv_2mortal(newSVpv((char *) addr, len)));
+-    XSRETURN(1);
++	mXPUSHs(newSVpvn((char *) addr, len));
++
++#//idea, one day length is optional, 0/undef/not present means full length
++#//but this sub is more dangerous then
++void
++WriteMemory(destPtr, sourceSV, length)
++    long_ptr destPtr
++    SV * sourceSV
++    size_t length;
++PREINIT:
++    char * sourcePV;
++    STRLEN sourceLen;
++PPCODE:
++    sourcePV = SvPV(sourceSV, sourceLen);
++	if(length < sourceLen)
++        croak("Win32::API::WriteMemory, $length < length($source)", length, sourceLen);
++    //they can't overlap
++    memcpy((void *)destPtr, (void *)sourcePV, length);
++
++
++void
++MoveMemory(Destination, Source, Length)
++    long_ptr Destination
++    long_ptr Source
++    size_t Length
++PPCODE:
++    MoveMemory((void *)Destination, (void *)Source, Length);
++
+ 
+ void
+ Call(api, ...)
+@@ -211,6 +301,7 @@
+     FARPROC ApiFunction;
+     APIPARAM *params;
+ 	APIPARAM retval;
++    SV * retsv;
+     // APISTRUCT *structs;
+     // APICALLBACK *callbacks;
+     SV** origST;
+@@ -236,7 +327,8 @@
+     int words_pushed;
+     BOOL c_call;
+ 	BOOL has_proto = FALSE;
+-
++    UCHAR is_more = sv_isa(api, "Win32::API::More");
++    SV * sentinal = get_sv("Win32::API::sentinal", 0);
+     obj = (HV*) SvRV(api);
+     obj_proc = hv_fetch(obj, "proc", 4, FALSE);
+ 
+@@ -261,80 +353,104 @@
+     call_type = hv_fetch(obj, "cdecl", 5, FALSE);
+     c_call = call_type ? SvTRUE(*call_type) : FALSE;
+ 
++
+     if(items-1 != nin+1) {
+         croak("Wrong number of parameters: expected %d, got %d.\n", nin+1, items-1);
+     }
+ 
+     if(nin >= 0) {
+-        params = (APIPARAM *) safemalloc((nin+1) * sizeof(APIPARAM));
+-        // structs = (APISTRUCT *) safemalloc((nin+1) * sizeof(APISTRUCT));
+-        // callbacks = (APICALLBACK *) safemalloc((nin+1) * sizeof(APICALLBACK));
+-        origST = (SV**) safemalloc((nin+1) * sizeof(SV*));
++        //malloc isn't croak-safe
++        params = (APIPARAM *) _alloca((nin+1) * sizeof(APIPARAM));
++        // structs = (APISTRUCT *) _alloca((nin+1) * sizeof(APISTRUCT));
++        // callbacks = (APICALLBACK *) _alloca((nin+1) * sizeof(APICALLBACK));
++        origST = (SV**) _alloca((nin+1) * sizeof(SV*));
+ 
+         /* #### FIRST PASS: initialize params #### */
+         for(i = 0; i <= nin; i++) {
++            SV*     pl_stack_param = ST(i+1);
+             in_type = av_fetch(inlist, i, 0);
+             tin = SvIV(*in_type);
++            //unsigned meaningless no sign vs zero extends are done bc uv/iv is
++            //the biggest native integer on the cpu, big to small is truncation
++            tin &= ~T_FLAG_UNSIGNED;
++            //unimplemented except for char
++            if((tin & ~ T_FLAG_NUMERIC) != T_CHAR){
++                tin &= ~T_FLAG_NUMERIC;
++            }
+             switch(tin) {
+             case T_NUMBER:
+                 params[i].t = T_NUMBER;
+-				params[i].l = (long_ptr) SvIV(ST(i+1));  //xxx not sure about T_NUMBER length on Win64
++				params[i].l = (long_ptr) SvIV(pl_stack_param);  //xxx not sure about T_NUMBER length on Win64
+ #ifdef WIN32_API_DEBUG
+ 				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%ld\n", i, params[i].t, params[i].l);
+ #endif
+                 break;
+             case T_CHAR:
+                 params[i].t = T_CHAR;
+-				params[i].p = (char *) SvPV_nolen(ST(i+1));
++                //ASM x64 vs i686 is messy, both must fill
++                params[i].c = (SvPV_nolen(pl_stack_param))[0];
++                params[i].l = (long_ptr)(params[i].c);
+ #ifdef WIN32_API_DEBUG
+-				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%s\n", i, params[i].t, params[i].p);
++				printf("(XS)Win32::API::Call: params[%d].t=%d,  as char .u=%c\n", i, params[i].t, (char)params[i].l);
+ #endif
+-				params[i].l = (long_ptr) (params[i].p)[0];
++                break;
++            case (T_CHAR|T_FLAG_NUMERIC):
++                params[i].t = T_CHAR;
++                //unreachable unless had a proto in Perl
++                //ASM x64 vs i686 is messy, both must fill
++                params[i].c = (char) SvIV(pl_stack_param);
++                params[i].l = (long_ptr)(params[i].c);
+ #ifdef WIN32_API_DEBUG
+-				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%c\n", i, params[i].t, params[i].l);
++				printf("(XS)Win32::API::Call: params[%d].t=%d, as num  .u=0x%X\n", i, params[i].t, (unsigned char) SvIV(pl_stack_param));
+ #endif
+-				//}
+                 break;
+             case T_FLOAT:
+                 params[i].t = T_FLOAT;
+-               	params[i].f = (float) SvNV(ST(i+1));
++               	params[i].f = (float) SvNV(pl_stack_param);
+ #ifdef WIN32_API_DEBUG
+                 printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%f\n", i, params[i].t, params[i].f);
+ #endif
+                 break;
+             case T_DOUBLE:
+                 params[i].t = T_DOUBLE;
+-               	params[i].d = (double) SvNV(ST(i+1));
++               	params[i].d = (double) SvNV(pl_stack_param);
+ #ifdef WIN32_API_DEBUG
+                	printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%f\n", i, params[i].t, params[i].d);
+ #endif
+                 break;
+-            case T_POINTER:
+-                params[i].t = T_POINTER;
+-                origST[i] = ST(i+1);
++            case T_POINTER:{
++                params[i].t = T_POINTER; //chance of useless unpack later
++                if(SvREADONLY(pl_stack_param)) //Call() param was a string litteral
++                    pl_stack_param = sv_mortalcopy(pl_stack_param);
++                origST[i] = pl_stack_param;
+                 if(has_proto) {
+-                    if(SvOK(ST(i+1))) {
+-                        pointerCallPack(ST(i+1), i, intypes);
+-                        params[i].p = (char *) SvPV_nolen(ST(i+1));
++                    if(SvOK(pl_stack_param)) {
++                        if(is_more) {
++                            pointerCallPack(aTHX_ api, pl_stack_param, *av_fetch(intypes, i, 0));
++                        }
++                        goto PTR_IN_USE_PV;
+                     /* When arg is undef, use NULL pointer */
+                     } else {
+                         params[i].p = NULL;
+                     }
+ 				} else {
+-					if(SvIOK(ST(i+1)) && SvIV(ST(i+1)) == 0) {
++					if(SvIOK(pl_stack_param) && SvIV(pl_stack_param) == 0) {
+ 						params[i].p = NULL;
+ 					} else {
+-						params[i].p = (char *) SvPV_nolen(ST(i+1));
++                        PTR_IN_USE_PV:
++                        sv_catsv(pl_stack_param, get_sv("Win32::API::sentinal", 0));
++                        params[i].p = SvPVX(pl_stack_param);
+ 					}
+ 				}
+ #ifdef WIN32_API_DEBUG
+                 printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%s\n", i, params[i].t, params[i].p);
+ #endif
+                 break;
++            }
+             case T_POINTERPOINTER:
+                 params[i].t = T_POINTERPOINTER;
+-                if(SvROK(ST(i+1)) && SvTYPE(SvRV(ST(i+1))) == SVt_PVAV) {
+-                    pparray = (AV*) SvRV(ST(i+1));
++                if(SvROK(pl_stack_param) && SvTYPE(SvRV(pl_stack_param)) == SVt_PVAV) {
++                    pparray = (AV*) SvRV(pl_stack_param);
+                     ppref = av_fetch(pparray, 0, 0);
+                     if(SvIOK(*ppref) && SvIV(*ppref) == 0) {
+                         params[i].b = NULL;
+@@ -350,7 +466,7 @@
+                 break;
+             case T_INTEGER:
+                 params[i].t = T_NUMBER;
+-                params[i].l = (long_ptr) (int) SvIV(ST(i+1));
++                params[i].l = (long_ptr) (int) SvIV(pl_stack_param);
+ #ifdef WIN32_API_DEBUG
+                 printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%d\n", i, params[i].t, params[i].l);
+ #endif
+@@ -362,8 +478,8 @@
+ 
+ 					params[i].t = T_STRUCTURE;
+ 
+-					if(SvROK(ST(i+1))) {
+-						mg = mg_find(SvRV(ST(i+1)), 'P');
++					if(SvROK(pl_stack_param)) {
++						mg = mg_find(SvRV(pl_stack_param), 'P');
+ 						if(mg != NULL) {
+ #ifdef WIN32_API_DEBUG
+ 							printf("(XS)Win32::API::Call: SvRV(ST(i+1)) has P magic\n");
+@@ -371,27 +487,30 @@
+ 							origST[i] = mg->mg_obj;
+ 							// structs[i].object = mg->mg_obj;
+ 						} else {
+-							origST[i] = ST(i+1);
++							origST[i] = pl_stack_param;
+ 							// structs[i].object = ST(i+1);
+ 						}
+ 					}
++                    else {
++                    	croak("Win32::API::Call: parameter %d must be a Win32::API::Struct object!\n", i+1);
++                    }
+ 				}
+                 break;
+ 
+ 			case T_CODE:
+ 				params[i].t = T_CODE;
+ #ifdef WIN32_API_DEBUG
+-				printf("(XS)Win32::API::Call: got a T_CODE, (SV=0x%08x) (SvPV='%s')\n", ST(i+1), SvPV_nolen(ST(i+1)));
++				printf("(XS)Win32::API::Call: got a T_CODE, (SV=0x%08x) (SvPV='%s')\n", pl_stack_param, SvPV_nolen(pl_stack_param));
+ #endif
+-				if(SvROK(ST(i+1))) {
++				if(SvROK(pl_stack_param)) {
+ #ifdef WIN32_API_DEBUG
+ 				printf("(XS)Win32::API::Call: fetching code...\n");
+ #endif
+-					code = hv_fetch((HV*) SvRV(ST(i+1)), "code", 4, 0);
++					code = hv_fetch((HV*) SvRV(pl_stack_param), "code", 4, 0);
+ 					if(code != NULL) {
+ 						params[i].l = SvIV(*code);
+ 						// callbacks[i].object = ST(i+1);
+-						origST[i] = ST(i+1);
++						origST[i] = pl_stack_param;
+ 					} else {
+ 						croak("Win32::API::Call: parameter %d must be a Win32::API::Callback object!\n", i+1);
+ 					}
+@@ -399,7 +518,9 @@
+ 					croak("Win32::API::Call: parameter %d must be a Win32::API::Callback object!\n", i+1);
+ 				}
+ 				break;
+-
++            default:
++                croak("Win32::API::Call: (internal error) unknown type %u\n", tin);
++                break;
+             }
+         }
+ 
+@@ -468,14 +589,25 @@
+     }
+ 
+ 	/* nin is actually number of parameters minus one. I don't know why. */
+-	retval.t = tout;
++	retval.t = tout & ~T_FLAG_NUMERIC; //flag numeric not in ASM
+ 	Call_asm(ApiFunction, params, nin + 1, &retval, c_call);
+ 
+ 	/* #### THIRD PASS: postfix pointers/structures #### */
+     for(i = 0; i <= nin; i++) {
+-		if(params[i].t == T_POINTER && has_proto) {
+-            if(SvOK(origST[i])) {
+-                pointerCallUnpack(origST[i], i, intypes);
++		if(params[i].t == T_POINTER && params[i].p){
++            char * sen = SvPVX(sentinal);
++            char * end = SvEND(origST[i]);
++            end -= (sizeof(SENTINAL_STRUCT));
++            if(memcmp(end, sen, sizeof(SENTINAL_STRUCT))){
++                HV * env = get_hv("ENV", GV_ADD);
++                SV ** buf_check = hv_fetchs(env, "WIN32_API_SORRY_I_WAS_AN_IDIOT", 0);
++                if(buf_check && sv_true(*buf_check)) {0;}
++                else{croak("Win32::API::Call: parameter %d had a buffer overflow", i+1);}
++            }else{ //remove the sentinal off the buffer
++                SvCUR_set(origST[i], SvCUR(origST[i])-sizeof(SENTINAL_STRUCT));
++            }
++            if(has_proto && is_more) {
++                pointerCallUnpack(aTHX_ api, origST[i], *av_fetch(intypes, i, 0));
+             }
+ 		}
+ 		if(params[i].t == T_STRUCTURE) {
+@@ -499,60 +631,100 @@
+         }
+     }
+ #ifdef WIN32_API_DEBUG
+-   	printf("(XS)Win32::API::Call: freeing memory...\n");
+-#endif
+-    if(nin >= 0) {
+-		safefree(params);
+-		safefree(origST);
+-	}
+-#ifdef WIN32_API_DEBUG
+    	printf("(XS)Win32::API::Call: returning to caller.\n");
+ #endif
+ 	/* #### NOW PUSH THE RETURN VALUE ON THE (PERL) STACK #### */
++	XSprePUSH;
+     EXTEND(SP, 1);
++
++    //un/signed prefix is ignored unless implemented, only T_CHAR implemented
++    if((tout & ~(T_FLAG_NUMERIC|T_FLAG_UNSIGNED)) != T_CHAR){
++        tout &= ~T_FLAG_NUMERIC;
++    }
+     switch(tout) {
++    case T_INTEGER:
+     case T_NUMBER:
+ #ifdef WIN32_API_DEBUG
+-	   	printf("(XS)Win32::API::Call: returning %d.\n", retval.l);
++	   	printf("(XS)Win32::API::Call: returning %Id.\n", retval.l);
+ #endif
+-        XSRETURN_IV(retval.l);
++        retsv = newSViv(retval.l);
++        break;
++    case (T_INTEGER|T_FLAG_UNSIGNED):
++    case (T_NUMBER|T_FLAG_UNSIGNED):
++#ifdef WIN32_API_DEBUG
++	   	printf("(XS)Win32::API::Call: returning %Iu.\n", retval.l);
++#endif
++        retsv = newSVuv(retval.l);
++        break;
++    case T_SHORT:
++#ifdef WIN32_API_DEBUG
++	   	printf("(XS)Win32::API::Call: returning %hd.\n", retval.l);
++#endif
++        retsv = newSViv((IV)(short)retval.l);
++        break;
++    case (T_SHORT|T_FLAG_UNSIGNED):
++#ifdef WIN32_API_DEBUG
++	   	printf("(XS)Win32::API::Call: returning %hu.\n", retval.l);
++#endif
++        retsv = newSVuv((UV)(unsigned short)retval.l);
+         break;
+     case T_FLOAT:
+ #ifdef WIN32_API_DEBUG
+ 	   	printf("(XS)Win32::API::Call: returning %f.\n", retval.f);
+ #endif
+-        XSRETURN_NV((double) retval.f);
++        retsv = newSVnv((double) retval.f);
+         break;
+     case T_DOUBLE:
+ #ifdef WIN32_API_DEBUG
+ 	   	printf("(XS)Win32::API::Call: returning %f.\n", retval.d);
+ #endif
+-		XSRETURN_NV(retval.d);
++        retsv = newSVnv(retval.d);
+         break;
+     case T_POINTER:
+ 		if(retval.p == NULL) {
+ #ifdef WIN32_API_DEBUG
+ 	   	printf("(XS)Win32::API::Call: returning NULL.\n");
+ #endif
+-			XSRETURN_IV(0);
++            RET_PTR_NULL:
++            if(!is_more) retsv = newSViv(0);//old api
++            else retsv = &PL_sv_undef; //undef much clearer
+ 		} else {
+ #ifdef WIN32_API_DEBUG
+ 		printf("(XS)Win32::API::Call: returning 0x%x '%s'\n", retval.p, retval.p);
+ #endif
+-	        XSRETURN_PV(retval.p);
++            //The user is probably leaking, new pointers are almost always
++            //caller's responsibility
++            if(IsBadStringPtr(retval.p, ~0)) goto RET_PTR_NULL;
++            else {
++                retsv = newSVpv(retval.p, 0);
++            }
+ 	    }
+         break;
+-    case T_INTEGER:
++    case T_CHAR:
++    case (T_CHAR|T_FLAG_UNSIGNED):
++#ifdef WIN32_API_DEBUG
++	   	printf("(XS)Win32::API::Call: returning char 0x%X .\n", (char)retval.l);
++#endif
++        retsv = newSVpvn((char *)&retval.l, 1);
++        break;
++    case (T_CHAR|T_FLAG_NUMERIC):
++#ifdef WIN32_API_DEBUG
++	   	printf("(XS)Win32::API::Call: returning numeric char %hd.\n", (char)retval.l);
++#endif
++        retsv = newSViv((IV)(char)retval.l);
++        break;
++    case (T_CHAR|T_FLAG_NUMERIC|T_FLAG_UNSIGNED):
+ #ifdef WIN32_API_DEBUG
+-	   	printf("(XS)Win32::API::Call: returning %d.\n", retval.l);
++	   	printf("(XS)Win32::API::Call: returning numeric unsigned char %hu.\n", (unsigned char)retval.l);
+ #endif
+-        XSRETURN_IV(retval.l);
++        retsv = newSVuv((UV)(unsigned char)retval.l);
+         break;
+     case T_VOID:
+     default:
+ #ifdef WIN32_API_DEBUG
+ 	   	printf("(XS)Win32::API::Call: returning UNDEF.\n");
+ #endif
+-        XSRETURN_UNDEF;
++        retsv = &PL_sv_undef;
+         break;
+     }
++    mPUSHs(retsv);
+Binary files old/API_test.dll and new/API_test.dll differ
+Binary files old/API_test64.dll and new/API_test64.dll differ
+diff -ruNZ old/Callback/Callback.xs new/Callback/Callback.xs
+--- old/Callback/Callback.xs	2011-12-25 16:09:32.000000000 -0500
++++ new/Callback/Callback.xs	2012-05-29 10:23:43.593750000 -0400
+@@ -17,12 +17,26 @@
+ 
+ #include "EXTERN.h"
+ #include "perl.h"
++
++//undo perl messing with stdio
++//perl's stdio emulation layer is not OS thread safe
++#define NO_XSLOCKS
+ #include "XSUB.h"
+ #define CROAK croak
+ 
++
++#ifndef mPUSHs
++#  define mPUSHs(s)                      PUSHs(sv_2mortal(s))
++#endif
++
++#ifndef mXPUSHs
++#  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
++#endif
++
++
+ #include "../API.h"
+ 
+-#pragma optimize("", off)
++
+ 
+ /*
+  * some Perl macros for backward compatibility
+@@ -60,7 +74,6 @@
+ 
+ SV* fakesv;
+ int fakeint;
+-char *fakepointer;
+ 
+ int RelocateCode(unsigned char* cursor, unsigned int displacement) {
+ 	int skip;
+@@ -272,6 +285,8 @@
+ 	// return structobj;
+ }
+ 
++//turn off "global optimizations", -Od -O1 and -O2 tested ok
++#pragma optimize("g", off)
+ int CALLBACK CallbackTemplate() {
+ 	SV* myself = (SV*) 0xC0DE0001; 	// checkpoint_SELFPOS
+ 	int nparams = 0xC0DE0002; 		// checkpoint_NPARAMS
+@@ -285,7 +300,20 @@
+ //	sv_dump(myself);
+ //	if(SvROK(myself)) sv_dump(SvRV(myself));
+ #endif
+-
++#ifdef aTHX
++    {
++        dTHX;
++        if(aTHX == NULL) {
++//perl overrode CRT's fprintf, undo that since the error message has to be
++//printed with zero perl involvement
++            fprintf(stderr, "Win32::API::Callback::CallbackTemplate: no perl interp "
++                   "in thread id %u, callback can not run\n", GetCurrentThreadId());
++            r = 0; //dont return uninitialized value
++            checkpoint = 0xC0DE0050;
++            goto END;
++        }
++    }
++#endif
+ 	params = (APIPARAM*) safemalloc(  nparams * sizeof(APIPARAM) );
+ 	checkpoint = 0xC0DE0010;		// checkpoint_PUSHI
+ 	i = 0xC0DE0003;					// checkpoint_IPOS
+@@ -335,8 +363,13 @@
+ #ifdef WIN32_API_DEBUG
+ 	printf("(C)CallbackTemplate: RETURNING\n");
+ #endif
++    END:
++    checkpoint = 0xC0DE0060;
+ 	return r;
+ }
++//restore back to cmd line defaults
++#pragma optimize( "", on )
++
+ 
+ int PerformCallback(SV* self, int nparams, APIPARAM* params) {
+ 	SV* mycode;
+@@ -385,17 +418,93 @@
+ 	return r;
+ }
+ 
++unsigned char * FixupAsmSection(unsigned char * cursor, unsigned int section_PUSH, unsigned int j,
++                            unsigned int displacement, unsigned char ebpcounter
++#ifdef WIN32_API_DEBUG
++            , char * SvType
++#endif
++            ){
++    unsigned int i, r;
++#ifdef WIN32_API_DEBUG
++	printf("(C)FixupAsmSection: section_PUSH         is: 0x%08X\n", section_PUSH);
++#endif
++    for(i=0; i < section_PUSH; i++) {
++        // 8B 15 18 75 3A 00 mov         edx,dword ptr [_fakeint (3A7518h)] 
++        if(*(cursor+0) == 0x8B
++        //below is a disp32 source
++        //look at ModR/M Byte table in Intel x86 manual, then this makes sense
++        && (((*(cursor+1) & 0x0F) == 0x05 || (*(cursor+1) & 0x0F) == 0x0D) && (*(cursor+1) & 0xF0) < 0x40)
++        && *((int*)(cursor+2)) == (int) &fakeint
++        ) {
++#ifdef WIN32_API_DEBUG
++            printf("(C)CallbackCreate:     FOUND THE %s at 0x%x\n", cursor, SvType);
++            printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
++#endif
++            *(cursor+0) = 0x8B;
++            *(cursor+1) = *(cursor+1) + 0x40; //0x40 is from disp32 to disp 8 ebp
++            *(cursor+2) = ebpcounter;
++            *(cursor+3) = 0x90;		// push ecx
++            *(cursor+4) = 0x90;		// push esi
++            *(cursor+5) = 0x90;		// pop esi
++            cursor += 5; 
++            i += 4;
++        }
++        //-Od puts A1 18 85 3A 00          mov     eax, ds:_fakeint
++        //opcode A1 is a special case, not a table
++        else if(*(cursor+0) == 0xA1
++        && *((int*)(cursor+1)) == (int) &fakeint){
++#ifdef WIN32_API_DEBUG
++            printf("(C)CallbackCreate:     FOUND THE %s at 0x%x\n", cursor, SvType);
++            printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
++#endif
++            *(cursor+0) = 0x8B;
++            *(cursor+1) = 0x45;
++            *(cursor+2) = ebpcounter;
++            *(cursor+3) = 0x90;
++            *(cursor+4) = 0x90;
++            cursor += 4; 
++            i += 3;
++        }
++        else
++        if(*(cursor+0) == 0xC7
++        && *(cursor+1) == 0x45
++        && (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
++        && *((int*)(cursor+3)) == 0xC0DE0003
++        ) {
++#ifdef WIN32_API_DEBUG
++            printf("(C)CallbackCreate:     FOUND NPARAM   at 0x%x\n", cursor);
++            printf("(C)CallbackCreate:     writing         = 0x%08X\n", j);
++#endif
++            *((int*)(cursor+3)) = j;
++#ifdef WIN32_API_DEBUG
++            printf("(C)CallbackCreate:     NPARAM now is   = 0x%08X\n", *((int*)(cursor+3)));
++#endif
++            cursor += 6;
++            i += 5;
++        } else {
++            r = RelocateCode(cursor, displacement);
++            cursor += r;
++            if(r > 1) i += (r-1);
++        }
++
++    }
++    return cursor;
++}
++
+ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* callback) {
+ 
+ 	unsigned char * code;
+ 	unsigned char * cursor;
+ 	unsigned int i, j, r, toalloc, displacement;
+ 	unsigned char ebpcounter = 8;
+-	unsigned char * source = (unsigned char *) (void *) CallbackTemplate;
++	unsigned char * source;
+ 	BOOL done = FALSE;
+ 	unsigned int distance = 0;
+ 	BOOL added_INIT_STRUCT = FALSE;
+ 	int N_structs = 0;
++    unsigned char * myCallbackTemplate = (unsigned char *)CallbackTemplate;
++    unsigned char * myPerformCallback = (unsigned char *)PerformCallback;
++    unsigned char epilog_back_up;
+ 
+ 	unsigned int
+ 		checkpoint_PUSHI = 0,
+@@ -403,7 +512,10 @@
+ 		checkpoint_PUSHP = 0,
+ 		checkpoint_PUSHS = 0,
+ 		checkpoint_END = 0,
+-		checkpoint_DONE = 0;
++		checkpoint_DONE = 0,
++        checkpoint_GOTO_END = 0,
++        checkpoint_END_LABEL = 0
++        ;
+ 
+ 	unsigned int
+ 		section_START,
+@@ -411,10 +523,21 @@
+ 		section_PUSHL,
+ 		section_PUSHP,
+ 		section_PUSHS,
+-		section_END;
+-
++		section_END,
++        section_END_END_LABEL;
++    //this block deals with VC's ILT jump table
++    if(*myCallbackTemplate == 0xE9){
++//E9 is opcode for JMP rel32, +5 is next instruction +1 is rel32 num
++        myCallbackTemplate  = myCallbackTemplate+5+(*(DWORD_PTR *)(myCallbackTemplate+1));
++    }
++    source = myCallbackTemplate;
+ 	cursor = source;
+ 
++    //this block deals with VC's ILT jump table
++    if(*myPerformCallback == 0xE9){
++//E9 is opcode for JMP rel32, +5 is next instruction +1 is rel32 num
++        myPerformCallback  = myPerformCallback+5+(*(DWORD_PTR *)(myPerformCallback+1));
++    }
+ 	while(!done) {
+ 
+ 		if(*(cursor+0) == 0x10
+@@ -461,6 +584,34 @@
+ 			checkpoint_PUSHS = distance - 3;
+ 		}
+ 
++		if(*(cursor+0) == 0x50
++		&& *(cursor+1) == 0x00
++		&& *(cursor+2) == 0xDE
++		&& *(cursor+3) == 0xC0
++		) {
++            if(*(cursor+4) == 0xE9){//E9 = jmp rel32
++#ifdef WIN32_API_DEBUG
++			printf("(C)CallbackCreate.Study: checkpoint_GOTO_END=%d\n", distance);
++#endif
++                checkpoint_GOTO_END = distance + 4;
++            }
++            else{
++                croak("unknown opcode %.2X after 0xC0DE0050 checkpoint");
++            }
++
++		}
++
++		if(*(cursor+0) == 0x60
++		&& *(cursor+1) == 0x00
++		&& *(cursor+2) == 0xDE
++		&& *(cursor+3) == 0xC0
++		) {
++#ifdef WIN32_API_DEBUG
++			printf("(C)CallbackCreate.Study: checkpoint_END_LABEL=%d\n", distance);
++#endif
++			checkpoint_END_LABEL = distance + 4;
++		}
++
+ 		if(*(cursor+0) == 0x99
+ 		&& *(cursor+1) == 0x99
+ 		&& *(cursor+2) == 0xDE
+@@ -479,24 +630,45 @@
+ 		}
+ #endif
+ 	
+-		
+-		
+-
+ 		if(*(cursor+0) == 0xC9	// leave
+-		&& *(cursor+1) == 0xC3	// ret
++            && *(cursor+1) == 0xC3	// ret
++		) {
++#ifdef WIN32_API_DEBUG
++			printf("(C)CallbackCreate.Study: leave ret checkpoint_DONE=%d\n", distance);
++#endif
++			epilog_back_up = 2;
++            checkpoint_DONE = distance + 2;
++			done = TRUE;
++		}
++
++        if(*(cursor+0) == 0x8B
++            && *(cursor+1) == 0xE5 //mov esp,ebp
++            && *(cursor+2) == 0x5D //pop ebp
++            && *(cursor+3) == 0xC3 //ret
+ 		) {
+ #ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate.Study: checkpoint_DONE=%d\n", distance);
++			printf("(C)CallbackCreate.Study: mov pop ret checkpoint_DONE=%d\n", distance);
+ #endif
+-			checkpoint_DONE = distance + 2;
++			epilog_back_up = 4;
++			checkpoint_DONE = distance + 4;
+ 			done = TRUE;
+ 		}
++// this can't possibly work, we can't write in the stdcall stack unwind amount
++// the dyn func will be broken if we go down this path
+ 
++//        // this test only works if the compiler does not reorder the functions in the output.
++//		if((unsigned char *) myCallbackTemplate < (unsigned char *) myPerformCallback &&
++//            cursor >= (unsigned char *) myPerformCallback) {
++//			checkpoint_DONE = distance;
++//		 	done = TRUE;
++//		}
+         // this test only works if the compiler does not reorder the functions in the output.
+-		if((unsigned char *) CallbackTemplate < (unsigned char *) PerformCallback &&
+-            cursor >= (unsigned char *) PerformCallback) {
+-			checkpoint_DONE = distance;
+-		 	done = TRUE;
++		if((unsigned char *) myCallbackTemplate < (unsigned char *) myPerformCallback &&
++            cursor >= (unsigned char *) myPerformCallback) {
++            //havent reached the malloc yet, this is safe, no malloc in
++            //XS_Win32__API__Callback_CallbackCreate
++            croak("Win32::API::Callback::CallbackCreate: "
++                  "Compiler not supported (couldn't find end of CallbackTemplate)");
+ 		}
+ 		// TODO: add fallback (eg. if cursor >= CallbackCreate then done)
+ 
+@@ -510,7 +682,13 @@
+ 	section_PUSHP = checkpoint_PUSHS	- checkpoint_PUSHP;
+ 	section_PUSHS = checkpoint_END 	- checkpoint_PUSHS;
+ 	section_END   = checkpoint_DONE	- checkpoint_END;
++    section_END_END_LABEL = checkpoint_END_LABEL - checkpoint_END;
+ 
++#ifdef WIN32_API_DEBUG
++	printf("(C)CallbackCreate: section_PUSHS         is: 0x%08X\n", section_PUSHS);
++	printf("(C)CallbackCreate: section_PUSHI         is: 0x%08X\n", section_PUSHI);
++	printf("(C)CallbackCreate: section_PUSHP         is: 0x%08X\n", section_PUSHP);
++#endif
+ 	toalloc  = section_START;
+ 	toalloc += section_END;
+ 
+@@ -543,9 +721,8 @@
+ 
+ #ifdef WIN32_API_DEBUG
+ 	printf("(C)CallbackCreate: fakeint          is at: 0x%08X\n", &fakeint);
+-	printf("(C)CallbackCreate: fakepointer      is at: 0x%08X\n", &fakepointer);
+ 	printf("(C)CallbackCreate: fakesv           is at: 0x%08X\n", &fakesv);
+-	printf("(C)CallbackCreate: CallbackTemplate is at: 0x%08X\n", CallbackTemplate);
++	printf("(C)CallbackCreate: CallbackTemplate is at: 0x%08X\n", myCallbackTemplate);
+ 	printf("(C)CallbackCreate: allocating %d bytes\n", toalloc);
+ #endif
+ 	code = (unsigned char *) malloc(toalloc);
+@@ -629,47 +806,11 @@
+ 			memcpy( (void *) cursor, source + checkpoint_PUSHS, section_PUSHS );
+ 			displacement = cursor - (source + checkpoint_PUSHS);
+ 
+-			for(i=0; i < section_PUSHS; i++) {
+-
+-				if(*(cursor+0) == 0x8B
+-				&& *(cursor+1) == 0x15
+-				&& *((int*)(cursor+2)) == (int) &fakeint
+-				) {
+-#ifdef WIN32_API_DEBUG
+-					printf("(C)CallbackCreate:     FOUND THE SVPV at 0x%x\n", cursor);
+-					printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
+-#endif
+-					*(cursor+0) = 0x8B;
+-					*(cursor+1) = 0x55;
+-					*(cursor+2) = ebpcounter;
+-					*(cursor+3) = 0x90;		// nop
+-					*(cursor+4) = 0x90;		// nop
+-					*(cursor+5) = 0x90;		// nop
+-					cursor += 5;
+-					i += 4;
+-				} else
+-				if(*(cursor+0) == 0xC7
+-				&& *(cursor+1) == 0x45
+-				&& (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
+-				&& *((int*)(cursor+3)) == 0xC0DE0003
+-				) {
+-#ifdef WIN32_API_DEBUG
+-					printf("(C)CallbackCreate:     FOUND NPARAM   at 0x%x\n", cursor);
+-					printf("(C)CallbackCreate:     writing         = 0x%08X\n", j);
+-#endif
+-					*((int*)(cursor+3)) = j;
+-#ifdef WIN32_API_DEBUG
+-					printf("(C)CallbackCreate:     NPARAM now is   = 0x%08X\n", *((int*)(cursor+3)));
+-#endif
+-					cursor += 6;
+-					i += 5;
+-				} else {
+-					r = RelocateCode(cursor, displacement);
+-					cursor += r;
+-					if(r > 1) i += (r-1);
+-				}
+-
+-			}
++            cursor = FixupAsmSection(cursor, section_PUSHS, j, displacement, ebpcounter
++#ifdef WIN32_API_DEBUG
++                    ,"SVPV"
++#endif
++                    );
+ 		}
+ 
+ 		if(params[j].t == T_NUMBER) {
+@@ -679,47 +820,11 @@
+ 			memcpy( (void *) cursor, source + checkpoint_PUSHI, section_PUSHI );
+ 			displacement = cursor - (source + checkpoint_PUSHI);
+ 
+-			for(i=0; i < section_PUSHI; i++) {
+-
+-				if(*(cursor+0) == 0x8B
+-				&& *(cursor+1) == 0x15
+-				&& *((int*)(cursor+2)) == (int) &fakeint
+-				) {
+-#ifdef WIN32_API_DEBUG
+-					printf("(C)CallbackCreate:     FOUND THE SVIV at 0x%x\n", cursor);
+-					printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
+-#endif
+-					*(cursor+0) = 0x8B;
+-					*(cursor+1) = 0x55;
+-					*(cursor+2) = ebpcounter;
+-					*(cursor+3) = 0x90;		// push ecx
+-					*(cursor+4) = 0x90;		// push esi
+-					*(cursor+5) = 0x90;		// pop esi
+-					cursor += 5;
+-					i += 4;
+-				} else
+-				if(*(cursor+0) == 0xC7
+-				&& *(cursor+1) == 0x45
+-				&& (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
+-				&& *((int*)(cursor+3)) == 0xC0DE0003
+-				) {
+-#ifdef WIN32_API_DEBUG
+-					printf("(C)CallbackCreate:     FOUND NPARAM   at 0x%x\n", cursor);
+-					printf("(C)CallbackCreate:     writing         = 0x%08X\n", j);
+-#endif
+-					*((int*)(cursor+3)) = j;
+-#ifdef WIN32_API_DEBUG
+-					printf("(C)CallbackCreate:     NPARAM now is   = 0x%08X\n", *((int*)(cursor+3)));
+-#endif
+-					cursor += 6;
+-					i += 5;
+-				} else {
+-					r = RelocateCode(cursor, displacement);
+-					cursor += r;
+-					if(r > 1) i += (r-1);
+-				}
+-
+-			}
++            cursor = FixupAsmSection(cursor, section_PUSHI, j, displacement, ebpcounter
++#ifdef WIN32_API_DEBUG
++                    ,"SVIV"
++#endif
++                    );
+ 		}
+ 
+ 
+@@ -730,47 +835,11 @@
+ 			memcpy( (void *) cursor, source + checkpoint_PUSHP, section_PUSHP );
+ 			displacement = cursor - (source + checkpoint_PUSHP);
+ 
+-			for(i=0; i < section_PUSHP; i++) {
+-
+-				if(*(cursor+0) == 0x8B
+-				&& *(cursor+1) == 0x15
+-				&& *((int*)(cursor+2)) == (int) &fakeint
+-				) {
+-#ifdef WIN32_API_DEBUG
+-					printf("(C)CallbackCreate:     FOUND THE SVPV at 0x%x\n", cursor);
+-					printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
+-#endif
+-					*(cursor+0) = 0x8B;
+-					*(cursor+1) = 0x55;
+-					*(cursor+2) = ebpcounter;
+-					*(cursor+3) = 0x90;		// nop
+-					*(cursor+4) = 0x90;		// nop
+-					*(cursor+5) = 0x90;		// nop
+-					cursor += 5;
+-					i += 4;
+-				} else
+-				if(*(cursor+0) == 0xC7
+-				&& *(cursor+1) == 0x45
+-				&& (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
+-				&& *((int*)(cursor+3)) == 0xC0DE0003
+-				) {
+-#ifdef WIN32_API_DEBUG
+-					printf("(C)CallbackCreate:     FOUND NPARAM   at 0x%x\n", cursor);
+-					printf("(C)CallbackCreate:     writing         = 0x%08X\n", j);
+-#endif
+-					*((int*)(cursor+3)) = j;
+-#ifdef WIN32_API_DEBUG
+-					printf("(C)CallbackCreate:     NPARAM now is   = 0x%08X\n", *((int*)(cursor+3)));
+-#endif
+-					cursor += 6;
+-					i += 5;
+-				} else {
+-					r = RelocateCode(cursor, displacement);
+-					cursor += r;
+-					if(r > 1) i += (r-1);
+-				}
+-
+-			}
++            cursor = FixupAsmSection(cursor, section_PUSHP, j, displacement, ebpcounter
++#ifdef WIN32_API_DEBUG
++                    ,"SVPV"
++#endif
++                    );
+ 		}
+ 
+ 		ebpcounter += 4;
+@@ -781,6 +850,11 @@
+ #endif
+ 	memcpy( (void *) cursor, source + checkpoint_END, section_END );
+ 
++//fixup the goto END; now that the END section is in place, +1 skip E9
++    *(int *)(code+checkpoint_GOTO_END+1) //rel 32 operand
++    = (cursor + section_END_END_LABEL) //abs ptr jmp target, after 0xC0DE0060 mov checkpoint
++    - (code+checkpoint_GOTO_END+1+4); //next instruction after the JMP rel32
++    
+ 	displacement = cursor - (source + checkpoint_END);
+ 
+ 	for(i=0; i < section_END; i++) {
+@@ -793,8 +867,9 @@
+ 	printf("(C)CallbackCreate: adjusting callback epilogue...\n");
+ #endif
+ 
+-	// #### back up two bytes (leave/ret)
+-	cursor -= 2;
++	// #### back up the cursor to two bytes for (leave/ret)
++    // or 4 bytes for mov/pop/ret
++	cursor -= epilog_back_up;
+ 
+ 	// #### insert the callback epilogue
+ 	*(cursor+0) = 0x8B; // mov esp,ebp
+@@ -858,7 +933,7 @@
+ #endif
+     EXTEND(SP, 1);
+     if(nin >= 0) {
+-        params = (APIPARAM *) safemalloc((nin+1) * sizeof(APIPARAM));
++        params = (APIPARAM *) _alloca((nin+1) * sizeof(APIPARAM));
+         for(i = 0; i <= nin; i++) {
+             in_type = av_fetch(inlist, i, 0);
+             params[i].t = SvIV(*in_type);
+@@ -868,9 +943,6 @@
+ 	RETVAL = (unsigned int) CallbackCreate(nin+1, params, self, sub);
+ #ifdef WIN32_API_DEBUG
+ 	printf("(XS)CallbackCreate: got RETVAL=0x%08x\n", RETVAL);
+-#endif
+-	if(nin > 0) safefree(params);
+-#ifdef WIN32_API_DEBUG
+ 	printf("(XS)CallbackCreate: returning to caller\n");
+ #endif
+ OUTPUT:
+@@ -906,5 +978,3 @@
+ 	obj = (HV*) SvRV(self);
+ 	obj_code = hv_fetch(obj, "code", 4, FALSE);
+ 	if(obj_code != NULL) free((unsigned char *) SvIV(*obj_code));
+-
+-
+diff -ruNZ old/Callback.pm new/Callback.pm
+--- old/Callback.pm	2012-04-10 14:29:24.000000000 -0400
++++ new/Callback.pm	2012-05-29 02:02:56.046875000 -0400
+@@ -12,7 +12,7 @@
+ 
+ package Win32::API::Callback;
+ 
+-$VERSION = '0.68';
++$VERSION = '0.69';
+ 
+ require Exporter;      # to export the constants to the main:: space
+ require DynaLoader;    # to dynuhlode the module.
+@@ -77,16 +77,16 @@
+     $self{in} = [];
+     if (ref($in) eq 'ARRAY') {
+         foreach (@$in) {
+-            push(@{$self{in}}, Win32::API::type_to_num($_));
++            push(@{$self{in}}, Win32::API->type_to_num($_));
+         }
+     }
+     else {
+         my @in = split '', $in;
+         foreach (@in) {
+-            push(@{$self{in}}, Win32::API::type_to_num($_));
++            push(@{$self{in}}, Win32::API->type_to_num($_));
+         }
+     }
+-    $self{out} = Win32::API::type_to_num($out);
++    $self{out} = Win32::API->type_to_num($out);
+     $self{sub} = $proc;
+     my $self = bless \%self, $class;
+ 
+diff -ruNZ old/Changes new/Changes
+--- old/Changes	2012-04-10 14:30:10.000000000 -0400
++++ new/Changes	2012-05-29 10:04:55.828125000 -0400
+@@ -1,5 +1,48 @@
+ History of Win32::API perl extension.
+ 
++2012-??-??  Win32::API v0.69    bulk88
++   - Fixed RT #12057, dll leak if func not found
++     (https://rt.cpan.org/Ticket/Display.html?id=12057)
++   - Fixed RT #77048, shorts and short typedefs crashed since 'S'
++     was mapped wrong to structs, fix in Win32::API::More, struct now 'T'
++     in ::More, 'S'/'s' now dies on Win32::API if not Win32::APU::Sturct objs,
++     not crashes
++     (https://rt.cpan.org/Ticket/Display.html?id=77048)
++   - Fixed RT #77055, returned numbers are always signed, unsigneds
++     fixed in Win32::API::More
++     (https://rt.cpan.org/Ticket/Display.html?id=77055)
++   - Fixed RT #77182, "int* var" works, "int *var" unparsable,
++     fixed in core and ::More
++     (https://rt.cpan.org/Ticket/Display.html?id=77182)
++   - Fixed/Added RT #39810, in Win32::API::More for C proto created objs,
++     pointer to numbers are automatically packed and unpacked, now 1234 or
++     0x04D2 not "\xD2\x04\x00\x00", feature was implemented but broken
++     previously
++   - Fixed, on x64 float "in" params were broken, in 0.68, 4 byte floats were
++     converted to 8 byte doubles of the same (approx) numeric 
++     value when being prepared for XMM register loading, a C func 
++     that takes floats will read 4 bytes from an XMM register, not 8
++   - Fixed, on x64, for msvc builds, the callstack was lost during
++     Call_x64_real
++   - for a func with char * as return type, NULL caused crash, and perl
++     memleak if it didn't crash on 32bit, char * as a return type's handing
++     is still very flawed, signed/unsigned doesn't work, float * doesn't work,
++     if the char * is dynamically allocated by its source, it is leaked
++   - for a func with char as return type, undef was always returned, fixed
++   - void ** and something ** don't parse, now errors out cleanly on a **
++   - stability improvements to Win32::API::Callback, -Od, -O1, -O2 and
++     Incremental Linkings/ILT now ok on MSVC 2003
++   - on 32 bits, funcs with float return type were silently never called, fixed
++   - if a buffer overflow for pointers is detected, a die is thrown, unless env
++     var "WIN32_API_SORRY_I_WAS_AN_IDIOT" is set
++   - Added, adding unsigned or signed prefixes to C prototype for char
++     family (in only, out not implemented) cause numeric treatment for the
++     scalar parameter, not string
++     treatment, previously unsigned/signed were unparsable
++   - Added Win32::API objs from non-DLL function pointers
++     use as "$function = new Win32::API::More(undef, 123456, 'GetHandle',
++            'P', 'I');", 123456 is the function pointer
++
+ 2012-04-10  Win32::API v0.68    Cosimo
+ 
+    - Temporarily skip RT#53914 related Callback test that's crashing
+diff -ruNZ old/Makefile.PL new/Makefile.PL
+--- old/Makefile.PL	2012-04-10 14:35:50.000000000 -0400
++++ new/Makefile.PL	2012-05-29 13:13:09.562500000 -0400
+@@ -94,14 +94,19 @@
+     }
+     #end-of old 64bit strawberryperl hack
+      
+-    return <<'EOM';
++     #-Zi is MS ASM only
++    return ($is_msvc_compiler?'
++ASFLAGS =  -Zi
++
++
++':'').'
+ .asm$(OBJ_EXT):
+ 	ml64 $(ASFLAGS) -c $<
+ 
+ .s$(OBJ_EXT):
+ 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
+ 
+-EOM
++'
+ }
+ 
+ sub WriteMakefile1 {  #Written by Alexandr Ciornii, version 0.21. Added by eumm-upgrade.
+diff -ruNZ old/Type.pm new/Type.pm
+--- old/Type.pm	2012-02-13 16:02:14.000000000 -0500
++++ new/Type.pm	2012-05-29 10:08:38.734375000 -0400
+@@ -12,7 +12,7 @@
+ #
+ #######################################################################
+ 
+-$VERSION = '0.62';
++$VERSION = '0.63';
+ 
+ use Carp;
+ use Config;
+@@ -32,6 +32,7 @@
+     }
+ }
+ 
++sub pointer_pack_type ();
+ %Known    = ();
+ %PackSize = ();
+ %Modifier = ();
+@@ -122,8 +123,11 @@
+     }
+ }
+ 
+-sub pointer_pack_type {
+-    return $Config{ptrsize} == 8 ? 'Q' : 'L';
++#const optimize
++BEGIN {
++    eval ' sub pointer_pack_type () { "'
++    .($Config{ptrsize} == 8 ? 'Q' : 'L').
++    '" }';
+ }
+ 
+ sub sizeof {
+@@ -143,7 +147,7 @@
+         }
+     }
+ }
+-
++# $packing_letter = packing( [$class = 'Win32::API::Type' ,] $type [, $pass_numeric])
+ sub packing {
+ 
+     # DEBUG "(PM)Type::packing: called by ". join("::", (caller(1))[0,3]). "\n";
+@@ -156,6 +160,7 @@
+     }
+     my $type = ($self eq 'Win32::API::Type') ? shift : $self;
+     my $name = shift;
++    my $pass_numeric = shift;
+ 
+     # DEBUG "(PM)Type::packing: got '$type', '$name'\n";
+     my ($modifier, $size, $packing);
+@@ -183,7 +188,7 @@
+         }
+         else {
+             $packing = $Known{$type};
+-            if ($is_pointer and $packing eq 'c') {
++            if ($is_pointer and ($packing eq 'c' or $packing eq 'S')) {
+                 $packing = "p";
+             }
+ 
+@@ -193,6 +198,9 @@
+ 
+ # DEBUG "(PM)Type::packing: applying modifier '$modifier' -> '$Modifier{$modifier}->{$type}'\n";
+             $packing = $Modifier{$modifier}->{$type};
++            if(!$pass_numeric) { #for older num unaware calls
++                substr($packing, 0, length("num"), '');
++            }
+         }
+         return $packing;
+     }
+@@ -222,33 +230,30 @@
+ }
+ 
+ sub Pack {
+-    my ($type, $arg) = @_;
++    my $type = $_[1];
+ 
+     my $pack_type = packing($type);
+-
+-    if ($pack_type eq 'p') {
+-        $pack_type = 'Z*';
++    #print "Pack: type $type pack_type $pack_type\n";
++    if ($pack_type eq 'p') { #char or wide char pointer
++        return;
+     }
+-
+-    $arg = pack($pack_type, $arg);
+-
+-    return $arg;
++    $_[2] = pack($pack_type, $_[2]);
++    return;
+ }
+ 
+ sub Unpack {
+-    my ($type, $arg) = @_;
++    my $type = $_[1];
+ 
+     my $pack_type = packing($type);
+ 
+     if ($pack_type eq 'p') {
+         DEBUG "(PM)Type::Unpack: got packing 'p': is a pointer\n";
+-        $pack_type = 'Z*';
++        return ();
+     }
+ 
+-    DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$arg'\n";
+-    $arg = unpack($pack_type, $arg);
+-    DEBUG "(PM)Type::Unpack: returning '" . ($arg || '') . "'\n";
+-    return $arg;
++    DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$_[2]'\n";
++    $_[2] = unpack($pack_type, $_[2]);
++    DEBUG "(PM)Type::Unpack: returning '" . ($_[2] || '') . "'\n";
+ }
+ 
+ 1;
+@@ -307,6 +312,32 @@
+ Please see the source for this module, in the C<__DATA__> section,
+ for the full list.
+ 
++
++=head2 NOTES ON SELECT TYPES
++
++=item LPVOID
++
++Due to poor design, currently LPVOID is a char *, a string, not a number.
++It should really be a number. It is suggested to replace LPVOID in your
++C prototypes passed to Win32::API with UINT_PTR which is a pointer
++sized number.
++
++=item SOMETYPE **
++
++Currently ** types do not parse.
++
++=item void **
++
++Replace void ** in your C prototype that you pass to Win32::API::More with
++LPHANDLE.
++
++=item unsigned char
++
++=item signed char
++
++These 2 types by name force numeric handling. C<97> not C<"a">. C<UCHAR> is
++not a C<unsigned char> for numeric handling purposess.
++
+ =head1 AUTHOR
+ 
+ Aldo Calpini ( I<dada@perl.it> ).
+@@ -410,6 +441,7 @@
+ float                   f
+ double                  d
+ char                    c
++short                   s
+ 
+ #CRITICAL_SECTION   24 -- a structure
+ #LUID                   ?   8 -- a structure
+@@ -433,7 +465,8 @@
+ p   _P
+ 
+ [MODIFIER]
+-unsigned    int=I long=L short=S char=C
++unsigned    int=numI long=numL short=numS char=numC
++signed      int=numi long=numl short=nums char=numc
+ 
+ [POINTER]
+ INT_PTR                 INT
+@@ -485,3 +518,4 @@
+ PWCHAR                  WCHAR
+ PWORD                   WORD
+ PWSTR                   WCHAR
++char*                   CHAR
+diff -ruNZ old/api-test/API_test.cpp new/api-test/API_test.cpp
+--- old/api-test/API_test.cpp	2011-02-17 04:53:22.000000000 -0500
++++ new/api-test/API_test.cpp	2012-05-22 14:20:29.000000000 -0400
+@@ -30,10 +30,62 @@
+ // This is an example of an exported variable
+ API_TEST_API int nAPI_test=0;
+ 
++API_TEST_API ULONG __stdcall highbit_unsigned() {
++	return 0x80005000;
++}
++
+ API_TEST_API int __stdcall sum_integers(int a, int b) {
+ 	return a + b;
+ }
+ 
++API_TEST_API short __stdcall sum_shorts(short a, short b) {
++	return a + b;
++}
++
++API_TEST_API short __stdcall sum_shorts_ref(short a, short b, short*c) {
++    if(!IsBadReadPtr(c, sizeof(short))){
++        *c = a + b;
++        return -32768;
++    }
++    else {
++        return 0;
++    }
++}
++
++API_TEST_API char __stdcall sum_char_ref(char a, char b, char *c) {
++    if(!IsBadReadPtr(c, sizeof(char))){
++        *c = a + b;
++        return -128;
++    }
++    else {
++        return 0;
++    }
++}
++
++API_TEST_API BOOL __stdcall str_cmp(char *string) {
++    if(memcmp("Just another perl hacker", string,
++              sizeof("Just another perl hacker")) == 0){
++        return TRUE;
++    }
++    else{
++        return FALSE;
++    }
++}
++
++API_TEST_API BOOL __stdcall wstr_cmp(WCHAR * string) {
++    if(memcmp(L"Just another perl hacker", string,
++               sizeof(L"Just another perl hacker")) == 0){
++        return TRUE;
++    }
++    else{
++        return FALSE;
++    }
++}
++
++API_TEST_API void __stdcall buffer_overflow(char *string) {
++    memcpy(string, "JAPHJAPH", sizeof("JAPHJAPH")-1);
++}
++
+ API_TEST_API int __stdcall sum_integers_ref(int a, int b, int *c) {
+ 	*c = a + b;
+ 	return 1;
+@@ -57,6 +109,12 @@
+ 	return 1;
+ }
+ 
++API_TEST_API float * __stdcall ret_float_ptr(){
++    static float ret_float_var;
++    ret_float_var = 7.5;
++    return &ret_float_var;
++}
++
+ API_TEST_API int __stdcall has_char(char *string, char ch) {
+ 	char *tmp;
+ 	tmp = string;
+@@ -136,6 +194,51 @@
+ 	return r;
+ }
+ 
++API_TEST_API int __stdcall do_callback_5_param(callback_func_5_param function) {
++    four_char_struct fourCvar = {'J','A','P','H'};
++	int r = function('P', 0x12345678ABCDEF12, &fourCvar, 2.5, 3.5);
++	printf("do_callback_5_param: returning %ld\n", r); 
++	return r;
++}
++
++API_TEST_API int __stdcall do_callback_5_param_cdec(callback_func_5_param_cdec function) {
++    four_char_struct fourCvar = {'J','A','P','H'};
++	int r ;
++    r = function('P', 0x12345678ABCDEF12, &fourCvar, 2.5, 3.5);
++	printf("do_callback_5_param_cdec: returning %ld\n", r); 
++	return r;
++}
++
++API_TEST_API double __stdcall do_callback_void_d(callback_func_void_d function) {
++	double r;
++    r = function();
++	printf("do_callback_void_d: returning %10.10lf\n", r); 
++	return r;
++}
++
++API_TEST_API float __stdcall do_callback_void_f(callback_func_void_f function) {
++	float r;
++    r = function();
++	printf("do_callback_void_f: returning %10.10f\n", r); 
++	return r;
++}
++
++API_TEST_API BOOL __stdcall GetHandle(LPHANDLE pHandle) {
++	if(!IsBadReadPtr(pHandle, sizeof(*pHandle))){
++        *pHandle =  (HANDLE)4000;
++        return TRUE;
++    }
++    else return FALSE;
++}
++API_TEST_API void * __stdcall GetGetHandle() {
++    return GetHandle;
++}
++API_TEST_API BOOL __stdcall FreeHandle(HANDLE Handle) {
++    if(Handle == (HANDLE)4000) return TRUE;
++    else return FALSE;
++}
++
++
+ /* cdecl functions */
+ API_TEST_API int __cdecl c_sum_integers(int a, int b) {
+ 	return a + b;
+diff -ruNZ old/api-test/API_test.def new/api-test/API_test.def
+--- old/api-test/API_test.def	2011-12-25 16:09:32.000000000 -0500
++++ new/api-test/API_test.def	2012-05-29 10:10:51.062500000 -0400
+@@ -1,13 +1,29 @@
+ LIBRARY "API_test"
+ EXPORTS
++  highbit_unsigned
+   sum_integers
+   sum_integers_ref
+   sum_doubles
+   sum_doubles_ref
+   sum_floats
+   sum_floats_ref
++  ret_float_ptr
++  sum_shorts
++  sum_shorts_ref
++  sum_char_ref
++  str_cmp
++  wstr_cmp
++  buffer_overflow
+   has_char
+   find_char
+   dump_struct
+   mangle_simple_struct
+   do_callback
++  do_callback_5_param
++  do_callback_5_param_cdec
++  do_callback_void_d
++  do_callback_void_f
++  GetHandle
++  GetGetHandle
++  FreeHandle
++  c_sum_integers
+diff -ruNZ old/api-test/API_test.h new/api-test/API_test.h
+--- old/api-test/API_test.h	2011-12-25 16:09:32.000000000 -0500
++++ new/api-test/API_test.h	2012-05-29 10:11:25.765625000 -0400
+@@ -23,18 +23,38 @@
+ 	DWORD_PTR d;
+ } simple_struct, LPsimple_struct;
+ 
++typedef struct {
++    char a;
++    char b;
++    char c;
++    char d;
++}
++four_char_struct;
++
+ // typedef int callback_func(int);
+ 
+ typedef int (__stdcall * callback_func)(int);
+ 
++typedef double (__stdcall * callback_func_void_d)();
++typedef float  (__stdcall * callback_func_void_f)();
++typedef int    (__stdcall * callback_func_5_param)
++(char, unsigned __int64, four_char_struct *, float, double);
++typedef int    (__cdecl   * callback_func_5_param_cdec)
++(char, unsigned __int64, four_char_struct *, float, double);
++
+ 
+ extern API_TEST_API int nAPI_test;
+ 
++API_TEST_API ULONG  __stdcall highbit_unsigned();
+ API_TEST_API int    __stdcall sum_integers(int a, int b);
++API_TEST_API short  __stdcall sum_shorts(short a, short b);
++API_TEST_API short  __stdcall sum_shorts_ref(short a, short b, short *c);
+ API_TEST_API double __stdcall sum_doubles(double a, double b);
+ API_TEST_API float  __stdcall sum_floats(float a, float b);
+ API_TEST_API int    __stdcall has_char(char *string, char ch);
+ API_TEST_API char * __stdcall find_char(char *string, char ch);
+ API_TEST_API void   __stdcall dump_struct(simple_struct *x);
+ API_TEST_API int    __stdcall mangle_simple_struct(simple_struct *x);
+-
++API_TEST_API BOOL   __stdcall GetHandle(LPHANDLE pHandle);
++API_TEST_API BOOL   __stdcall FreeHandle(HANDLE Handle);
++API_TEST_API int    __cdecl   c_sum_integers(int a, int b);
+Binary files old/api-test/Debug/API_test.dll and new/api-test/Debug/API_test.dll differ
+Binary files old/api-test/Debug/API_test.exp and new/api-test/Debug/API_test.exp differ
+Binary files old/api-test/Debug/API_test.ilk and new/api-test/Debug/API_test.ilk differ
+Binary files old/api-test/Debug/API_test.lib and new/api-test/Debug/API_test.lib differ
+Binary files old/api-test/Debug/API_test.obj and new/api-test/Debug/API_test.obj differ
+Binary files old/api-test/Debug/API_test.pch and new/api-test/Debug/API_test.pch differ
+Binary files old/api-test/Debug/API_test.pdb and new/api-test/Debug/API_test.pdb differ
+Binary files old/api-test/Debug/StdAfx.obj and new/api-test/Debug/StdAfx.obj differ
+Binary files old/api-test/Debug/vc70.idb and new/api-test/Debug/vc70.idb differ
+Binary files old/api-test/Debug/vc70.pdb and new/api-test/Debug/vc70.pdb differ
+Binary files old/api-test/Release/API_test.dll and new/api-test/Release/API_test.dll differ
+Binary files old/api-test/Release/API_test.lib and new/api-test/Release/API_test.lib differ
+diff -ruNZ old/call_asm_x64_msvc.asm new/call_asm_x64_msvc.asm
+--- old/call_asm_x64_msvc.asm	2011-12-25 16:09:32.000000000 -0500
++++ new/call_asm_x64_msvc.asm	2012-05-24 05:13:20.000000000 -0400
+@@ -9,15 +9,20 @@
+     mov qword ptr[rsp+16], rdx ; int_registers
+     mov qword ptr[rsp+8],  rcx ; ApiFunction
+ 
+-    mov qword ptr[rsp-16], rbp
++;old code, I couldn't get SAVEREG to work, maybe someone else can
++;so instead the push was added, and all the ebp offsets +8'ed
++;    mov qword ptr[rsp-16], rbp
++    push rbp
++    .PUSHREG rbp
+     mov rbp, rsp
++    
+     .SETFRAME rbp, 0
+     .ENDPROLOG
+ 
+     sub rsp, 32
+ 
+     ; Load up integer registers first...
+-    mov rax, qword ptr [rbp+16]
++    mov rax, qword ptr [rbp+24]
+ 
+     mov rcx, qword ptr [rax]
+     mov rdx, qword ptr [rax+8]
+@@ -25,15 +30,15 @@
+     mov r9,  qword ptr [rax+24]
+ 
+     ; Now floating-point registers
+-    mov rax, qword ptr [rbp+24]
++    mov rax, qword ptr [rbp+32]
+     movsd xmm0, qword ptr [rax]
+     movsd xmm1, qword ptr [rax+8]
+     movsd xmm2, qword ptr [rax+16]
+     movsd xmm3, qword ptr [rax+24]
+ 
+     ; Now the stack
+-    mov rsi, qword ptr [rbp+32]
+-    mov rax, qword ptr [rbp+40]
++    mov rsi, qword ptr [rbp+40]
++    mov rax, qword ptr [rbp+48]
+ 
+     ; Except not if there isn't any
+     test rax, rax
+@@ -49,18 +54,20 @@
+ docall:
+     ; And call
+     sub rsp, 32
+-    mov r10, qword ptr [rbp+8]
++    mov r10, qword ptr [rbp+16]
+     call r10
+ 
+     ; Store return value
+-    mov r10, qword ptr [rbp+48]
+-    mov qword ptr [r10], rax
+     mov r10, qword ptr [rbp+56]
++    mov qword ptr [r10], rax
++    mov r10, qword ptr [rbp+64]
+     movsd qword ptr [r10], xmm0
+ 
+     ; Cleanup
+     mov rsp, rbp
+-    mov rbp, qword ptr [rsp-16]
++;old code, see note above
++;    mov rbp, qword ptr [rsp-16]    
++    pop rbp
+ 
+     ret
+ 
+diff -ruNZ old/call_i686.h new/call_i686.h
+--- old/call_i686.h	2011-12-25 16:09:32.000000000 -0500
++++ new/call_i686.h	2012-05-17 22:24:50.000000000 -0400
+@@ -128,6 +128,11 @@
+ 	/* #### NOW CALL THE FUNCTION #### */
+     switch(retval->t) {
+     case T_NUMBER:
++    case T_NUMBER | T_FLAG_UNSIGNED:
++    case T_SHORT:
++    case T_SHORT | T_FLAG_UNSIGNED:
++    case T_CHAR:
++    case T_CHAR | T_FLAG_UNSIGNED:
+         ApiFunctionNumber = (ApiNumber *) ApiFunction;
+ #ifdef WIN32_API_DEBUG
+     	printf("(XS)Win32::API::Call: Calling ApiFunctionNumber()\n");
+@@ -139,6 +144,7 @@
+ #ifdef WIN32_API_DEBUG
+     	printf("(XS)Win32::API::Call: Calling ApiFunctionFloat()\n");
+ #endif
++        retval->f = ApiFunctionFloat();
+ #ifdef WIN32_API_DEBUG
+         printf("(XS)Win32::API::Call: ApiFunctionFloat returned %f\n", retval->f);
+ #endif
+@@ -179,11 +185,11 @@
+         printf("(XS)Win32::API::Call: ApiFunctionPointer returned 0x%x '%s'\n", pReturn, pReturn);
+ #endif
+ 		/* #### only works with strings... #### */
+-		retval->p = (char *) safemalloc(strlen(pReturn));
+-		strcpy(retval->p, pReturn);
++		retval->p = pReturn ;
+ 
+         break;
+     case T_INTEGER:
++    case T_INTEGER | T_FLAG_UNSIGNED:
+         ApiFunctionInteger = (ApiInteger *) ApiFunction;
+ #ifdef WIN32_API_DEBUG
+     	printf("(XS)Win32::API::Call: Calling ApiFunctionInteger()\n");
+diff -ruNZ old/call_x86_64.h new/call_x86_64.h
+--- old/call_x86_64.h	2011-12-25 16:09:32.000000000 -0500
++++ new/call_x86_64.h	2012-05-24 16:53:38.000000000 -0400
+@@ -32,7 +32,7 @@
+ 
+ 	if (required_stack)
+ 	{
+-		stack = malloc(required_stack * sizeof(*stack));
++		stack = _alloca(required_stack * sizeof(*stack));
+ 		memset(stack, 0, required_stack * sizeof(*stack));
+ 	}
+ 
+@@ -44,6 +44,7 @@
+ 			switch (params[i].t)
+ 			{
+ 				case T_NUMBER:
++                case T_CODE:
+ 				case T_INTEGER:
+ 				case T_CHAR:
+ 					int_registers[i] = params[i].l;
+@@ -52,8 +53,13 @@
+ 				case T_STRUCTURE:
+ 					int_registers[i] = (size_t) params[i].p;
+ 					break;
+-				case T_FLOAT:
+-					float_registers[i] = params[i].f;
++				case T_FLOAT: //do not convert the float to a double,
++                    //put a float in the XMM reg, not a double made from a float
++                    //otherwise a func taking floats will see garbage because
++                    //XMM reg contains a double that is numerically
++                    //identical/similar to the original float but isn't
++                    //the original float bit-wise
++					float_registers[i] = *(double *)&(params[i].f);
+ 					break;
+ 				case T_DOUBLE:
+ 					float_registers[i] = params[i].d;
+@@ -65,9 +71,10 @@
+ 			switch (params[i].t)
+ 			{
+ 				case T_NUMBER:
++                case T_CODE:
+ 					stack[i - available_registers].i = params[i].l;
+ 					break;
+-				case T_INTEGER:
++				case T_INTEGER: //bug?
+ 					stack[i - available_registers].i = params[i].t;
+ 					break;
+ 				case T_POINTER:
+@@ -92,17 +99,20 @@
+ 	switch (retval->t)
+ 	{
+ 		case T_NUMBER:
++		case T_NUMBER | T_FLAG_UNSIGNED:          
+ 		case T_INTEGER:
++        case T_INTEGER | T_FLAG_UNSIGNED:
++        case T_SHORT:
++        case T_SHORT | T_FLAG_UNSIGNED:
++        case T_CHAR:
++        case T_CHAR | T_FLAG_UNSIGNED:
+ 			retval->l = (long_ptr) iret; //xxx not sure how long (4/8 bytes) should T_INTEGER/T_INTEGER be on Win64
+ 			break;
+ 		case T_POINTER:
+ 			retval->p = (char *) iret;
+ 			break;
+-		case T_CHAR:
+-			retval->c = (char) iret;
+-			break;
+ 		case T_FLOAT:
+-			retval->f = (float) dret;
++			retval->f = *(float*)&dret; //do not cast, copy bits unchanged
+ 			break;
+ 		case T_DOUBLE:
+ 			retval->d = (double) dret;
+diff -ruNZ old/t/00_API.t new/t/00_API.t
+--- old/t/00_API.t	2012-02-13 16:02:14.000000000 -0500
++++ new/t/00_API.t	2012-05-29 10:45:36.343750000 -0400
+@@ -10,8 +10,9 @@
+ #use Config; # ?not used
+ use File::Spec;
+ use Test::More;
+-plan tests => 25;
+-use vars qw($function $result $test_dll);
++use Encode;
++plan tests => 46;
++use vars qw($function $result $input $test_dll $ptr);
+ 
+ use_ok('Win32::API');
+ use_ok('Win32::API::Test');
+@@ -28,6 +29,8 @@
+ $test_dll = Win32::API::Test::find_test_dll();
+ diag('API test dll found at (' . $test_dll . ')');
+ ok(-e $test_dll, 'found API test dll');
++#$Win32::API::DEBUG = 1;
++
+ 
+ SKIP: {
+ 
+@@ -74,7 +77,67 @@
+     ok($result == $$, 'GetCurrentProcessId() result ok');
+ }
+ 
+-#### tests from our own DLL
++#check if DLL handle leaks after not finding a func
++
++{
++    my $IsBadReadPtr = Win32::API->new(
++        'kernel32.dll', 'BOOL IsBadReadPtr( UINT_PTR lp, UINT_PTR ucb)',
++    );
++    ok($IsBadReadPtr, 'Import of IsBadReadPtr function from kernel32.dll');
++    my $dllhandle = Win32::LoadLibrary($test_dll);
++    my $nofunction = new Win32::API($test_dll, 'int ThisFunctionDoesntExist(int a, int b)');
++    die "function that doesn't exist, exists!" if $nofunction;
++    Win32::FreeLibrary($dllhandle);
++    ok($IsBadReadPtr->Call($dllhandle, 4), 'API test dll was freed');
++}
++
++
++### tests from our own DLL
++#on x64 the return value is + since the test value is way under 2^63
++SKIP: {
++if(length(pack('J', 0)) == 8){
++    skip("ULONG is an 8 byte integer on x64 on old api", 2);
++}
++
++#API_TEST_API ULONG __stdcall highbit_unsigned() {
++#0000000002B01170 40 57            push        rdi  
++#	return 0x80005000;
++#0000000002B01172 B8 00 50 00 80   mov         eax,80005000h 
++#}
++#0000000002B01177 5F               pop         rdi  
++#0000000002B01178 C3               ret              
++#--- No source file -------------------------------------------
++#on X64 the mov did zero out the high 4 bytes on rax for me, i *think* no risk
++#of a garbage high 4 bytes appearing in the SVUV even though ULONG is a 4
++#byte int in theory
++# test return value is signed  for unsigned proto on old API
++$function = new Win32::API($test_dll, 'ULONG __stdcall highbit_unsigned()');
++ok(defined($function), 'highbit_unsigned() function defined');
++$result = $function->Call();
++is($result, unpack('l', pack('L', 0x80005000)), 'return value for unsigned is signed on old API');
++}
++
++{
++#old API psuedo pointer handling
++my $pass = 1;
++my $hnd = "\x00" x length(pack('J', 0));
++$function = new Win32::API($test_dll, 'BOOL __stdcall GetHandle(LPHANDLE pHandle)');
++
++$pass = $pass && defined($function);
++#takes "\xAB\xCD\xED\x00"
++$pass = $pass && $function->Call($hnd) == 1;
++$hnd = unpack('J', $hnd);
++$pass = $pass && $hnd == 4000;
++ok($pass, 'GetHandle operates correctly');
++$pass = 1;
++$function = new Win32::API($test_dll, 'BOOL __stdcall FreeHandle(HANDLE Handle)');
++$pass = $pass && defined($function);
++#takes 123
++$pass = $pass && $function->Call($hnd) == 1;
++ok($pass, 'FreeHandle operates correctly');
++}
++
++
+ 
+ # Sum 2 integers
+ $function = new Win32::API($test_dll, 'int sum_integers(int a, int b)');
+@@ -92,18 +155,21 @@
+ is($function->Call(2, 3, $result), 1, 'sum_integers_ref() returns the expected value');
+ is(unpack('C', $result), 5, 'sum_integers_ref() correctly modifies its ref argument');
+ 
+-# Sum 2 doubles
+-SKIP: {
++$function = new Win32::API($test_dll, 'short  __stdcall sum_shorts_ref(short a, short b, short *c)');
++ok(defined($function), 'sum_shorts_ref() function defined');
+ 
+-    # Now with VC6 this works, please check with others
+-    skip('because function call with double as return type isn\'t tested', 2);
++#diag("$function->{procname} \$^E=", $^E);
++$result = 0;
++eval {$function->Call(2, 3, $result);};
++is($@, "Win32::API::Call: parameter 1 must be a Win32::API::Struct object!\n"
++   , 'shorts croak as struct objs on old API');
+ 
+-    $function = new Win32::API($test_dll, 'double sum_doubles(double a, double b)');
+-    ok(defined($function), 'API_test.dll sum_doubles function defined');
++# Sum 2 doubles
++$function = new Win32::API($test_dll, 'double sum_doubles(double a, double b)');
++ok(defined($function), 'API_test.dll sum_doubles function defined');
+ 
+-    #diag("$function->{procname} \$^E=",$^E);
+-    ok($function->Call(2.5, 3.2) == 5.7, 'function call with double arguments');
+-}
++#diag("$function->{procname} \$^E=",$^E);
++ok($function->Call(2.5, 3.2) == 5.7, 'function call with double arguments');
+ 
+ # Same as above, with a pointer
+ $function =
+@@ -111,33 +177,32 @@
+ ok(defined($function), 'sum_doubles_ref() function defined');
+ 
+ #diag("$function->{procname} \$^E=", $^E);
+-$result = 1.0;
++#in 0.68 this test caused a buffer overflow, changed to not cause one
++$result = "\x00" x 8;
+ is($function->Call(2.5, 3.2, $result), 1, 'sum_doubles_ref() call works');
+ 
++ok((unpack('d', $result) - 5.7 < 0.005), 'sum_doubles_ref() sets ref correctly');
++
+ # Sum 2 floats
+ $function = new Win32::API($test_dll, 'float sum_floats(float a, float b)');
+ ok(defined($function), 'sum_floats() function defined');
+ 
+ #diag("$function->{procname} \$^E=", $^E);
+-SKIP: {
+-
+-    # Now its works with MSVC6, please check others
+-    skip('because function call with floats segfaults', 1);
+-
+-    # Never ever compare reals with '=='
+-    ok(abs($function->Call(2.5, 3.2) - 5.70) < 0.0005, 'sum_floats() result correct');
+-}
++my $res = $function->Call(2.5, 3.2);
++#due to rounding error, compare as strings in native format
++is(pack('f', $res),  pack('f', 5.7), 'sum_floats() result correct');
+ 
+ # Same as above, with a pointer
+-$function = new Win32::API($test_dll, 'int sum_floats_ref(float* a, float* b, float* c)');
++$function = new Win32::API($test_dll, 'int sum_floats_ref(float a, float b, float* c)');
+ ok(defined($function), 'sum_floats_ref() function defined');
+ 
+ #diag("$function->{procname} \$^E=", $^E);
+-$result = 0.0;
++$result = "\x00" x 4;
+ is($function->Call(2.5, 3.2, $result),
+     1, 'sum_floats_ref() returns the expected value (1)');
+ 
+-#ok(defined $result, 'sum_floats_ref() call works');
++ok((unpack('f', $result) - 5.7 < 0.005), 'sum_floats_ref() call works');
++
+ 
+ # Find a char in a string
+ $function = new Win32::API($test_dll, 'char* find_char(char* string, char ch)');
+@@ -148,15 +213,61 @@
+ my $char   = 'a';
+ is($function->Call($string, $char), 'aph', 'find_char() function call works');
+ 
+-__END__
++#testing chars on old API, chars as chars, char as return type was broken in  0.68 and older
++$function = new Win32::API($test_dll, 'char __stdcall sum_char_ref(char a, char b, char* c)');
++
++$result = "\x00";
++is($function->Call("\x02", "\x03", $result), pack('c', -128), 'sum_char_ref() returns the expected value');
++is(substr($result,0,1), "\x05", 'sum_char_ref() correctly modifies its ref argument');
+ 
+-/* cdecl tests */
++
++#testing unsigned prefix chars (numeric handling), new in 0.69, unparsable in 0.68
++#0xFF00 tests casting truncation behaviour
++$function = new Win32::API($test_dll, 'char __stdcall sum_char_ref(signed char a, signed char b, char* c)');
++
++$result = "\x00";
++is($function->Call(0xFF02, 0xFF03, $result), pack('c', -128), 'numeric truncation sum_char_ref() returns the expected value');
++is(substr($result,0,1), "\x05", 'sum_char_ref() correctly modifies its ref argument');
++
++
++#test old API WCHAR handing
++$function = new Win32::API($test_dll, 'BOOL __stdcall wstr_cmp(LPWSTR string)');
++is($function->Call(Encode::encode("UTF-16LE","Just another perl hacker\x00"))
++   , 1, 'wstr_cmp() returns the expected value');
++
++
++#test buffer overflow protection
++$function = new Win32::API($test_dll, 'VOID __stdcall buffer_overflow(char* string)');
++$input = "JAPH";
++eval {
++    $function->Call($input);
++};
++like($@, qr/.*\QWin32::API::Call: parameter 1 had a buffer overflow at\E.*/,
++     "buffer overflow protection worked");
++
++$ENV{WIN32_API_SORRY_I_WAS_AN_IDIOT} = 1 ;
++$input = "JAPH";
++$function->Call($input);
++ok(1, "idiot flag works");
++
++delete $ENV{WIN32_API_SORRY_I_WAS_AN_IDIOT};
++#/* cdecl tests */
+ 
+ # Sum integers and double via _cdecl function
+ $function = new Win32::API($test_dll, 'int __cdecl c_sum_integers(int a, int b)');
+ ok(defined($function), "cdecl c_sum_integers() function defined");
+ is($function->Call(2, 3), 5, 'cdecl sum_integers() returns expected value');
+ 
++$input = "Just another perl hacker";
++$ptr = unpack('J', pack('p', $input));
++$result = Win32::API::ReadMemory($ptr, length($input));
++is($result,$input,'ReadMemory() works');
++
++#test on old API that LPVOID is a char * and not a number/ptr
++$function = new Win32::API($test_dll, 'BOOL __stdcall str_cmp(LPVOID string)');
++is($function->Call("Just another perl hacker"), 1,
++   'str_cmp() with LPVOID returns the expected value');
++__END__
+ #### 12: sum integers and double via _cdecl function
+ $function = new Win32::API($test_dll, 'int _cdecl c_call_sum_int(int a, int b)');
+ ok(defined($function), "_cdecl c_call_sum_int()");
+diff -ruNZ old/t/v69.t new/t/v69.t
+--- old/t/v69.t	1969-12-31 19:00:00.000000000 -0500
++++ new/t/v69.t	2012-05-29 10:50:04.406250000 -0400
+@@ -0,0 +1,179 @@
++#!perl -w
++
++# $Id$
++
++# Before `make install' is performed this script should be runnable with
++# `make test'. After `make install' it should work as `perl test.pl'
++
++use strict;
++
++#use Config; # ?not used
++use File::Spec;
++use Test::More;
++use Encode;
++
++plan tests => 33;
++use vars qw($function $function2 $result $test_dll $input $ptr);
++
++#use_ok('Win32::API', qw( ReadMemory ));
++BEGIN {
++    $DB::single = 1;
++}
++use Win32::API qw( ReadMemory IsBadReadPtr MoveMemory WriteMemory);
++use_ok('Win32::API::Test');
++use_ok('Win32');
++
++
++$test_dll = Win32::API::Test::find_test_dll();
++diag('API test dll found at (' . $test_dll . ')');
++ok(-e $test_dll, 'found API test dll');
++
++#pointer types
++{
++#$Win32::API::DEBUG = 1;
++my $pass = 1;
++my $hnd = 0;
++$function = new Win32::API::More($test_dll, 'BOOL __stdcall GetHandle(LPHANDLE pHandle)');
++
++$pass = $pass && defined($function);
++$result = $function->Call($hnd);
++$pass = $pass && $result == 1;
++$pass = $pass && $hnd == 4000;
++ok($pass, 'GetHandle operates correctly');
++$pass = 1;
++$function = new Win32::API::More($test_dll, 'BOOL __stdcall FreeHandle(HANDLE Handle)');
++$pass = $pass && defined($function);
++$pass = $pass && $function->Call($hnd) == 1;
++ok($pass, 'FreeHandle operates correctly');
++}
++
++# test return value is unsigned for unsigned proto
++$function = new Win32::API::More($test_dll, 'ULONG __stdcall highbit_unsigned()');
++ok(defined($function), 'highbit_unsigned() function defined');
++
++is($function->Call(), 0x80005000, 'return value for unsigned is unsigned');
++
++# test return value is unsigned for unsigned proto, 2 word type
++$function = new Win32::API::More($test_dll, 'unsigned long __stdcall highbit_unsigned()');
++ok(defined($function), '2 word ret type highbit_unsigned() function defined');
++
++is($function->Call(), 0x80005000, 'return value for unsigned is unsigned');
++
++#test shorts on new api
++$function = new Win32::API::More($test_dll, 'short  __stdcall sum_shorts_ref(short a, short b, short* c)');
++ok(defined($function), 'sum_shorts_ref() function defined');
++
++#diag("$function->{procname} \$^E=", $^E);
++$result = 0;
++is($function->Call(2, 3, $result), -32768, 'sum_shorts_ref() returns the expected value');
++is($result, 5, 'sum_shorts_ref() correctly modifies its ref argument');
++
++#type pun to unsigned short, and "short* c" to "short *c" ("*c" is bug check)
++$function = new Win32::API::More($test_dll, 'USHORT  __stdcall sum_shorts_ref(short a, short b, signed short *c)');
++
++#diag("$function->{procname} \$^E=", $^E);
++$result = 0;
++is($function->Call(2, 3, $result), 32768, 'sum_shorts_ref() returns the expected unsigned value');
++is($result, 5, 'sum_shorts_ref() correctly modifies its ref argument');
++
++#test chars, "char*c" and "2" are not mistakes
++$function = new Win32::API::More($test_dll, 'char __stdcall sum_char_ref(unsigned char a, unsigned char b, unsigned char*c)');
++
++$result = '0';
++is($function->Call("2", "3", $result), pack('c', -128), 'sum_char_ref() returns the expected character value');
++is($result, 5, 'sum_char_ref() correctly modifies its ref argument');
++
++
++#test signed chars
++$function = new Win32::API::More($test_dll, 'signed char __stdcall sum_char_ref(signed char a, signed char b, signed char*c)');
++
++$result = '0';
++is($function->Call("-3", "-2", $result), -128, 'signed sum_char_ref() returns the expected numeric value');
++is($result, -5, 'sum_char_ref() correctly modifies its ref argument');
++
++#unsigned numeric ret, and unsigned char *
++$function = new Win32::API::More($test_dll, 'unsigned char __stdcall sum_char_ref(char a, char b, char*c)');
++
++$result = '0';
++is($function->Call("\x03", "\x02", $result), unpack('C', pack('c', -128)), 'unsigned sum_char_ref() returns the expected numeric value');
++is($result, "\x05", 'sum_char_ref() correctly modifies its ref argument');
++
++
++$function = new Win32::API::More($test_dll, 'BOOL __stdcall str_cmp(char *string)');
++is($function->Call("Just another perl hacker"), 1, 'str_cmp() returns the expected value');
++
++
++
++$function = new Win32::API::More($test_dll, 'BOOL __stdcall wstr_cmp(LPWSTR string)');
++is($function->Call(Encode::encode("UTF-16LE","Just another perl hacker"))
++   , 1, 'wstr_cmp() returns the expected value');
++{
++$function = new Win32::API::More($test_dll, 'HANDLE __stdcall GetGetHandle()');
++my $funcptr = $function->Call();
++#if $function goes out of scope, test dll is unloaded and $funcptr will crash
++my $function2 = new Win32::API::More(undef, $funcptr, 'BOOL __stdcall GetHandle(LPHANDLE pHandle)');
++my $pass = 1;
++my $hnd = 0;
++$pass = $pass && defined($function2);
++$result = $function2->Call($hnd);
++$pass = $pass && $result == 1;
++$pass = $pass && $hnd == 4000;
++ok($pass, 'GetHandle from func pointer using C prototype operates correctly');
++
++$function2 = new Win32::API::More(undef, $funcptr, 'GetHandle', 'P', 'I');
++$hnd = pack('J', 0);
++$pass = 1;
++$pass = $pass && defined($function2);
++$result = $function2->Call($hnd);
++$pass = $pass && $result == 1;
++$pass = $pass && unpack('J', $hnd) == 4000;
++ok($pass, 'GetHandle from func pointer using letter interface operates correctly');
++
++$function2 = new Win32::API::More(undef, 2, 'GetHandle', 'P', 'I');
++eval {
++    $result = $function2->Call($hnd);
++};
++ok($@ && ! defined $function2, 'Can\'t create a Win32::API obj to func ptr 2');
++
++}
++
++#Find a char in a string, proper unpacking of return type pointers isn't done
++$function = new Win32::API::More($test_dll, 'char * find_char(char* string, signed char ch)');
++ok(defined($function), 'find_char() function defined');
++
++#diag("$function->{procname} \$^E=", $^E);
++my $string = "\x01\x02\x03\x04";
++my $char   = 3;
++is($function->Call($string, $char), "\x03\x04", 'numeric return find_char() function call works');
++
++
++#here we are testing moving a scalar's contents to a foreign
++#memory allocator and getting is back from a foreign memory block
++#back into a scalar
++$input = "Just another perl hacker\x00";
++$function = new Win32::API::More( 'kernel32.dll' ,
++    'UINT_PTR HeapAlloc(HANDLE hHeap, DWORD dwFlags, SIZE_T dwBytes)');
++$function2 = new Win32::API::More( 'kernel32.dll' , 'HANDLE  GetProcessHeap()');
++$ptr = $function->Call($function2->Call(), 0, length($input));
++MoveMemory($ptr, unpack('J', pack('p', $input)), length($input));
++
++$input = "";
++$result = ReadMemory($ptr, length($input));
++is($result,$input,'MoveMemory() and ReadMemory() work');
++
++WriteMemory($ptr, "\x00" x length($input), length($input));
++$result = ReadMemory($ptr, length($input));
++is($result,"\x00" x length($input),'WriteMemory() works');
++
++
++$function = new Win32::API::More( 'kernel32.dll' ,
++    'BOOL HeapFree( HANDLE hHeap, DWORD dwFlags, UINT_PTR lpMem)'
++);
++
++ok($function->Call($function2->Call(), 0, $ptr), "HeapFree works");
++ok(IsBadReadPtr(1, 4), "1 is a bad pointer for IsBadReadPtr");
++ok(!IsBadReadPtr(unpack('J',pack('p', $input)), length($input)),
++   "IsBadReadPtr returned false on a good pointer");
++
++$function2 = new Win32::API::More( 'kernel32.dll' , 'HANDLE  GetProcessHeap( void ** ptr )');
++is($function2, undef, "** types do not parse currently");

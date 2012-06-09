@@ -1,0 +1,3577 @@
+diff -ruN --strip-trailing-cr v69/API.h v70genpatch/API.h
+--- v69/API.h	2012-06-06 14:02:59.796875000 -0400
++++ v70genpatch/API.h	2012-06-08 11:08:14.671875000 -0400
+@@ -25,6 +25,12 @@
+ #define T_CHAR				6
+ #define T_SHORT				7
+ 
++//T_QUAD is a 8 byte string,
++//use T_VOID or T_NUMBER for a 8 byte IV if 64 bit perl
++//T_QUAD is also used in ifdefs around the C code implementing T_QUAD
++#ifndef _WIN64
++    #define T_QUAD          8
++#endif
+ #define T_STRUCTURE			51
+ 
+ #define T_POINTERPOINTER	22
+@@ -40,6 +46,9 @@
+ typedef void   ApiVoid(void);
+ typedef int    ApiInteger(void);
+ typedef short  ApiShort(void);
++#ifdef T_QUAD
++typedef __int64 ApiQuad(void);
++#endif
+ 
+ //This is a packing padding nightmare, union or reorder, side effects unknown
+ typedef struct {
+@@ -50,6 +59,9 @@
+ 	long_ptr l; // 4 bytes on 32bit; 8 bytes on 64bbit; not sure if it is correct
+ 	float f;
+ 	double d;
++#ifdef T_QUAD
++    __int64 q;
++#endif
+ } APIPARAM;
+ 
+ typedef struct {
+@@ -74,3 +86,10 @@
+ } SENTINAL_STRUCT;
+ #pragma pack(pop)
+ #pragma pack(pop)
++
++#ifndef mPUSHs
++#  define mPUSHs(s)                      PUSHs(sv_2mortal(s))
++#endif
++#ifndef mXPUSHs
++#  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
++#endif
+diff -ruN --strip-trailing-cr v69/API.pm v70genpatch/API.pm
+--- v69/API.pm	2012-06-06 14:02:59.812500000 -0400
++++ v70genpatch/API.pm	2012-06-08 11:17:32.750000000 -0400
+@@ -18,17 +18,19 @@
+ require Exporter;      # to export the constants to the main:: space
+ require DynaLoader;    # to dynuhlode the module.
+ @ISA = qw( Exporter DynaLoader );
+-@EXPORT_OK = qw( ReadMemory IsBadReadPtr IsBadStringPtr MoveMemory
++@EXPORT_OK = qw( ReadMemory IsBadReadPtr MoveMemory
+ WriteMemory ); # symbols to export on request
+ 
+ use vars qw( $DEBUG $sentinal );
++use Scalar::Util qw( looks_like_number );
++
+ $DEBUG = 0;
+ 
+ BEGIN {
+ sub ERROR_NOACCESS () { 998 }
++eval " *Win32::API::Type::IVSIZE = *Win32::API::More::IVSIZE = *IVSIZE = sub  () { ".length(pack('J',0))." }";
+ }
+ 
+-
+ sub DEBUG {
+     if ($Win32::API::DEBUG) {
+         printf @_ if @_ or return 1;
+@@ -45,7 +47,7 @@
+ #######################################################################
+ # STATIC OBJECT PROPERTIES
+ #
+-$VERSION = '0.69';
++$VERSION = '0.70';
+ 
+ #### some package-global hash to
+ #### keep track of the imported
+@@ -72,7 +74,7 @@
+     my $self = {};
+     if(! defined $hproc){
+         if ($^O eq 'cygwin' and $dll ne File::Basename::basename($dll)) {
+-
++    
+             # need to convert $dll to win32 path
+             # isn't there an API for this?
+             my $newdll = `cygpath -w "$dll"`;
+@@ -80,7 +82,7 @@
+             DEBUG "(PM)new: converted '$dll' to\n  '$newdll'\n";
+             $dll = $newdll;
+         }
+-
++    
+         #### avoid loading a library more than once
+         if (exists($Libraries{$dll})) {
+             DEBUG "Win32::API::new: Library '$dll' already loaded, handle=$Libraries{$dll}\n";
+@@ -92,7 +94,7 @@
+             $freedll = 1;
+     #        $Libraries{$dll} = $hdll;
+         }
+-
++    
+         #### if the dll can't be loaded, set $! to Win32's GetLastError()
+         if (!$hdll) {
+             $! = Win32::GetLastError();
+@@ -101,7 +103,7 @@
+         }
+     }
+     else{
+-        if(IsBadReadPtr($hproc, 4)){
++        if(!looks_like_number($hproc) || IsBadReadPtr($hproc, 4)){
+             Win32::SetLastError(ERROR_NOACCESS);
+             DEBUG "FAILED Function pointer '$hproc' is not a valid memory location\n";
+             return undef;
+@@ -130,7 +132,7 @@
+                 push(@{$self->{in}}, $class->type_to_num($_));
+             }
+         }
+-        $self->{out}   = $class->type_to_num($out);
++        $self->{out}   = $class->type_to_num($out, 1);
+         $self->{cdecl} = calltype_to_num($callconvention);
+     }
+ 
+@@ -142,7 +144,7 @@
+         if (!$hproc) {
+             my $tproc = $proc;
+             $tproc .= (IsUnicode() ? "W" : "A");
+-
++    
+             # print "Win32::API::new: procedure not found, trying '$tproc'...\n";
+             $hproc = Win32::API::GetProcAddress($hdll, $tproc);
+         }
+@@ -243,8 +245,7 @@
+         or $type eq 'n'
+         or $type eq 'l'
+         or $type eq 'L'
+-        or $type eq 'Q'
+-        or $type eq 'q')
++        or ( IVSIZE == 8  and $type eq 'Q' || $type eq 'q'))
+     {
+         $num = 1;
+     }
+@@ -273,6 +274,10 @@
+     {
+         $num = 6;
+     }
++    elsif (IVSIZE == 4 and $type eq 'q' || $type eq 'Q')
++    {
++        $num = 8;
++    }
+     else {
+         $num = 0;
+     }#not valid return types of the C func
+@@ -317,8 +322,7 @@
+         or $type eq 'n'
+         or $type eq 'l'
+         or $type eq 'L'
+-        or $type eq 'Q'
+-        or $type eq 'q'
++        or ( IVSIZE == 8  and $type eq 'Q' || $type eq 'q')
+         or (! $out and  # in XS short 'in's are interger/numbers code
+             $type eq 'S'
+             || $type eq 's'))
+@@ -360,6 +364,13 @@
+             $num |= 0x80;
+         }
+     }
++    elsif (IVSIZE == 4 and $type eq 'q' || $type eq 'Q')
++    {
++        $num = 8;
++        if(defined $out && $type eq 'Q'){
++            $num |= 0x80;
++        }
++    }
+     elsif ($type eq 's') #7 is only used for out params
+     {
+         $num = 7;        
+@@ -414,7 +425,7 @@
+ 
+         DEBUG "(PM)parse_prototype: got PROC '%s'\n",   $proc;
+         DEBUG "(PM)parse_prototype: got PARAMS '%s'\n", $params;
+-
++        
+         foreach my $param (split(/\s*,\s*/, $params)) {
+             my ($type, $name);
+             #match "in_t* _var" "in_t * _var" "in_t *_var" "in_t _var" "in_t*_var" supported
+@@ -518,9 +529,9 @@
+       'mydll', 'int sum_integers(int a, int b)',
+   );
+   $return = $function->Call(3, 2);
+-  
++
+   #### Method 2: with prototype and your function pointer
+-  
++
+   use Win32::API;
+   $function = Win32::API::More->new(
+       undef, 38123456, 'int name_ignored(int a, int b)',
+@@ -534,7 +545,7 @@
+       'mydll', 'sum_integers', 'II', 'I',
+   );
+   $return = $function->Call(3, 2);
+-  
++     
+   #### Method 4: with parameter list and your function pointer
+   
+   use Win32::API;
+@@ -619,10 +630,10 @@
+ 
+ =head2 IMPORTING A FUNCTION
+ 
+-You can import a function from a 32 bit Dynamic Link Library (DLL) file 
+-with the C<new()> function or, starting in 0.69, supply your own
+-function pointer. This will create a Perl object that contains
+-the reference to that function, which you can later C<Call()>.
++You can import a function from a 32 bit Dynamic Link Library (DLL) file with
++the C<new()> function or, starting in 0.69, supply your own function pointer.
++This will create a Perl object that contains the reference to that function,
++which you can later C<Call()>.
+ 
+ What you need to know is the prototype of the function you're going to import
+ (eg. the definition of the function expressed in C syntax).
+@@ -753,7 +764,7 @@
+ 
+ Now for the real second parameter: the name of the function.
+ It must be written exactly as it is exported 
+-by the library (case is significant here). 
++by the library (case is significant here).
+ If you are using Windows 95 or NT 4.0, you can use the B<Quick View> 
+ command on the DLL file to see the function it exports. 
+ Remember that you can only import functions from 32 bit DLLs:
+@@ -814,6 +825,22 @@
+ =item C<n>: 
+ value is a signed pointer sized number (signed long or long)
+ 
++=item C<Q>: 
++value is a unsigned 64 bit integer number (unsigned long long, unsigned __int64)
++See next item for details.
++
++=item C<q>: 
++value is a signed 64 bit integer number (long long, __int64)
++If your perl has 'Q'/'q' quads support for L<perlfunc/pack> then Win32::API's 'q'
++is a normal perl numeric scalar. All 64 bit Perls have quad support. Almost no
++32 bit Perls have quad support. On 32 bit Perls, without quad support,
++Win32::API's 'q'/'Q' letter is a packed 8 byte string. So C<0x8000000050000000>
++from a perl with native Quad support would be written as
++C<"\x00\x00\x00\x50\x00\x00\x00\x80"> on a 32 bit Perl without Quad support.
++To improve the use of 64 bit integers with Win32::API on a 32 bit Perl without
++Quad support, there is a per Win32::API object setting called L</UseMI64>
++that causes all quads to be accepted as, and returned as L<Math::Int64> objects.
++
+ =item C<F>: 
+ value is a floating point number (float)
+ 
+@@ -827,7 +854,7 @@
+ value is a signed short (signed short or short)
+ 
+ =item C<C>: 
+-value is a char (char), pass as C<"a>", not C<97>, C<"abc"> will truncate to C<"a">
++value is a char (char), pass as C<"a">, not C<97>, C<"abc"> will truncate to C<"a">
+ 
+ =item C<P>: 
+ value is a pointer (to a string, structure, etc...)
+@@ -845,6 +872,23 @@
+ 
+ =back
+ 
++For beginners, just skip this paragraph.
++Note, all parameter types are little endian. This is probably what you want
++unless the documentation for the C function you are calling explictly says
++the parameters must be big endian. If there is no documentation for your C
++function or no mention of endianess in the doucmentation, this doesn't apply
++to you and skip the rest of this paragraph. There is no inherant support
++for big endian parameters. Perl's scalar numbers model is that numeric
++scalars are effectivly opaque and their machine representation is
++irrelavent. On Windows Perl, scalar numbers are little endian
++internally. So C<$number = 5; print "$number";> will put 5 on the screen.
++C<$number> given to Win32::API will pass little endian integer 5 to the C
++function call. This is almost surly what you want. If you really must pass
++a big endian integer, do C<$number = unpack('L', pack('N', 5));>, then
++C<print "$number";> will put 83886080 on the screen, but this is big endian 5,
++and passing 83886080 to C<-E<gt>Call()> will make sure that that
++the C function is getting big endian 5. See L<perlpacktut> for more.
++
+ Our function needs two parameters: a number (C<DWORD>) and a pointer to a 
+ string (C<LPSTR>):
+ 
+@@ -982,13 +1026,13 @@
+ 
+ =item 1.
+ 
+-you have to pack() the required elements in a variable:
++you have to L<pack()|perlfunc/pack> the required elements in a variable:
+ 
+     $lpPoint = pack('ll', 0, 0); # store two LONGs
+ 
+ =item 2.
+ 
+-to access the values stored in a structure, unpack() it as required:
++to access the values stored in a structure, L<unpack()|perlfunc/unpack> it as required:
+ 
+     ($x, $y) = unpack(';;', $lpPoint); # get the actual values
+ 
+@@ -1038,6 +1082,27 @@
+ not C<"\x01\x02\x03\x04">. See MS's documentation for alot more
+ on this function of the same name.
+ 
++=head2 METHODS
++
++=head3 Call
++
++The main method of a Win32::API object. Documented elsewhere in this document.
++
++=head3 UseMI64
++
++    $bool = $APIObj->UseMI64();
++    $t_or_f_of_newbool = $APIObj->UseMI64($newbool);
++
++Turns on Quads as L<Math::Int64> objects support for a particular object
++instance. You must call L<perlfunc/use>/L<perlfunc/require> on Math::Int64
++before calling UseMI64. Win32::API does not C<use> Math::Int64 for you.
++Works on Win32::API and Win32::API::Callback objects. This method
++does not exist if your Perl natively supports Quads (64 bit Perl for example).
++Takes 1 optional parameter, which is a true or false value to use or don't use
++Math::Int64, returns the new setting, which is a true or false value. If called
++without any parameters, returns current setting, which is a true or false value,
++without setting the option. As discussed in L<q>, if your not using Math::Int64
++you must supply/will receive 8 byte scalar strings for quads.
+ 
+ =head1 HISTORY
+ 
+@@ -1072,9 +1137,33 @@
+ of pointers to numbers-ish things for in parameters when using the C
+ prototype interface.
+ 
++=item Quads on 32 bit
++
++Added in 0.70.
++
+ =back
+ 
+-See the C<Changes> file for more details.
++See the C<Changes> file for more details, many of which not mentioned here.
++
++=head1 BUGS AND LIMITATIONS
++
++=over 4
++
++=item E<nbsp> 32 bit perls with native quads
++
++Untested.
++
++=item E<nbsp> ithreads/fork/cloning
++
++Untested.
++
++=back
++
++=head1 SEE ALSO
++
++L<Math::Int64>
++
++L<http://homepage.ntlworld.com/jonathan.deboynepollard/FGA/function-calling-conventions.html>
+ 
+ =head1 AUTHOR
+ 
+diff -ruN --strip-trailing-cr v69/API.xs v70genpatch/API.xs
+--- v69/API.xs	2012-06-06 14:02:59.828125000 -0400
++++ v70genpatch/API.xs	2012-06-08 22:05:58.328125000 -0400
+@@ -2,6 +2,7 @@
+     # Win32::API - Perl Win32 API Import Facility
+     #
+     # Author: Aldo Calpini <dada@perl.it>
++    # Author: Daniel Dragan <bulk88@hotmail.com>
+     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
+     #
+     # $Id$
+@@ -51,29 +52,7 @@
+ #error "Don't know what architecture I'm on."
+ #endif
+ 
+-#ifndef mPUSHs
+-#  define mPUSHs(s)                      PUSHs(sv_2mortal(s))
+-#endif
+-
+-#ifndef mXPUSHs
+-#  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
+-#endif
+-
+-void pointerCallPack(pTHX_ SV * obj, SV * param, SV * type) {
+-	dSP;
+-	ENTER;
+-	PUSHMARK(SP);
+-    EXTEND(SP, 3);
+-    PUSHs(obj);
+-    PUSHs(type);
+-	PUSHs(param);
+-	PUTBACK;
+-	call_pv("Win32::API::Type::Pack", G_VOID);
+-	LEAVE;
+-}
+-
+-
+-void pointerCallUnpack(pTHX_ SV * obj, SV * param, SV * type) {
++void pointerCallUnpackOrPack(pTHX_ SV * obj, SV * param, SV * type, BOOL unpack) {
+ 	dSP;
+ 	ENTER;
+ 	PUSHMARK(SP);
+@@ -82,7 +61,8 @@
+     PUSHs(type);
+ 	PUSHs(param);
+ 	PUTBACK;
+-	call_pv("Win32::API::Type::Unpack", G_VOID);
++	call_pv(unpack ? "Win32::API::Type::Unpack"
++            :"Win32::API::Type::Pack", G_VOID);
+ 	LEAVE;
+ }
+ 
+@@ -111,7 +91,7 @@
+     DUMPMEM(double,d);
+     printf("(XS)Win32::API::boot: APIPARAM total size=%u\n", sizeof(APIPARAM));
+ #undef DUMPMEM
+-#endif
++#endif	
+     //this is not secure against malicious overruns
+     //QPC doesn't like unaligned pointers
+     if(!QueryPerformanceCounter(&counter))
+@@ -123,6 +103,32 @@
+     sv_setpvn(sentinal, (char*)&sentinal_struct, sizeof(sentinal_struct));
+ }
+ 
++#if IVSIZE == 4
++
++void
++UseMI64(...)
++PREINIT:
++    SV * flag;
++    HV * self;
++PPCODE:
++    if (items < 1 || items > 2)
++       croak_xs_usage(cv,  "self [, FlagBool]");
++    self = (HV*)ST(0);
++	if (!(SvROK((SV*)self) && ((self = (HV*)SvRV((SV*)self)), SvTYPE((SV*)self) == SVt_PVHV)))
++        Perl_croak(aTHX_ "%s: %s is not a hash reference",
++			"Win32::API::UseMI64",
++			"self");
++    if(items == 2){
++        flag = boolSV(sv_true(ST(1)));
++        hv_store(self, "UseMI64", sizeof("UseMI64")-1, flag, 0);
++    }
++    else{ //dont create one if doesn't exist
++        flag = (SV *)hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
++        if(flag) flag = *(SV **)flag;
++    }
++    PUSHs(boolSV(sv_true(flag))); //flag might be NULL
++
++#endif
+ 
+ HINSTANCE
+ LoadLibrary(name)
+@@ -236,6 +242,8 @@
+     XST_mPV(0, (char *) SvIV(ST(0)));
+     XSRETURN(1);
+ 
++# IsBadStringPtr is not public API of Win32::API
++
+ void
+ IsBadReadPtr(addr, len)
+     long_ptr addr
+@@ -324,10 +332,10 @@
+ 
+     int nin, tout, i;
+     long_ptr tin;
+-    int words_pushed;
+     BOOL c_call;
+ 	BOOL has_proto = FALSE;
+     UCHAR is_more = sv_isa(api, "Win32::API::More");
++    UCHAR UseMI64;
+     SV * sentinal = get_sv("Win32::API::sentinal", 0);
+     obj = (HV*) SvRV(api);
+     obj_proc = hv_fetch(obj, "proc", 4, FALSE);
+@@ -335,7 +343,10 @@
+     ApiFunction = (FARPROC) SvIV(*obj_proc);
+ 
+     obj_proto = hv_fetch(obj, "proto", 5, FALSE);
+-
++    {SV ** tmpsv = hv_fetch(obj, "UseMI64", sizeof("UseMI64")-1, 0);
++    if(tmpsv && sv_true(*tmpsv)){UseMI64 = 1;}
++    else{UseMI64 = 0;}
++    }
+     if(obj_proto != NULL && SvIV(*obj_proto)) {
+ 		has_proto = TRUE;
+ 		obj_intypes = hv_fetch(obj, "intypes", 7, FALSE);
+@@ -385,6 +396,31 @@
+ 				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%ld\n", i, params[i].t, params[i].l);
+ #endif
+                 break;
++#ifdef T_QUAD
++            case T_QUAD:{
++                __int64 * pI64;
++                if(UseMI64){
++                    ENTER; //behaviour is undefined
++                    PUSHMARK(SP); //stack extend not needed since we got 1 params
++                    //on the stack already from caller, so stack minimum 1 long
++                    PUSHs(pl_stack_param); //currently mortal
++                    PUTBACK; //don't check return count, assume its 1
++                    call_pv("Math::Int64::int64_to_native", G_SCALAR);
++                    SPAGAIN;//un/signed irrelavent
++                    pl_stack_param = POPs; //this is also mortal
++                    LEAVE;
++                }
++                pI64 = (__int64 *) SvPV_nolen(pl_stack_param);
++                if(SvCUR(pl_stack_param) != 8)
++                croak("Win32::API::Call: parameter %d is a 64 bit integer, "
++                      "it must be a packed 8 bytes long string, (Math::Int64 broken?)", i+1);
++                params[i].t = T_QUAD;
++				params[i].q = *pI64;
++#ifdef WIN32_API_DEBUG
++				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%I64d\n", i, params[i].t, params[i].q);
++#endif
++                }break;
++#endif
+             case T_CHAR:
+                 params[i].t = T_CHAR;
+                 //ASM x64 vs i686 is messy, both must fill
+@@ -426,7 +462,7 @@
+                 if(has_proto) {
+                     if(SvOK(pl_stack_param)) {
+                         if(is_more) {
+-                            pointerCallPack(aTHX_ api, pl_stack_param, *av_fetch(intypes, i, 0));
++                            pointerCallUnpackOrPack(aTHX_ api, pl_stack_param, *av_fetch(intypes, i, 0), FALSE);
+                         }
+                         goto PTR_IN_USE_PV;
+                     /* When arg is undef, use NULL pointer */
+@@ -568,23 +604,6 @@
+                 printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%s (0x%08x)\n", i, params[i].t, params[i].p, params[i].p);
+ #endif
+ 			}
+-
+-			if(params[i].t == T_CODE) {
+-				int count;
+-
+-				ENTER;
+-				SAVETMPS;
+-				PUSHMARK(SP);
+-				XPUSHs(origST[i]);
+-				PUTBACK;
+-				count = call_method("PushSelf", G_DISCARD);
+-				PUTBACK;
+-				FREETMPS;
+-				LEAVE;
+-#ifdef WIN32_API_DEBUG
+-				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=0x%x\n", i, params[i].t, params[i].l);
+-#endif
+-			}
+ 		}
+     }
+ 
+@@ -607,7 +626,7 @@
+                 SvCUR_set(origST[i], SvCUR(origST[i])-sizeof(SENTINAL_STRUCT));
+             }
+             if(has_proto && is_more) {
+-                pointerCallUnpack(aTHX_ api, origST[i], *av_fetch(intypes, i, 0));
++                pointerCallUnpackOrPack(aTHX_ api, origST[i], *av_fetch(intypes, i, 0), TRUE);
+             }
+ 		}
+ 		if(params[i].t == T_STRUCTURE) {
+@@ -668,6 +687,27 @@
+ #endif
+         retsv = newSVuv((UV)(unsigned short)retval.l);
+         break;
++#ifdef T_QUAD
++    case T_QUAD:
++    case (T_QUAD|T_FLAG_UNSIGNED):
++#ifdef WIN32_API_DEBUG
++	   	printf("(XS)Win32::API::Call: returning %I64d.\n", retval.q);
++#endif
++        retsv = newSVpvn((char *)&retval.q, sizeof(retval.q));
++        if(UseMI64){
++            ENTER;
++            PUSHMARK(SP);
++            mXPUSHs(retsv);
++            PUTBACK; //don't check return count, assume its 1
++            call_pv(tout & T_FLAG_UNSIGNED ? 
++            "Math::Int64::native_to_uint64" : "Math::Int64::native_to_int64", G_SCALAR);
++            SPAGAIN;
++            retsv = POPs; //8 byte str PV was already mortaled
++            SvREFCNT_inc_simple_void_NN(retsv); //cancel the mortal, will be remortaled later
++            LEAVE;
++        }
++        break;
++#endif
+     case T_FLOAT:
+ #ifdef WIN32_API_DEBUG
+ 	   	printf("(XS)Win32::API::Call: returning %f.\n", retval.f);
+Binary files v69/API_test.dll and v70genpatch/API_test.dll differ
+Binary files v69/API_test64.dll and v70genpatch/API_test64.dll differ
+diff -ruN --strip-trailing-cr v69/Callback/Callback.xs v70genpatch/Callback/Callback.xs
+--- v69/Callback/Callback.xs	2012-06-06 14:02:59.828125000 -0400
++++ v70genpatch/Callback/Callback.xs	2012-06-08 22:01:41.937500000 -0400
+@@ -1,12 +1,12 @@
+ /*
+     # Win32::API::Callback - Perl Win32 API Import Facility
+     #
+-    # Author: Aldo Calpini <dada@perl.it>
++    # Original Author: Aldo Calpini <dada@perl.it>
++    # Rewrite Author: Daniel Dragan <bulk88@hotmail.com>
+     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
+     #
+-    # Changes for gcc/cygwin by Reini Urban <rurban@x-ray.at> 
+-    # TODO: This does not work yet with the 64bit gcc cygwin-thread-multi-64int 
+-    #       (cygwin default)
++    # Other Credits:
++    # Changes for gcc/cygwin by Reini Urban <rurban@x-ray.at>  (code removed)
+     #
+     # $Id$
+  */
+@@ -15,6 +15,7 @@
+ #include <windows.h>
+ #include <memory.h>
+ 
++#define PERL_NO_GET_CONTEXT
+ #include "EXTERN.h"
+ #include "perl.h"
+ 
+@@ -24,18 +25,43 @@
+ #include "XSUB.h"
+ #define CROAK croak
+ 
+-
+-#ifndef mPUSHs
+-#  define mPUSHs(s)                      PUSHs(sv_2mortal(s))
+-#endif
+-
+-#ifndef mXPUSHs
+-#  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
++#ifndef _WIN64
++#define WIN32BIT
++#define WIN32BITBOOL 1
++#else
++#define WIN32BITBOOL 0
+ #endif
+ 
+ 
+ #include "../API.h"
+ 
++//older VSes dont have this flag
++#ifndef HEAP_CREATE_ENABLE_EXECUTE
++#define HEAP_CREATE_ENABLE_EXECUTE      0x00040000
++#endif
++
++HANDLE execHeap;
++
++BOOL WINAPI DllMain(
++    HINSTANCE hinstDLL,
++    DWORD fdwReason,
++    LPVOID lpReserved )
++{
++    switch( fdwReason ) 
++    { 
++        case DLL_PROCESS_ATTACH:
++            if(!DisableThreadLibraryCalls(hinstDLL)) return FALSE;
++            execHeap = HeapCreate(HEAP_CREATE_ENABLE_EXECUTE
++                              | HEAP_GENERATE_EXCEPTIONS, 0, 0);
++            if(!execHeap) return FALSE;
++            break;
++        case DLL_PROCESS_DETACH:
++            return HeapDestroy(execHeap);
++            break;
++    }
++    return TRUE;
++}
++
+ 
+ 
+ /*
+@@ -61,920 +87,436 @@
+ #	define call_sv(name, flags) perl_call_sv(name, flags)
+ #endif
+ 
+-#ifdef __GNUC__
+-/* itoa is NOT in newlib. We need only the simple base 10 version. */
+-char * itoa(int n, char *str, int radix);
+-char * itoa(int n, char *str, int radix) {
+-    sprintf(str, "%d", n);
++
++#define PERL_API_VERSION_LE(R, V, S) (PERL_API_REVISION < (R) || \
++(PERL_API_REVISION == (R) && (PERL_API_VERSION < (V) ||\
++(PERL_API_VERSION == (V) && (PERL_API_SUBVERSION <= (S))))))
++
++#if PERL_API_VERSION_LE(5, 13, 8)
++MAGIC * my_find_mg(SV * sv, int type, const MGVTBL *vtbl){
++	MAGIC *mg;
++	for (mg = SvMAGIC (sv); mg; mg = mg->mg_moremagic) {
++		if (mg->mg_type == type && mg->mg_virtual == vtbl)
++			assert (mg->mg_ptr);
++			return mg;
++	}
++	return NULL;
+ }
++#define mg_findext(a,b,c) my_find_mg(a,b,c)
+ #endif
+ 
++#ifdef WIN32BIT
++typedef struct {
++    unsigned short unwind_len;
++    unsigned char F_Or_D;
++    unsigned char unused;
++} FuncRtnCxt;
++
++#if 0
++////the template used in the MakeCB for x86
++unsigned __int64 CALLBACK CallbackTemplate2() {
++    void (*PerlCallback)(SV *, void *, unsigned __int64 *, FuncRtnCxt *) = 0xC0DE0001;
++    FuncRtnCxt FuncRtnCxtVar;
++    unsigned __int64 retval;
++    PerlCallback((SV *)0xC0DE0002, (void*)0xC0DE0003, &retval, &FuncRtnCxtVar);
++    return retval;
++}
+ 
+-int PerformCallback(SV* self, int nparams, APIPARAM* params);
+-
+-SV* fakesv;
+-int fakeint;
+ 
+-int RelocateCode(unsigned char* cursor, unsigned int displacement) {
+-	int skip;
+-	unsigned int reladdr;
+-
+-	switch(*cursor) {
+-
+-		// skip +0
+-		case 0x50:	// push eax
+-		case 0x51:	// push ecx
+-		case 0x55:	// push ebp
+-		case 0x56:	// push esi
+-		case 0x59:	// pop ecx
+-		case 0x5E:	// pop esi
+-		case 0xC3:	// ret
+-		case 0xC9:	// leave
+-			skip = 0;
+-			break;
+-
+-		// skip +1
+-		case 0x33:	// xor
+-		case 0x3B:	// cmp
+-		case 0x6A:	// push (1 byte)
+-		case 0x74:	// je
+-		case 0x75:	// jne
+-		case 0x7D:	// jge
+-		case 0x7E:	// jle
+-		case 0x85:	// test
+-		case 0xEB:	// jmp
+-			skip = 1;
+-			break;
+-
+-		// skip +1/+2
+-		case 0x2B:
+-			if(*(cursor+1) == 0x30	// sub esi, dword ptr [eax]
+-			) {
+-				skip = 1;
+-				break;
+-			} else
+-			if (*(cursor+1) == 0x45	// sub eax, dword ptr [ebp+1 byte]
+-			) {
+-				skip = 2;
+-				break;
+-			}
+-
+-		// skip +1/+2
+-		case 0x89:
+-
+-			if(*(cursor+1) == 0x01	// mov dword ptr [ecx], eax
+-			|| *(cursor+1) == 0x08	// mov dword ptr [eax], ecx
+-			|| *(cursor+1) == 0x30	// mov dword ptr [eax], esi
+-			) {
+-				skip = 1;
+-				break;
+-			}
+-			if(*(cursor+1) == 0x45	// mov dword ptr [ebp+1 byte], eax
+-			|| *(cursor+1) == 0x4D	// mov dword ptr [ebp+1 byte], ecx
+-			|| *(cursor+1) == 0x04	// mov dword ptr [edx+ecx*1 byte], eax
+-			) {
+-				skip = 2;
+-				break;
+-			}
+-
+-		// skip +1/+2
+-		case 0x8B:
+-
+-			if(*(cursor+1) == 0x00	// mov eax,dword ptr [eax]
+-			|| *(cursor+1) == 0x09	// mov ecx,dword ptr [ecx]
+-			|| *(cursor+1) == 0x0E	// mov ecx,dword ptr [esi]
+-			|| *(cursor+1) == 0xEC	// mov ebp,esp
+-			|| *(cursor+1) == 0xF0	// mov esi,eax
+-			) {
+-				skip = 1;
+-				break;
+-			} else
+-			if(*(cursor+1) == 0x40	// mov eax,dword ptr [eax+1 byte]
+-			|| *(cursor+1) == 0x45	// mov eax,dword ptr [ebp+1 byte]
+-			|| *(cursor+1) == 0x4D	// mov ecx,dword ptr [ebp+1 byte]
+-			|| *(cursor+1) == 0x55	// mov edx,dword ptr [ebp+1 byte]
+-			|| *(cursor+1) == 0x75	// mov esi,dword ptr [ebp+1 byte]
+-			) {
+-				skip = 2;
+-				break;
+-			}
+-
+-		case 0xFF:
+-			if(*(cursor+1) == 0x30	// push dword ptr [eax]
+-			) {
+-				skip = 1;
+-				break;
+-			} else
+-			if(*(cursor+1) == 0x75	// push dword ptr [epb+1 byte]
+-			|| *(cursor+1) == 0x34	// push dword ptr [ecx+eax*4]
+-			) {
+-				skip = 2;
+-				break;
+-			} else
+-			if(*(cursor+1) == 0x15	// call dword ptr ds:(4 byte)
+-			|| *(cursor+1) == 0x35	// push dword ptr ds:(4 byte)
+-			) {
+-				skip = 5;
+-				break;
+-			}
+-
+-		// skip +2
+-		case 0xC1:	// sar
+-			skip = 2;
+-			break;
+-
+-		// skip +2/+3
+-		case 0x83:
+-			if(*(cursor+1) != 0x65	// add|sub|cmp
+-			) {
+-				skip = 2;
+-				break;
+-			} else
+-			if(*(cursor+1) == 0x65	// add|sub|cmp
+-			) {
+-				skip = 3;
+-				break;
+-			}
+-
+-		// skip +4
+-		case 0x25:	// and
+-		case 0x68:	// push (4 bytes)
+-			skip = 4;
+-			break;
+-
+-
+-		// skip +6
+-		case 0xC7:	// mov dword ptr (ebp+1 byte), (4 byte)
+-			skip = 6;
+-			break;
+-
+-		case 0xE8:
+-			// we relocate here!
+-			reladdr = *((int*)(cursor + 1));
+-			*((int*)(cursor + 1)) = (unsigned int) (reladdr - displacement);
+-			skip = 4;
+-			break;
+-
+-		default:
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)RelocateCode: %08X ????    0x%x\n", cursor, *cursor);
+-#endif
+-			skip = 0;
+-			break;
+-	}
+-#ifdef WIN32_API_DEBUG
+-	{
+-		int i;
+-		printf("(C)RelocateCode: %08X skip +%1d ", cursor, skip);
+-		for(i = 0; i <= skip; i++) {
+-			printf("%02X ", *(cursor+i));
+-		}
+-		printf("\n");
+-	}
+-#endif
+-	return 1 + skip;
+-}
++typedef union {
++    float f;
++    double d;
++} FDUNION;
+ 
+ 
+-// SV* CallbackMakeStruct(SV* self, int nparam, char *addr) {
+-int CallbackMakeStruct(SV* self, int nparam, char *addr) {
+-#ifdef dTHX
+-	dTHX;
+-#endif
+-	dSP;
+-	SV* structobj = NULL;
+-	char ikey[80];
+-/*
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackMakeStruct: got self='%s'\n", SvPV_nolen(self));
+-	sv_dump(self);
+-	if(SvROK(self)) sv_dump(SvRV(self));
+-	printf("(C)CallbackMakeStruct: got nparam=%d\n", nparam);
+-	printf("(C)CallbackMakeStruct: got addr=0x%08x\n", addr);
+-	// memcpy( SvPV_nolen(self), 0, 1000);
+-#endif
+-*/
+-	ENTER;
+-	SAVETMPS;
+-	// XPUSHs(sv_2mortal(newSVrv(self, "Win32::API::Callback")));
+-	PUSHMARK(SP);
+-	XPUSHs(sv_2mortal(newSVsv(self)));
+-	XPUSHs(sv_2mortal(newSViv(nparam)));
+-	XPUSHs(sv_2mortal(newSViv((long) addr)));
+-	PUTBACK;
+-	call_pv("Win32::API::Callback::MakeStruct", G_SCALAR);
+-	SPAGAIN;
+-	structobj = newSVsv(POPs);
+-
+-	itoa(nparam, ikey, 10);
+-	hv_store( (HV*)SvRV(self), ikey, strlen(ikey), structobj, 0 );
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackTemplate: self{'%s'}='%s'\n", ikey, SvPV_nolen(*(hv_fetch( (HV*)SvRV(self), ikey, strlen(ikey), 0 ))));
+-#endif
+-/*
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackMakeStruct: structobj='%s'\n", SvPV_nolen(structobj));
+-	sv_dump(structobj);
+-	if(SvROK(structobj)) sv_dump(SvRV(structobj));
+-#endif
+-*/
+-	PUTBACK;
+-	FREETMPS;
+-	LEAVE;
+-	return 1;
+-	// return structobj;
++////the template used in the MakeCB for x86
++double CALLBACK CallbackTemplateD() {
++    void (*PerlCallback)(SV *, void *, unsigned __int64 *, FuncRtnCxt *) = 0xC0DE0001;
++    FuncRtnCxt FuncRtnCxtVar;
++    FDUNION retval;
++    PerlCallback((SV *)0xC0DE0002, (void*)0xC0DE0003, (unsigned __int64 *)&retval, &FuncRtnCxtVar);
++    if(FuncRtnCxtVar.F_Or_D){
++        return (double) retval.f;
++    }
++    else{
++        return retval.d;        
++    }
+ }
+-
+-//turn off "global optimizations", -Od -O1 and -O2 tested ok
+-#pragma optimize("g", off)
+-int CALLBACK CallbackTemplate() {
+-	SV* myself = (SV*) 0xC0DE0001; 	// checkpoint_SELFPOS
+-	int nparams = 0xC0DE0002; 		// checkpoint_NPARAMS
+-	APIPARAM* params;
+-	unsigned int checkpoint;
+-	int i, r;
+-
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackTemplate: nparams=%d\n", nparams);
+-//	printf("(C)CallbackTemplate: myself='%s'\n", SvPV_nolen(myself));
+-//	sv_dump(myself);
+-//	if(SvROK(myself)) sv_dump(SvRV(myself));
++#endif //#if 0
+ #endif
+-#ifdef aTHX
++
++////unused due to debugger callstack corruption
++////alternate design was implemented
++//#ifdef _WIN64
++//
++//#pragma optimize( "y", off)
++//////the template used in the MakeCBx64
++//void * CALLBACK CallbackTemplate64fin( void * a
++//                                      //, void * b, void * c, void * d
++//                                      , ...
++//                                      ) {
++//    void (*LPerlCallback)(SV *, void *, unsigned __int64 *, void *) =
++//    ( void (*)(SV *, void *, unsigned __int64 *, void *)) 0xC0DE00FFFF000001;
++//    __m128 arr [4];
++//    __m128 retval;
++//     arr[0].m128_u64[0] = 0xFFFF00000000FF10;
++//     arr[0].m128_u64[1] = 0xFFFF00000000FF11;
++//     arr[1].m128_u64[0] = 0xFFFF00000000FF20;
++//     arr[1].m128_u64[1] = 0xFFFF00000000FF21;
++//     arr[2].m128_u64[0] = 0xFFFF00000000FF30;
++//     arr[2].m128_u64[1] = 0xFFFF00000000FF31;
++//     arr[3].m128_u64[0] = 0xFFFF00000000FF40;
++//     arr[3].m128_u64[1] = 0xFFFF00000000FF41;
++//
++//    LPerlCallback((SV *)0xC0DE00FFFF000002, (void*) arr, (unsigned __int64 *)&retval,
++//                  (DWORD_PTR)&a);
++//    return *(void **)&retval;
++//}
++//#pragma optimize( "", on )
++//#endif
++
++#ifdef WIN32BIT
++typedef unsigned __int64 CBRETVAL; //8 bytes
++#else
++//using a M128 SSE variable casues VS to use aligned SSE movs, Perl's malloc
++//(ithread mempool tracking included) on x64 apprently aligns to 8 bytes,
++//not 16, then it crashes so DONT use a SSE type, even though it is
++typedef struct {
++    char arr[16];
++} CHAR16ARR;
++typedef CHAR16ARR CBRETVAL; //16 bytes
++#endif
++
++void PerlCallback(SV * obj, void * ebp, CBRETVAL * retval
++#ifdef WIN32BIT               
++                  ,FuncRtnCxt * rtncxt
++#endif                  
++                  ) {
++    dTHX;
++#if defined(USE_ITHREADS)
+     {
+-        dTHX;
+         if(aTHX == NULL) {
+-//perl overrode CRT's fprintf, undo that since the error message has to be
+-//printed with zero perl involvement
+-            fprintf(stderr, "Win32::API::Callback::CallbackTemplate: no perl interp "
++            //due to NO_XSLOCKS, these are real CRT and not perl stdio hooks
++            fprintf(stderr, "Win32::API::Callback (XS) no perl interp "
+                    "in thread id %u, callback can not run\n", GetCurrentThreadId());
+-            r = 0; //dont return uninitialized value
+-            checkpoint = 0xC0DE0050;
+-            goto END;
++            //can't return safely without stack unwind count from perl on x86,
++            //so exit thread is next safest thing, some/most libs will leak
++            //from this
++            ExitThread(0); // 0 means failure? IDK.
+         }
+     }
+ #endif
+-	params = (APIPARAM*) safemalloc(  nparams * sizeof(APIPARAM) );
+-	checkpoint = 0xC0DE0010;		// checkpoint_PUSHI
+-	i = 0xC0DE0003;					// checkpoint_IPOS
+-	params[i].t = T_INTEGER;
+-	params[i].l = fakeint;
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackTemplate: PUSHI(%d)=", i);
+-	printf("%d\n", params[i].l);
+-#endif
+-	checkpoint = 0xC0DE0020;		// checkpoint_PUSHL
+-	i = 0xC0DE0003;					// checkpoint_IPOS
+-	params[i].t = T_NUMBER;
+-	params[i].l = fakeint;
+-	checkpoint = 0xC0DE0030;		// checkpoint_PUSHP
+-	i = 0xC0DE0003;					// checkpoint_IPOS
+-	params[i].t = T_POINTER;
+-	params[i].p = (char*) fakeint;
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackTemplate: PUSHP(%d)=", i);
+-	printf("%08x (%s)\n", params[i].p, params[i].p);
+-#endif
+-	checkpoint = 0xC0DE0040;		// checkpoint_PUSHS
+-	i = 0xC0DE0003;					// checkpoint_IPOS
+-	params[i].t = T_STRUCTURE;
+-	params[i].p = (char*) fakeint;
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackTemplate: PUSHS(%d)=", i);
+-	printf("%08x\n", params[i].p);
+-#endif
+-
+-/*
+-	checkpoint = 0xC0DE0050;		// checkpoint_PUSHD
+-	i = 0xC0DE0003;					// checkpoint_IPOS
+-	params[i].t = T_DOUBLE;
+-	params[i].d = fakedouble;
+-*/
+-
+-	checkpoint = 0xC0DE9999;		// checkpoint_END
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackTemplate: Calling PerformCallback...\n");
+-#endif
+-	r = PerformCallback(myself, nparams, params);
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackTemplate: r=%d\n", r);
+-#endif
+-	safefree(params);
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackTemplate: RETURNING\n");
+-#endif
+-    END:
+-    checkpoint = 0xC0DE0060;
+-	return r;
+-}
+-//restore back to cmd line defaults
+-#pragma optimize( "", on )
+-
+-
+-int PerformCallback(SV* self, int nparams, APIPARAM* params) {
+-	SV* mycode;
+-	int i = 0;
+-	char ikey[80];
+-	int r;
+-#ifdef dTHX
+-	dTHX;
+-#endif
++    {
+ 	dSP;
+-
+-	mycode = *(hv_fetch((HV*)SvRV(self), "sub", 3, FALSE));
+-
+-	for(i=0; i < nparams; i++) {
+-		if(params[i].t == T_STRUCTURE) {
+-			CallbackMakeStruct(self, i, params[i].p);
+-		}
+-	}
+-
++    SV * retvalSV;
++#ifdef WIN32BIT
++    SV * unwindSV;
++    SV * F_Or_DSV;
++#endif
+ 	ENTER;
+-	SAVETMPS;
++    SAVETMPS;
+ 	PUSHMARK(SP);
+-	for(i=0; i < nparams; i++) {
+-		switch(params[i].t) {
+-		case T_STRUCTURE:
+-			itoa(i, ikey, 10);
+-			XPUSHs(sv_2mortal(*(hv_fetch((HV*)SvRV(self), ikey, strlen(ikey), 0))));
+-			break;
+-		case T_POINTER:
+-			XPUSHs(sv_2mortal(newSVpv((char *) params[i].p, 0)));
+-			break;
+-		case T_INTEGER:
+-		case T_NUMBER:
+-			XPUSHs(sv_2mortal(newSViv((int) params[i].l)));
+-			break;
+-		}
+-	}
+-
+-	PUTBACK;
+-	call_sv(mycode, G_EVAL | G_SCALAR);
+-	SPAGAIN;
+-	r = POPi;
++    EXTEND(SP, (WIN32BITBOOL?5:3));
++    mPUSHs(newRV_inc((SV*)obj));
++    mPUSHs(newSVuv((UV)ebp));
++    retvalSV = sv_newmortal();
++	PUSHs(retvalSV);
++#ifdef WIN32BIT
++    unwindSV = sv_newmortal();
++    PUSHs(unwindSV);
++    F_Or_DSV = sv_newmortal();
++    PUSHs(F_Or_DSV);
++#endif
+ 	PUTBACK;
+-	FREETMPS;
++	call_pv("Win32::API::Callback::RunCB", G_VOID);
++#ifdef WIN32BIT
++    rtncxt->F_Or_D = (unsigned char) SvUV(F_Or_DSV);
++    rtncxt->unwind_len = (unsigned short) SvUV(unwindSV);
++#endif
++    //pad out the buffer, uninit irrelavent
++    *retval = *(CBRETVAL *)SvGROW(retvalSV, sizeof(CBRETVAL));
++    FREETMPS;
+ 	LEAVE;
+-	return r;
+-}
+-
+-unsigned char * FixupAsmSection(unsigned char * cursor, unsigned int section_PUSH, unsigned int j,
+-                            unsigned int displacement, unsigned char ebpcounter
+-#ifdef WIN32_API_DEBUG
+-            , char * SvType
+-#endif
+-            ){
+-    unsigned int i, r;
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)FixupAsmSection: section_PUSH         is: 0x%08X\n", section_PUSH);
+-#endif
+-    for(i=0; i < section_PUSH; i++) {
+-        // 8B 15 18 75 3A 00 mov         edx,dword ptr [_fakeint (3A7518h)] 
+-        if(*(cursor+0) == 0x8B
+-        //below is a disp32 source
+-        //look at ModR/M Byte table in Intel x86 manual, then this makes sense
+-        && (((*(cursor+1) & 0x0F) == 0x05 || (*(cursor+1) & 0x0F) == 0x0D) && (*(cursor+1) & 0xF0) < 0x40)
+-        && *((int*)(cursor+2)) == (int) &fakeint
+-        ) {
+-#ifdef WIN32_API_DEBUG
+-            printf("(C)CallbackCreate:     FOUND THE %s at 0x%x\n", cursor, SvType);
+-            printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
+-#endif
+-            *(cursor+0) = 0x8B;
+-            *(cursor+1) = *(cursor+1) + 0x40; //0x40 is from disp32 to disp 8 ebp
+-            *(cursor+2) = ebpcounter;
+-            *(cursor+3) = 0x90;		// push ecx
+-            *(cursor+4) = 0x90;		// push esi
+-            *(cursor+5) = 0x90;		// pop esi
+-            cursor += 5; 
+-            i += 4;
+-        }
+-        //-Od puts A1 18 85 3A 00          mov     eax, ds:_fakeint
+-        //opcode A1 is a special case, not a table
+-        else if(*(cursor+0) == 0xA1
+-        && *((int*)(cursor+1)) == (int) &fakeint){
+-#ifdef WIN32_API_DEBUG
+-            printf("(C)CallbackCreate:     FOUND THE %s at 0x%x\n", cursor, SvType);
+-            printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
+-#endif
+-            *(cursor+0) = 0x8B;
+-            *(cursor+1) = 0x45;
+-            *(cursor+2) = ebpcounter;
+-            *(cursor+3) = 0x90;
+-            *(cursor+4) = 0x90;
+-            cursor += 4; 
+-            i += 3;
+-        }
+-        else
+-        if(*(cursor+0) == 0xC7
+-        && *(cursor+1) == 0x45
+-        && (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
+-        && *((int*)(cursor+3)) == 0xC0DE0003
+-        ) {
+-#ifdef WIN32_API_DEBUG
+-            printf("(C)CallbackCreate:     FOUND NPARAM   at 0x%x\n", cursor);
+-            printf("(C)CallbackCreate:     writing         = 0x%08X\n", j);
+-#endif
+-            *((int*)(cursor+3)) = j;
+-#ifdef WIN32_API_DEBUG
+-            printf("(C)CallbackCreate:     NPARAM now is   = 0x%08X\n", *((int*)(cursor+3)));
+-#endif
+-            cursor += 6;
+-            i += 5;
+-        } else {
+-            r = RelocateCode(cursor, displacement);
+-            cursor += r;
+-            if(r > 1) i += (r-1);
+-        }
+-
++    return;
+     }
+-    return cursor;
+ }
+ 
+-unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* callback) {
++#ifdef _WIN64
+ 
+-	unsigned char * code;
+-	unsigned char * cursor;
+-	unsigned int i, j, r, toalloc, displacement;
+-	unsigned char ebpcounter = 8;
+-	unsigned char * source;
+-	BOOL done = FALSE;
+-	unsigned int distance = 0;
+-	BOOL added_INIT_STRUCT = FALSE;
+-	int N_structs = 0;
+-    unsigned char * myCallbackTemplate = (unsigned char *)CallbackTemplate;
+-    unsigned char * myPerformCallback = (unsigned char *)PerformCallback;
+-    unsigned char epilog_back_up;
+-
+-	unsigned int
+-		checkpoint_PUSHI = 0,
+-		checkpoint_PUSHL = 0,
+-		checkpoint_PUSHP = 0,
+-		checkpoint_PUSHS = 0,
+-		checkpoint_END = 0,
+-		checkpoint_DONE = 0,
+-        checkpoint_GOTO_END = 0,
+-        checkpoint_END_LABEL = 0
+-        ;
+-
+-	unsigned int
+-		section_START,
+-		section_PUSHI,
+-		section_PUSHL,
+-		section_PUSHP,
+-		section_PUSHS,
+-		section_END,
+-        section_END_END_LABEL;
+-    //this block deals with VC's ILT jump table
+-    if(*myCallbackTemplate == 0xE9){
+-//E9 is opcode for JMP rel32, +5 is next instruction +1 is rel32 num
+-        myCallbackTemplate  = myCallbackTemplate+5+(*(DWORD_PTR *)(myCallbackTemplate+1));
++//on entry R10 register must be a HV *
++//, ... triggers copying to shadow space the 4 param registers on VS
++//relying on compiler to not optimize away copying void *s b,c,d to shadow space
++void CALLBACK Stage2CallbackX64( void * a
++                                      //, void * b, void * c, void * d
++                                      , ...
++                                      ) {
++    //CONTEXT is a macro in Perl, can't use it
++    struct _CONTEXT cxt;
++    CBRETVAL retval; //RtlCaptureContext is using a bomb to light a cigarette
++    //a more efficient version is to write this in ASM, but that means GCC and
++    //MASM versions, this func is pure C, "struct _CONTEXT cxt;" is 1232 bytes
++    //long, pure hand written machine code in a string, like the jump trampoline
++    //corrupts the callstack in VS 2008, RtlAddFunctionTable is ignored by VS
++    //2008 but not WinDbg, but WinDbg is impossibly hard to use, if its not
++    //in a DLL enumeratable by ToolHelp/Process Status API, VS won't see it
++    //I tried a MMF of a .exe, the pages were formally backed by a copy of the
++    //original .exe, VMMap verified, did a RtlAddFunctionTable, VS 2008 ignored
++    //it, having Win32::API::Callback generate 1 function 1 time use DLLs from
++    //a binary blob template in pure Perl is possible but insane
++    RtlCaptureContext(&cxt); //null R10 in context is a flag to return
++    if(!cxt.R10){//stack unwinding is not done
++        return; //by callee on x64 so all funcs are vararg/cdecl safe
+     }
+-    source = myCallbackTemplate;
+-	cursor = source;
+-
+-    //this block deals with VC's ILT jump table
+-    if(*myPerformCallback == 0xE9){
+-//E9 is opcode for JMP rel32, +5 is next instruction +1 is rel32 num
+-        myPerformCallback  = myPerformCallback+5+(*(DWORD_PTR *)(myPerformCallback+1));
+-    }
+-	while(!done) {
+-
+-		if(*(cursor+0) == 0x10
+-		&& *(cursor+1) == 0x00
+-		&& *(cursor+2) == 0xDE
+-		&& *(cursor+3) == 0xC0
+-		) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate.Study: checkpoint_PUSHI=%d\n", distance);
+-#endif
+-			checkpoint_PUSHI = distance - 3;
+-		}
+-
+-		if(*(cursor+0) == 0x20
+-		&& *(cursor+1) == 0x00
+-		&& *(cursor+2) == 0xDE
+-		&& *(cursor+3) == 0xC0
+-		) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate.Study: checkpoint_PUSHL=%d\n", distance);
+-#endif
+-			checkpoint_PUSHL = distance - 3;
+-		}
+-
+-		if(*(cursor+0) == 0x30
+-		&& *(cursor+1) == 0x00
+-		&& *(cursor+2) == 0xDE
+-		&& *(cursor+3) == 0xC0
+-		) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate.Study: checkpoint_PUSHP=%d\n", distance);
+-#endif
+-			checkpoint_PUSHP = distance - 3;
+-		}
+-
+-		if(*(cursor+0) == 0x40
+-		&& *(cursor+1) == 0x00
+-		&& *(cursor+2) == 0xDE
+-		&& *(cursor+3) == 0xC0
+-		) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate.Study: checkpoint_PUSHS=%d\n", distance);
+-#endif
+-			checkpoint_PUSHS = distance - 3;
+-		}
+-
+-		if(*(cursor+0) == 0x50
+-		&& *(cursor+1) == 0x00
+-		&& *(cursor+2) == 0xDE
+-		&& *(cursor+3) == 0xC0
+-		) {
+-            if(*(cursor+4) == 0xE9){//E9 = jmp rel32
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate.Study: checkpoint_GOTO_END=%d\n", distance);
+-#endif
+-                checkpoint_GOTO_END = distance + 4;
+-            }
+-            else{
+-                croak("unknown opcode %.2X after 0xC0DE0050 checkpoint");
+-            }
+-
+-		}
+-
+-		if(*(cursor+0) == 0x60
+-		&& *(cursor+1) == 0x00
+-		&& *(cursor+2) == 0xDE
+-		&& *(cursor+3) == 0xC0
+-		) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate.Study: checkpoint_END_LABEL=%d\n", distance);
+-#endif
+-			checkpoint_END_LABEL = distance + 4;
+-		}
+-
+-		if(*(cursor+0) == 0x99
+-		&& *(cursor+1) == 0x99
+-		&& *(cursor+2) == 0xDE
+-		&& *(cursor+3) == 0xC0
+-		) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate.Study: checkpoint_END=%d\n", distance);
+-#endif
+-			checkpoint_END = distance - 3;
+-		}
+-
+-
+-#ifdef WIN32_API_DEBUG
+-		if(checkpoint_END > 0) {
+-			printf("(C)CallbackCreate.Study: after END got 0x%02X at %d\n", *cursor, distance);
+-		}
+-#endif
+-	
+-		if(*(cursor+0) == 0xC9	// leave
+-            && *(cursor+1) == 0xC3	// ret
+-		) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate.Study: leave ret checkpoint_DONE=%d\n", distance);
+-#endif
+-			epilog_back_up = 2;
+-            checkpoint_DONE = distance + 2;
+-			done = TRUE;
+-		}
+-
+-        if(*(cursor+0) == 0x8B
+-            && *(cursor+1) == 0xE5 //mov esp,ebp
+-            && *(cursor+2) == 0x5D //pop ebp
+-            && *(cursor+3) == 0xC3 //ret
+-		) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate.Study: mov pop ret checkpoint_DONE=%d\n", distance);
+-#endif
+-			epilog_back_up = 4;
+-			checkpoint_DONE = distance + 4;
+-			done = TRUE;
+-		}
+-// this can't possibly work, we can't write in the stdcall stack unwind amount
+-// the dyn func will be broken if we go down this path
+-
+-//        // this test only works if the compiler does not reorder the functions in the output.
+-//		if((unsigned char *) myCallbackTemplate < (unsigned char *) myPerformCallback &&
+-//            cursor >= (unsigned char *) myPerformCallback) {
+-//			checkpoint_DONE = distance;
+-//		 	done = TRUE;
+-//		}
+-        // this test only works if the compiler does not reorder the functions in the output.
+-		if((unsigned char *) myCallbackTemplate < (unsigned char *) myPerformCallback &&
+-            cursor >= (unsigned char *) myPerformCallback) {
+-            //havent reached the malloc yet, this is safe, no malloc in
+-            //XS_Win32__API__Callback_CallbackCreate
+-            croak("Win32::API::Callback::CallbackCreate: "
+-                  "Compiler not supported (couldn't find end of CallbackTemplate)");
+-		}
+-		// TODO: add fallback (eg. if cursor >= CallbackCreate then done)
+-
+-		cursor++;
+-		distance++;
+-	}
+-
+-	section_START = checkpoint_PUSHI;
+-	section_PUSHI = checkpoint_PUSHL	- checkpoint_PUSHI;
+-	section_PUSHL = checkpoint_PUSHP	- checkpoint_PUSHL;
+-	section_PUSHP = checkpoint_PUSHS	- checkpoint_PUSHP;
+-	section_PUSHS = checkpoint_END 	- checkpoint_PUSHS;
+-	section_END   = checkpoint_DONE	- checkpoint_END;
+-    section_END_END_LABEL = checkpoint_END_LABEL - checkpoint_END;
+-
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackCreate: section_PUSHS         is: 0x%08X\n", section_PUSHS);
+-	printf("(C)CallbackCreate: section_PUSHI         is: 0x%08X\n", section_PUSHI);
+-	printf("(C)CallbackCreate: section_PUSHP         is: 0x%08X\n", section_PUSHP);
+-#endif
+-	toalloc  = section_START;
+-	toalloc += section_END;
+-
+-	/* We'll need 4 extra bytes for the callback epilogue */
+-	toalloc += 4;
+-
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackCreate: toalloc=%d\n", toalloc);
+-#endif
+-
+-	for(i=0; i<nparams; i++) {
+-
+-		if(params[i].t == T_NUMBER) {
+-			toalloc += section_PUSHI;
+-		}
+-
+-		if(params[i].t == T_POINTER) {
+-			toalloc += section_PUSHP;
+-		}
+-
+-		if(params[i].t == T_STRUCTURE) {
+-			toalloc += section_PUSHS;
+-		}
+-
+-#ifdef WIN32_API_DEBUG
+-		printf("(C)CallbackCreate: summing param[%d] (%d), toalloc=%d\n", i, params[i].t, toalloc);
+-#endif
+-
+-	}
+-
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackCreate: fakeint          is at: 0x%08X\n", &fakeint);
+-	printf("(C)CallbackCreate: fakesv           is at: 0x%08X\n", &fakesv);
+-	printf("(C)CallbackCreate: CallbackTemplate is at: 0x%08X\n", myCallbackTemplate);
+-	printf("(C)CallbackCreate: allocating %d bytes\n", toalloc);
+-#endif
+-	code = (unsigned char *) malloc(toalloc);
+-
+-	if(code == NULL) {
+-		printf("can't allocate callback code, aborting!\n");
+-		return 0;
+-	}
+-	cursor = code;
+-
+-	displacement = code - source;
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackCreate: source       = 0x%x\n", source);
+-	printf("(C)CallbackCreate: code         = 0x%x\n", code);
+-#endif
+-
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackCreate: COPYING SECTION section_START (%d bytes)\n", section_START);
+-#endif
+-	memcpy( (void *) cursor, source, section_START);
+-
+-	for(i=0; i < section_START; i++) {
+-		r = RelocateCode(cursor, displacement);
+-		if(r == 7
+-		&& *(cursor+3) == 0xDE
+-		&& *(cursor+4) == 0xC0
+-		&& *(cursor+5) == 0xFF
+-		&& *(cursor+6) == 0xFF) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate:     FOUND CODE at 0x%x...\n", cursor+3);
+-			printf("(C)CallbackCreate:     callback    = 0x%x\n", callback);
+-#endif
+-			*((int*)(cursor+3)) = (int) callback;
+-
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate:     CODE now is = 0x%x\n", *((int*)(cursor+3)));
+-#endif
+-		}
+-		if(r == 7
+-		&& *(cursor+3) == 0x01
+-		&& *(cursor+4) == 0x00
+-		&& *(cursor+5) == 0xDE
+-		&& *(cursor+6) == 0xC0) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate:     FOUND SELF at 0x%08x...\n", cursor+3);
+-			printf("(C)CallbackCreate:     self        = 0x%08x\n", self);
+-#endif
+-			hv_store((HV*) SvRV(self), "selfpos", 7, newSViv((long) cursor+3), 0);
+-			*((int*)(cursor+3)) = (int) self;
+-
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate:     SELF now is = 0x%08x\n", *((int*)(cursor+3)));
+-#endif
+-		}
+-		if(r == 7
+-		&& *(cursor+3) == 0x02
+-		&& *(cursor+4) == 0x00
+-		&& *(cursor+5) == 0xDE
+-		&& *(cursor+6) == 0xC0) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate:     FOUND NPARAMS 0x%08x...\n", cursor+3);
+-			printf("(C)CallbackCreate:     NPARAMS     = 0x%08x\n", nparams);
+-#endif
+-			*((int*)(cursor+3)) = nparams;
+-
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate:     NPARAMS now = 0x%08x\n", *((int*)(cursor+3)));
+-#endif
+-		}
+-
+-		cursor += r;
+-		if(r > 1) i += (r-1);
+-	}
+-
+-	for(j=0; j<nparams; j++) {
+-
+-		if(params[j].t == T_STRUCTURE) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate: COPYING SECTION section_PUSHS (%d bytes)\n", section_PUSHS);
+-#endif
+-			memcpy( (void *) cursor, source + checkpoint_PUSHS, section_PUSHS );
+-			displacement = cursor - (source + checkpoint_PUSHS);
+-
+-            cursor = FixupAsmSection(cursor, section_PUSHS, j, displacement, ebpcounter
+-#ifdef WIN32_API_DEBUG
+-                    ,"SVPV"
+-#endif
+-                    );
+-		}
+-
+-		if(params[j].t == T_NUMBER) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate: COPYING SECTION section_PUSHI (%d bytes)\n", section_PUSHI);
+-#endif
+-			memcpy( (void *) cursor, source + checkpoint_PUSHI, section_PUSHI );
+-			displacement = cursor - (source + checkpoint_PUSHI);
+-
+-            cursor = FixupAsmSection(cursor, section_PUSHI, j, displacement, ebpcounter
+-#ifdef WIN32_API_DEBUG
+-                    ,"SVIV"
+-#endif
+-                    );
+-		}
+-
+-
+-		if(params[j].t == T_POINTER) {
+-#ifdef WIN32_API_DEBUG
+-			printf("(C)CallbackCreate: COPYING SECTION section_PUSHP (%d bytes)\n", section_PUSHP);
+-#endif
+-			memcpy( (void *) cursor, source + checkpoint_PUSHP, section_PUSHP );
+-			displacement = cursor - (source + checkpoint_PUSHP);
+-
+-            cursor = FixupAsmSection(cursor, section_PUSHP, j, displacement, ebpcounter
+-#ifdef WIN32_API_DEBUG
+-                    ,"SVPV"
++    //don't assume there aren't any secret variables or secret alignment padding
++    //, security cookie, etc, dont try to hard code &cxt-&a into a perl const sub
++    //C compiler won't produce such a offset unless you run callbacktemplate live
++    //calculating the offset in C watch window and hard coding it is going to
++    //break in the future
++    cxt.Rax = (unsigned __int64) &a;
++    PerlCallback((SV *) cxt.R10, (void*) &cxt, &retval);
++    cxt.Rax = *(unsigned __int64 *)&retval;
++    cxt.Xmm0 = *(M128A *)&retval;
++    cxt.R10 = (unsigned __int64)NULL; //trigger a return
++    RtlRestoreContext(&cxt, NULL);//this jumps to the RtlCaptureContext line
++    //unreachable
++}
+ #endif
+-                    );
+-		}
+-
+-		ebpcounter += 4;
+-	}
+ 
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackCreate: COPYING SECTION section_END (%d bytes) at 0x%08x\n", section_END, cursor);
+-#endif
+-	memcpy( (void *) cursor, source + checkpoint_END, section_END );
+ 
+-//fixup the goto END; now that the END section is in place, +1 skip E9
+-    *(int *)(code+checkpoint_GOTO_END+1) //rel 32 operand
+-    = (cursor + section_END_END_LABEL) //abs ptr jmp target, after 0xC0DE0060 mov checkpoint
+-    - (code+checkpoint_GOTO_END+1+4); //next instruction after the JMP rel32
++#if defined(USE_ITHREADS)
++//Code here to make a inter thread refcount to deal with ithreads cloning
++//to prevent a double free
+     
+-	displacement = cursor - (source + checkpoint_END);
+-
+-	for(i=0; i < section_END; i++) {
+-		r = RelocateCode(cursor, displacement);
+-		cursor += r;
+-		if(r > 1) i += (r-1);
+-	}
+-
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackCreate: adjusting callback epilogue...\n");
++int HeapBlockMgDup(pTHX_ MAGIC *mg, CLONE_PARAMS *param) {
++    InterlockedIncrement((LONG *)mg->mg_ptr);
++    return 1;
++}
++const static struct mgvtbl vtbl_HeapBlock = {
++    NULL, NULL, NULL, NULL, NULL, NULL, HeapBlockMgDup, NULL, 
++};
+ #endif
+ 
+-	// #### back up the cursor to two bytes for (leave/ret)
+-    // or 4 bytes for mov/pop/ret
+-	cursor -= epilog_back_up;
++MODULE = Win32::API::Callback   PACKAGE = Win32::API::Callback
+ 
+-	// #### insert the callback epilogue
+-	*(cursor+0) = 0x8B; // mov esp,ebp
+-	*(cursor+1) = 0xE5;
+-	*(cursor+2) = 0x5D; // pop ebp
+-	*(cursor+3) = 0xC2; // ret + 2 bytes
+-	*(cursor+4) = ebpcounter - 8;
+-	*(cursor+5) = 0x00;
++PROTOTYPES: DISABLE
+ 
+-#ifdef WIN32_API_DEBUG
+-	printf("(C)CallbackCreate: DONE!\n");
++BOOT:
++{
++    SV * PtrHolder = get_sv("Win32::API::Callback::Stage2FuncPtrPkd", 1);
++#ifdef _WIN64
++    void * p = (void *)Stage2CallbackX64;
++#else
++    void * p = (void *)PerlCallback;
++#endif
++    HV *stash;
++    sv_setpvn(PtrHolder, (char *)&p, sizeof(void *)); //gen a packed value
++    stash = gv_stashpv("Win32::API::Callback", TRUE);
++#ifdef _WIN64
++    newCONSTSUB(stash, "CONTEXT_XMM0", newSViv(offsetof(struct  _CONTEXT, Xmm0)));
++    newCONSTSUB(stash, "CONTEXT_RAX", newSViv(offsetof(struct  _CONTEXT, Rax)));
+ #endif
+-
+-	return code;
+ }
+ 
+-
+-MODULE = Win32::API::Callback   PACKAGE = Win32::API::Callback
+-
+-PROTOTYPES: DISABLE
+-
+-unsigned int
+-CallbackCreate(self)
+-	SV* self
++void
++PackedRVTarget(sv)
++    SV * sv
++PPCODE:
++    mPUSHs(newSVpvn((char*)&(SvRV(sv)), sizeof(SV *)));
++
++# MakeParamArr is written without null checks or lvalue=true since
++# the chance of crashing is zero unless someone messed with the PM file and
++# broke it, this isn't a public sub, putting in null checking
++# and croaking if null is a waste of resources, if someone is
++# modifying ::Callback, the crash will
++# alert them to their errors similar to an assert(), but without the cost of
++# asserts or lack of them in non-debugging builds
++#
++# all parts of MakeParamArr must be croak safe, all SVs must be mortal where
++# appropriate, the type letters are from the user, they are not sanitized,
++# so group upper and lower together where 1 of the letters is meaningless
++#
++# arr is emptied out of elements/cleared/destroyed by this sub, so Dumper() it
++# before this is called for debugging if you want but not after calling this
++void
++MakeParamArr( self, arr)
++    HV * self
++    AV * arr
+ PREINIT:
+-    APIPARAM *params;
+-    HV*		obj;
+-    SV**	obj_sub;
+-    SV*		sub;
+-    SV**	obj_in;
+-    SV**	obj_out;
+-    SV**	in_type;
+-    AV*		inlist;
+-    int nin, tout, i;
+-CODE:
+-#ifdef WIN32_API_DEBUG
+-	printf("(XS)CallbackCreate: got self='%s'\n", SvPV_nolen(self));
+-	printf("(XS)CallbackCreate: self dump:\n");
+-	sv_dump(self);
+-	if(SvROK(self)) sv_dump(SvRV(self));
+-#endif
+-    obj = (HV*) SvRV(self);
+-    obj_in = hv_fetch(obj, "in", 2, FALSE);
+-    obj_out = hv_fetch(obj, "out", 3, FALSE);
+-    inlist = (AV*) SvRV(*obj_in);
+-    nin  = av_len(inlist);
+-#ifdef WIN32_API_DEBUG
+-	printf("(XS)CallbackCreate: nin=%d\n", nin);
+-#endif
+-    tout = SvIV(*obj_out);
+-#ifdef WIN32_API_DEBUG
+-	printf("(XS)CallbackCreate: tout=%d\n", tout);
+-#endif
+-	obj_sub = hv_fetch(obj, "sub", 3, FALSE);
+-	sub = *obj_sub;
+-#ifdef WIN32_API_DEBUG
+-	printf("(XS)CallbackCreate: self.sub='%s'\n", SvPV_nolen(sub));
+-	printf("(XS)CallbackCreate: self.sub dump:\n");
+-	sv_dump(sub);
+-	if(SvROK(sub)) sv_dump(SvRV(sub));
+-#endif
+-    EXTEND(SP, 1);
+-    if(nin >= 0) {
+-        params = (APIPARAM *) _alloca((nin+1) * sizeof(APIPARAM));
+-        for(i = 0; i <= nin; i++) {
+-            in_type = av_fetch(inlist, i, 0);
+-            params[i].t = SvIV(*in_type);
+-            // params[i].t = T_NUMBER;
++    AV * retarr = (AV*)sv_2mortal((SV*)newAV()); //croak possible
++    int iTypes;
++    AV * Types;
++    I32 lenTypes;
++PPCODE:
++    //intypes array ref is always created in PM file
++    Types = (AV*)SvRV(*hv_fetch(self, "intypes", sizeof("intypes")-1, 0));
++    lenTypes = av_len(Types)+1;
++    for(iTypes=0;iTypes < lenTypes;iTypes++){
++        SV * typeSV = *av_fetch(Types, iTypes, 0);
++        char type = *SvPVX(typeSV);
++//both are never used on 64 bits
++#if IVSIZE == 4
++#define MK_PARAM_OP_8B 0x1
++#define MK_PARAM_OP_32BIT_QUAD 0x2
++#endif
++        char op = 0;
++        SV * packedParamSV;
++        char * packedParam;
++        SV * unpackedParamSV;
++        switch(type){
++        case 's':
++        case 'S':
++            croak("Win32::API::Callback::MakeParamArr type letter \"S\" and"
++                  " struct support not implemented");
++            //in Perl this would be #push(@arr, MakeStruct($self, $i, $packedparam));
++            //but ::Callback doesn't have C prototype type parsing
++            //intypes arr is letters not C types
++            break;
++        case 'I': //type is already the correct unpack letter
++        case 'i':
++            break;
++        case 'F':
++            type = 'f';
++        case 'f':
++            break;
++        case 'D':
++            type = 'd';
++        case 'd':
++#if IVSIZE == 4
++                op = MK_PARAM_OP_8B;
++#endif
++            break;
++        case 'N':
++        case 'L':
++#if IVSIZE == 8
++        case 'Q':
++#endif
++            type = 'J';
++            break;
++        case 'n':
++        case 'l':
++#if IVSIZE == 8
++        case 'q':
++#endif
++            type = 'j';
++            break;
++#if IVSIZE == 4
++        case 'q':
++        case 'Q':
++            op = MK_PARAM_OP_32BIT_QUAD | MK_PARAM_OP_8B;
++            break;
++#endif
++        case 'P': //p/P are not documented and not implemented as a Callback ->
++            type = 'p'; //return type, as "in" type probably works but this is 
++        case 'p': //untested
++            break;
++        default:
++            croak("Win32::API::Callback::MakeParamArr "
++                  "\"in\" parameter %d type letter \"%c\" is unknown", iTypes+1, type);
+         }
+-	}
+-	RETVAL = (unsigned int) CallbackCreate(nin+1, params, self, sub);
+-#ifdef WIN32_API_DEBUG
+-	printf("(XS)CallbackCreate: got RETVAL=0x%08x\n", RETVAL);
+-	printf("(XS)CallbackCreate: returning to caller\n");
++        
++        packedParamSV = sv_2mortal(av_shift(arr));
++#if IVSIZE == 4
++        if(op & MK_PARAM_OP_8B)
++            sv_catsv_nomg(packedParamSV, sv_2mortal(av_shift(arr)));
++        if((op & MK_PARAM_OP_32BIT_QUAD) == 0){
++#endif
++        packedParam = SvPVX(packedParamSV);
++        if(type == 'p'){ //test if acc vio before a null is found, ret undef then
++            if(IsBadStringPtr(packedParam, ~0)){
++                unpackedParamSV = &PL_sv_undef;
++            }
++            else{
++                unpackedParamSV = newSVpv(packedParam, 0);
++            }
++            goto HAVEUNPACKED;
++        }
++        PUTBACK;    
++        unpackstring(&type, &type+1, packedParam, packedParam+SvCUR(packedParamSV), 0);
++        SPAGAIN;
++        unpackedParamSV = POPs;
++#if IVSIZE == 4
++        }
++        else{//have MK_PARAM_OP_32BIT_QUAD
++            SV ** tmpsv = hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
++            if(tmpsv && sv_true(*tmpsv)){
++                ENTER;
++                PUSHMARK(SP); //stack extend not needed since we got 2 params
++                //on the stack already from caller, so stack minimum 2 long
++                PUSHs(packedParamSV); //currently mortal
++                PUTBACK; //don't check return count, assume its 1
++                call_pv(type == 'Q' ? "Math::Int64::native_to_uint64":
++                        "Math::Int64::native_to_int64", G_SCALAR);
++                SPAGAIN;
++                unpackedParamSV = POPs; //this is also mortal
++                LEAVE;
++            }
++            else{//pass through the 8 byte packed string
++                unpackedParamSV = packedParamSV;
++            }
++        }
++#endif
++        SvREFCNT_inc_simple_NN(unpackedParamSV);//cancel the mortal
++        HAVEUNPACKED: //used by 'p'/'P' for returning undef or a SVPV
++        av_push(retarr, unpackedParamSV);
++    }
++    mPUSHs(newRV_inc((SV*)retarr)); //cancel the mortal, no X needed, 2 in params
++#if IVSIZE == 4
++#undef MK_PARAM_OP_8B
++#undef MK_PARAM_OP_32BIT_QUAD
+ #endif
+-OUTPUT:
+-	RETVAL
+ 
++MODULE = Win32::API::Callback   PACKAGE = Win32::API::Callback::HeapBlock
+ 
+ void
+-PushSelf(self)
+-	SV* self
++new(classSV, size)
++    SV * classSV
++    UV size
+ PREINIT:
+-	HV*		obj;
+-	SV**	obj_selfpos;
+-CODE:
+-#ifdef WIN32_API_DEBUG
+-	printf("(XS)PushSelf: got self='%s' (SV=0x%08x)\n", SvPV_nolen(self), self);
+-#endif
+-	obj = (HV*) SvRV(self);
+-	obj_selfpos = hv_fetch(obj, "selfpos", 7, FALSE);
+-	if(obj_selfpos != NULL) {
+-#ifdef WIN32_API_DEBUG
+-		printf("(XS)PushSelf: obj_selfpos=0x%08x\n", SvIV(*obj_selfpos));
+-#endif
+-		*((int*)SvIV(*obj_selfpos)) = (int) self;
+-	}
++    SV * newSVUVVar;
++    char * block;
++#if defined(USE_ITHREADS)
++    MAGIC * mg;
++    int alignRemainder;
++#endif
++PPCODE:
++    //Code here to make a inter thread refcount to deal with ithreads cloning
++    //to prevent a double free
++#if defined(USE_ITHREADS)
++    alignRemainder = (size % sizeof(LONG)); //4%4 = 0, we are aligned
++    size += sizeof(LONG) + (alignRemainder ? sizeof(LONG)-alignRemainder : 0);
++#endif
++    block = HeapAlloc(execHeap, 0, size);
++    newSVUVVar = newSVuv((UV)block);
++#if defined(USE_ITHREADS)
++    mg = sv_magicext(newSVUVVar, NULL, PERL_MAGIC_ext,&vtbl_HeapBlock,NULL,0);
++    mg->mg_flags |= MGf_DUP;
++    mg->mg_ptr = block+size-sizeof(LONG);
++    *((LONG *)mg->mg_ptr) = 1; //initial reference count
++#endif
++    mXPUSHs(sv_bless(newRV_noinc(newSVUVVar),
++                    gv_stashsv(classSV,0)
++                    )
++           );
+ 
+ void
+-DESTROY(self)
+-	SV* self
++DESTROY( ptr_obj )
++    SV * ptr_obj
+ PREINIT:
+-    HV*		obj;
+-    SV**	obj_code;
+-CODE:
+-	obj = (HV*) SvRV(self);
+-	obj_code = hv_fetch(obj, "code", 4, FALSE);
+-	if(obj_code != NULL) free((unsigned char *) SvIV(*obj_code));
++    SV * SVUVVar;
++#if defined(USE_ITHREADS)
++    LONG refcnt;
++    MAGIC * mg;
++#endif
++PPCODE:
++    //Code here to make a inter thread refcount to deal with ithreads cloning
++    //to prevent a double free
++    SVUVVar = SvRV(ptr_obj);
++    #if defined(USE_ITHREADS)
++    mg = mg_findext(SVUVVar, PERL_MAGIC_ext,&vtbl_HeapBlock);    
++    refcnt = InterlockedDecrement((LONG *) mg->mg_ptr);
++    if(refcnt == 0 ){ //if -1 or -2, means another thread will free it
++    #endif
++    HeapFree(execHeap, 0, (LPVOID)SvUV(SVUVVar));
++    #if defined(USE_ITHREADS)
++    }
++    #endif
+diff -ruN --strip-trailing-cr v69/Callback/Makefile.PL v70genpatch/Callback/Makefile.PL
+--- v69/Callback/Makefile.PL	2011-12-25 16:09:32.000000000 -0500
++++ v70genpatch/Callback/Makefile.PL	2012-06-08 15:52:12.250000000 -0400
+@@ -1,17 +1,8 @@
+ 
+ # $Id: Makefile.PL,v 1.0 2001/10/30 13:57:31 dada Exp $
+ 
+-use ExtUtils::MakeMaker qw/WriteEmptyMakefile/;
++use ExtUtils::MakeMaker qw/ WriteMakefile/;
+ 
+-# Must be a better way to do this, surely...
+-use Config;
+-my $is_64bit_build = ($Config{ptrsize} == 8);
+-
+-# Don't build the Callback module by default
+-# on 64 bit architectures, since it's known to fail
+-my $build_callback = $is_64bit_build ? 0 : 1;
+-
+-if ($build_callback) {
+     WriteMakefile(
+         'NAME'	=> 'Win32::API::Callback',
+         ($] < 5.005 ? () : (
+@@ -21,9 +12,4 @@
+         'VERSION_FROM' => '../API.pm',
+         'dist'	=> {COMPRESS => 'gzip -9f', SUFFIX => 'gz'},
+     );
+-}
+-
+-else {
+-    WriteEmptyMakefile();
+-}
+ 
+diff -ruN --strip-trailing-cr v69/Callback/t/02_Callback.t v70genpatch/Callback/t/02_Callback.t
+--- v69/Callback/t/02_Callback.t	2012-02-13 16:02:14.000000000 -0500
++++ v70genpatch/Callback/t/02_Callback.t	2012-06-08 15:53:24.921875000 -0400
+@@ -8,7 +8,8 @@
+ use strict;
+ use Config;
+ use Test::More;
+-plan tests => 8;
++use Math::Int64 qw( int64 hex_to_uint64 uint64_to_hex);
++plan tests => 19;
+ use vars qw(
+     $function
+     $result
+@@ -16,13 +17,17 @@
+     $test_dll
+ );
+ 
++BEGIN {
++    eval "sub PTR_SIZE () { ".length(pack('J',0))." }";
++}
+ use_ok('Win32::API');
+ use_ok('Win32::API::Callback');
+ use_ok('Win32::API::Test');
+ 
++
+ ok(1, 'loaded');
+ 
+-$test_dll = Win32::API::Test::find_test_dll('API_test.dll');
++$test_dll = Win32::API::Test::find_test_dll();
+ ok(-e $test_dll, 'found API_Test.dll');
+ 
+ my $cc_name = Win32::API::Test::compiler_name();
+@@ -32,10 +37,6 @@
+ diag('Compiler name:',    $cc_name);
+ diag('Compiler version:', $cc_vers);
+ 
+-SKIP: {
+-
+-    skip('because bombs on gcc', 2) if $cc_name =~ /g?cc/;
+-
+     $callback = Win32::API::Callback->new(
+         sub {
+             my ($value) = @_;
+@@ -50,16 +51,180 @@
+     ok(defined($function), 'defined function do_callback()');
+     diag('$^E=', $^E);
+ 
+-}
++
++    $result = $function->Call($callback, 21);
++    is($result, 42, 'callback function works');
++
++$callback = Win32::API::Callback->new(
++    sub {
++        #print Dumper(\@_);
++        #$DB::single = 1;
++        my $chr = $_[0];
++        $chr = $_[0] & 0xFF; #x64 fill high bits with garbage
++        die "bad char" if chr($chr) ne 'P';
++        if(PTR_SIZE == 4){
++            my ($low,$high) = unpack('JJ', $_[1]);
++            die "bad unsigned int64" if $low != 0xABCDEF12;
++            die "bad unsigned int64" if $high != 0x12345678;
++        }else{
++            print "0x".unpack('H[16]', $_[1])."\n";
++            no warnings 'portable', 'overflow'; #silence on 32 bits
++            die "bad unsigned int64" if $_[1] != eval "0x12345678ABCDEF12";
++        }
++        my $f4char = unpack('P[4]',pack('J',$_[2]));
++        die "bad 4 char struct" if $f4char ne "JAPH";
++        die "bad float" if $_[3] != 2.5;
++        die "bad double" if $_[4] != 3.5;
++        return 70000;
++    },
++    'I'. #the char
++    'Q'. #the int 64
++    'N'. #the pointer to 4 char struct
++    'F'. #the float
++    'D', #the double
++    'N' #out type
++);
++
++$function = new Win32::API($test_dll, 'do_callback_5_param', 'K', 'N');
++$result = $function->Call($callback);
++is($result, 70000, "do_callback_5_param was successful");
+ 
+ SKIP: {
++    skip('only 32 bit Perl uses Math::Int64', 3) if PTR_SIZE != 4;
++    $callback = Win32::API::Callback->new(
++        sub {
++            #print Dumper(\@_);
++            #$DB::single = 1;
++            my $chr = $_[0];
++            $chr = $_[0] & 0xFF; #x64 fill high bits with garbage
++            die "bad char" if chr($chr) ne 'P';
++            die "bad unsigned int64" if $_[1] != hex_to_uint64("0x12345678ABCDEF12");
++            my $f4char = unpack('P[4]',pack('J',$_[2]));
++            die "bad 4 char struct" if $f4char ne "JAPH";
++            die "bad float" if $_[3] != 2.5;
++            die "bad double" if $_[4] != 3.5;
++            return 70000;
++        },
++        'I'. #the char
++        'Q'. #the int 64
++        'N'. #the pointer to 4 char struct
++        'F'. #the float
++        'D', #the double
++        'N' #out type
++    );
++    
++    $callback->UseMI64(1);
++    $function = new Win32::API($test_dll, 'do_callback_5_param', 'K', 'N');
++    $result = $function->Call($callback);
++    is($result, 70000, "do_callback_5_param with Math::Int64 was successful");
+ 
+-    skip('because callbacks currently /SEGFAULT/ all compilers but MSVC 6+', 1)
+-        unless $cc_name eq 'cl' && $cc_vers >= 12;
++    $callback = Win32::API::Callback->new(
++    sub {
++        #print Dumper(\@_);
++        ok(@_ == 0,  "@_ should be empty");
++        return hex_to_uint64("0x8000200030004000");
++    },
++    '', #nothing
++    'Q' #out type
++    );
++    $function = new Win32::API::More($test_dll, 'do_callback_void_q', 'K', 'Q');
++    $function->UseMI64(1);
++    $callback->UseMI64(1);
++    $result = $function->Call($callback);
++    print uint64_to_hex($result)." ".uint64_to_hex(hex_to_uint64("0x8000200030004000"))."\n";
++    is($result,
++       hex_to_uint64("0x8000200030004000")
++       , "do_callback_void_q with Math::Int64 was successful");
++
++
++}#end of skip
++
++$callback = Win32::API::Callback->new(
++    sub {
++        #print Dumper(\@_);
++        #$DB::single = 1;
++        my $chr = $_[0];
++        $chr = $_[0] & 0xFF;
++        die "bad char" if chr($chr) ne 'P';
++        if(PTR_SIZE == 4){
++            my ($low,$high) = unpack('JJ', $_[1]);
++            die "bad unsigned int64" if $low != 0xABCDEF12;
++            die "bad unsigned int64" if $high != 0x12345678;
++        }else{
++            no warnings 'portable', 'overflow'; #silence on 32 bits
++            die "bad unsigned int64" if $_[1] != 0x12345678ABCDEF12;
++        }
++        my $f4char; 
++        $f4char = unpack('P[4]',pack('J',$_[2]));
++        die "bad 4 char struct" if $f4char ne "JAPH";
++        die "bad float" if $_[3] != 2.5;
++        die "bad double" if $_[4] != 3.5;
++        return 90000;
++    },
++    'I'. #the char
++    'Q'. #the int 64
++    'N'. #the 4 char pointer
++    'F'.#the float
++    'D',#the double
++    'N', #out type
++    '__cdecl'
++);
++$function = new Win32::API($test_dll, 'do_callback_5_param_cdec', 'K', 'N');
++$result = $function->Call($callback);
++is($result, 90000, "do_callback_5_param_cdec was successful");
+ 
+-    $result = $function->Call($callback, 21);
+-    is($result, 42, 'callback function works');
+-}
+ 
++$callback = Win32::API::Callback->new(
++    sub {
++        #print Dumper(\@_);
++        ok(@_ == 0,  "@_ should be empty");
++        return 9876.5432;
++    },
++    '', #nothing
++    'D' #out type
++);
++$function = new Win32::API($test_dll, 'do_callback_void_d', 'K', 'D');
++$result = $function->Call($callback);
++is($result, 9876.5432, "do_callback_void_d was successful");
++
++$callback = Win32::API::Callback->new(
++    sub {
++        #print Dumper(\@_);
++        ok(@_ == 0,  "@_ should be empty");
++        return 2345.6789;
++    },
++    '', #nothing
++    'F' #out type
++);
++$function = new Win32::API($test_dll, 'do_callback_void_f', 'K', 'F');
++$result = $function->Call($callback);
++#without the packs rounding errors cause a fail due to float to double casting
++is(pack('f',$result), pack('f', 2345.6789), "do_callback_void_f was successful");
++
++
++$callback = Win32::API::Callback->new(
++    sub {
++        #print Dumper(\@_);
++        ok(@_ == 0,  "@_ should be empty");
++        if(PTR_SIZE == 4){
++            return pack('JJ', 0x30004000, 0x80002000);
++        }
++        else{
++            no warnings 'portable', 'overflow'; #silence on 32 bits
++            return 0x8000200030004000;
++        }
++    },
++    '', #nothing
++    'Q' #out type
++);
++$function = new Win32::API::More($test_dll, 'do_callback_void_q', 'K', 'Q');
++$result = $function->Call($callback);
++
++{
++    no warnings 'portable', 'overflow'; #silence on 32 bits
++    is($result,
++       PTR_SIZE == 4 ? pack('JJ', 0x30004000, 0x80002000) : 0x8000200030004000
++       , "do_callback_void_q was successful");
++}
+ #
+ # End of tests
+diff -ruN --strip-trailing-cr v69/Callback/t/03_Jim_Shaw.t v70genpatch/Callback/t/03_Jim_Shaw.t
+--- v69/Callback/t/03_Jim_Shaw.t	2012-02-13 16:02:14.000000000 -0500
++++ v70genpatch/Callback/t/03_Jim_Shaw.t	2012-06-08 11:55:45.984375000 -0400
+@@ -38,9 +38,8 @@
+ use warnings;
+ 
+ use Test::More;
+-plan skip_all => 'Unclear why it fails';
+ 
+-#plan tests => 8;
++plan tests => 6;
+ 
+ use Win32::API;
+ use Win32::API::Callback;
+@@ -64,16 +63,37 @@
+ 
+ my %_window_pids;
+ my $max_str = 1024;
++my $pass_pid = 1;
++my $pass_hwnd = 1;
++my $enumended = 0;
++
++#keeps cpu usage/time reasonable during nmake test
++my $runlimit = 100;
++my $runcount = 0;
++#change to 1 to enable printing to console
++my $print = 0;
+ 
+ my $window_enumerator = sub {
++    $runcount++;
++    if($runcount > $runlimit){
++        $enumended = 1; #set flag
++        return 0; #per EnumChildProc callback function docs, 0 stops the enum
++    }
++    die "0 returned but enumeration didn't stop" if $enumended;
++    
+     my ($hwnd) = @_;
+-
++    
++    $pass_hwnd = $pass_hwnd && $hwnd;
+     # Get process ID associated with hwnd
+-    my $pid_raw_value = "\x0" x Win32::API::Type->sizeof("LPDWORD");
+-    GetWindowThreadProcessId($hwnd, $pid_raw_value);
++    my $pid_raw_value = "\x00" x length(pack('L',0));
++    if(!GetWindowThreadProcessId($hwnd, $pid_raw_value)){
++        die "GetWindowThreadProcessId failed, GLR=".Win32::GetLastError()."\n";
++    }
+ 
+-    my $window_pid = Win32::API::Type::Unpack("LPDWORD", $pid_raw_value);
+-    print "window_enumerator - hwnd=[$hwnd], PID=[$window_pid]\n";
++    #to original author/Jim Shaw,you used undocumented api,and I broke it~bulk88
++    my $window_pid = unpack('L', $pid_raw_value);
++    $pass_pid = $pass_pid && $window_pid;
++    print "window_enumerator - hwnd=[$hwnd], PID=[$window_pid]\n" if $print;
+ 
+     if ($window_pid) {
+         my $class_size   = Win32::API::Type->sizeof("CHAR*") * $max_str;
+@@ -109,7 +129,8 @@
+ }
+ 
+ get_window_pids($callback_routine);
+-print Dumper(\%_window_pids);
+-
++print Dumper(\%_window_pids) if $print;
++ok($pass_pid, "no 0 PIDs found");
++ok($pass_hwnd, "no 0 HWNDs found");
+ #
+ # End of tests
+diff -ruN --strip-trailing-cr v69/Callback/t/ithreads.t v70genpatch/Callback/t/ithreads.t
+--- v69/Callback/t/ithreads.t	1969-12-31 19:00:00.000000000 -0500
++++ v70genpatch/Callback/t/ithreads.t	2012-06-08 12:00:27.062500000 -0400
+@@ -0,0 +1,34 @@
++#!/usr/bin/perl -w
++use strict;
++use warnings;
++
++use Win32::API::Callback;
++use Test::More;
++use Config;
++plan tests => 1;
++#this test was originally useless without the Windows debugging heap, by
++#raising the alloc size to 50 MB, a call to the paging system is forced
++#a double free will get access violation rather THAN no symptoms failure mode of
++#VirtualAlloced but freed Heap memory
++
++#HeapBlock class is not public API
++
++SKIP: {
++    skip("This Perl doesn't have ithreads", 1) if ! $Config{'useithreads'};
++    #50 megs should be enough to force a VirtualAlloc and a VirtualFree
++    my $ptrobj = new Win32::API::Callback::HeapBlock 5000000;
++    my $pid = fork();
++    if($pid) {
++        print "in parent\n";
++        { #block to force destruction on scope leave
++            undef($ptrobj);
++        }
++        ok("didn't crash");
++    }
++    else{
++        print "in child\n";
++        { #block to force destruction on scope leave
++            undef($ptrobj);
++        }
++    }
++}
+diff -ruN --strip-trailing-cr v69/Callback/t/threading_fails.t v70genpatch/Callback/t/threading_fails.t
+--- v69/Callback/t/threading_fails.t	1969-12-31 19:00:00.000000000 -0500
++++ v70genpatch/Callback/t/threading_fails.t	2012-05-21 14:20:04.000000000 -0400
+@@ -0,0 +1,31 @@
++#!/usr/bin/perl -w
++use strict;
++use warnings;
++use Test::More;
++
++use Win32::API;
++use Win32::API::Callback;
++
++plan tests => 1;
++
++my $function = new Win32::API('kernel32' , ' HANDLE  CreateThread(
++  UINT_PTR lpThreadAttributes,
++  SIZE_T dwStackSize,
++  UINT_PTR lpStartAddress,
++  UINT_PTR lpParameter,
++  DWORD dwCreationFlags,
++  UINT_PTR lpThreadId
++)');
++
++sub cb {
++    die "unreachable";
++}
++my $callback = Win32::API::Callback->new(\&cb, "L", "N");
++
++#$callback->{'code'}, no other way to do it ATM, even though not "public"
++my $hnd = $function->Call(0, 0, $callback->{'code'}, 0, 0, 0);
++ok($hnd, "CreateThread worked");
++
++#this test is badly designed, it doesn't check whether the error message
++#reached the console i'm not sure whats the safest way to monitor CRT's stderr
++
+diff -ruN --strip-trailing-cr v69/Callback.pm v70genpatch/Callback.pm
+--- v69/Callback.pm	2012-06-06 14:02:59.828125000 -0400
++++ v70genpatch/Callback.pm	2012-06-08 12:32:20.781250000 -0400
+@@ -6,17 +6,19 @@
+ # Win32::API::Callback - Perl Win32 API Import Facility
+ #
+ # Author: Aldo Calpini <dada@perl.it>
++# Author: Daniel Dragan <bulk88@hotmail.com>
+ # Maintainer: Cosimo Streppone <cosimo@cpan.org>
+ #
+ #######################################################################
+ 
+ package Win32::API::Callback;
+ 
+-$VERSION = '0.69';
++$VERSION = '0.70';
+ 
+ require Exporter;      # to export the constants to the main:: space
+ require DynaLoader;    # to dynuhlode the module.
+ @ISA = qw( Exporter DynaLoader );
++#use Data::Dumper;
+ 
+ sub DEBUG {
+     if ($WIN32::API::DEBUG) {
+@@ -27,39 +29,23 @@
+     }
+ }
+ 
+-use Win32::API;
++use Win32::API qw ( WriteMemory ) ;
+ use Win32::API::Type;
+-use Win32::API::Struct;
+-
+-#######################################################################
+-# This AUTOLOAD is used to 'autoload' constants from the constant()
+-# XS function.  If a constant is not found then control is passed
+-# to the AUTOLOAD in AutoLoader.
+-#
+-
+-sub AUTOLOAD {
+-    my ($constname);
+-    ($constname = $AUTOLOAD) =~ s/.*:://;
+-
+-    #reset $! to zero to reset any current errors.
+-    $! = 0;
+-    my $val = constant($constname, @_ ? $_[0] : 0);
+-    if ($! != 0) {
+-        if ($! =~ /Invalid/) {
+-            $AutoLoader::AUTOLOAD = $AUTOLOAD;
+-            goto &AutoLoader::AUTOLOAD;
+-        }
+-        else {
+-            ($pack, $file, $line) = caller;
+-            die
+-                "Your vendor has not defined Win32::API::Callback macro $constname, used at $file line $line.";
+-        }
+-    }
+-    eval "sub $AUTOLOAD { $val }";
+-    goto &$AUTOLOAD;
+-}
++use Config;
++#use Win32::API::Struct; #not implemented
+ 
+ 
++BEGIN {
++    #there is supposed to be 64 bit IVs on 32 bit perl compatibility here
++    #but it is untested
++    eval "sub IVSIZE () { ".length(pack('J',0))." }";
++    #what kind of stack processing/calling convention/machine code we needed
++    eval "sub ISX64 () { ".(index($Config{'archname'},"MSWin32-x64") == 0 ?  1 : 0)." }";
++    sub CONTEXT_XMM0();
++    sub CONTEXT_RAX();
++    *UseMI64 = *Win32::API::UseMI64; #keep UseMI64 out of export list
++    *IsBadStringPtr = *Win32::API::IsBadStringPtr;
++}
+ #######################################################################
+ # dynamically load in the API extension module.
+ #
+@@ -69,41 +55,44 @@
+ # PUBLIC METHODS
+ #
+ sub new {
+-    my ($class, $proc, $in, $out) = @_;
+-    my %self = ();
+-
++    my ($class, $proc, $in, $out, $callconvention) = @_;
++    my $self = bless {}, $class; #about croak/die safety, can safely bless here,
++    #a ::Callback has no DESTROY, it has no resources to release, there is a HeapBlock obj
++    #stored in the ::Callback hash, but the HeapBlock destroys on its own
+     # printf "(PM)Callback::new: got proc='%s', in='%s', out='%s'\n", $proc, $in, $out;
+ 
+-    $self{in} = [];
++    $self->{intypes} = []; #XS requires this, do not remove
+     if (ref($in) eq 'ARRAY') {
+         foreach (@$in) {
+-            push(@{$self{in}}, Win32::API->type_to_num($_));
++            push(@{$self->{intypes}}, $_);
+         }
+     }
+     else {
+         my @in = split '', $in;
+         foreach (@in) {
+-            push(@{$self{in}}, Win32::API->type_to_num($_));
++            push(@{$self->{intypes}}, $_);
++        }
++    }
++    $self->{inbytes} = 0;
++    foreach(@{$self->{intypes}}){ #calc how long the c stack is
++        if($_ eq 'Q' or $_ eq 'q' or $_ eq 'D' or $_ eq 'd'){
++            $self->{inbytes} += 8; #always 8
++        }
++        else{
++            $self->{inbytes} += IVSIZE; #4 or 8
+         }
+     }
+-    $self{out} = Win32::API->type_to_num($out);
+-    $self{sub} = $proc;
+-    my $self = bless \%self, $class;
++    $self->{outtype} = $out;
++    $self->{out} = Win32::API->type_to_num($out);
++    $self->{sub} = $proc;
++    $self->{cdecl} = Win32::API::calltype_to_num($callconvention);
+ 
+     DEBUG "(PM)Callback::new: calling CallbackCreate($self)...\n";
+-    my $hproc = CallbackCreate($self);
++    my $hproc = MakeCB($self);
+ 
+     DEBUG "(PM)Callback::new: hproc=$hproc\n";
+ 
+-    #### ...if that fails, set $! accordingly
+-    if (!$hproc) {
+-        $! = Win32::GetLastError();
+-        return undef;
+-    }
+-
+-    #### ok, let's stuff the object
+     $self->{code} = $hproc;
+-    $self->{sub}  = $proc;
+ 
+     #### cast the spell
+     return $self;
+@@ -117,6 +106,289 @@
+     return $struct;
+ }
+ 
++#this was rewritten in XS
++#sub MakeParamArr { #on x64, never do "$i++;       $packedparam .= $arr->[$i];"
++#    #on x86, structs and over word size params appears on the stack,
++#    #on x64 anything over the size of a "word" is passed by pointer
++#    #nothing takes more than 8 bytes per parameter on x64
++#    #there is no way to formally specify a pass by copy struct in ::Callback
++#    #this only matters on x86, a work around is a bunch of N/I parameters,
++#    #repack them as Js, then concat them, and you have the original pass by copy
++#    #x86 struct
++#    my ($self, $arr)  = @_;
++#    my ($i, @pass_arr) = (0);
++#    for(@{$self->{intypes}}){ #elements of intypes are not 1 to 1 with stack params
++#        my ($typeletter, $packedparam, $finalParam, $unpackletter)  = ($_, $arr->[$i]);
++#        
++#        #structs dont work, this is broken code from old version
++#        #$self->{intypes} is letters types not C prototype params
++#        #C prototype support would have to exist for MakeStruct to work
++#        if(    $typeletter eq 'S' || $typeletter eq 's'){
++#            die "Win32::API::Callback::MakeParamArr type letter \"S\" and struct support not implemented";
++#            #push(@pass_arr, MakeStruct($self, $i, $packedparam));
++#        }elsif($typeletter eq 'I'){
++#            $unpackletter = 'I', goto UNPACK;
++#        }elsif($typeletter eq 'i'){
++#            $unpackletter = 'i', goto UNPACK;
++#        }elsif($typeletter eq 'f' || $typeletter eq 'F'){
++#            $unpackletter = 'f', goto UNPACK;
++#        }
++#        elsif($typeletter eq 'd' || $typeletter eq 'D'){
++#            if(IVSIZE == 4){ #need more data, 32 bit machine
++#                $packedparam .= $arr->[++$i];
++#            }
++#            $unpackletter = 'd', goto UNPACK;
++#        }
++#        elsif($typeletter eq 'N' || $typeletter eq 'L' #on x64, J is 8 bytes
++#               || (IVSIZE == 8 ? $typeletter eq 'Q': 0)){
++#            $unpackletter = 'J', goto UNPACK;
++#        }elsif($typeletter eq 'n' || $typeletter eq 'l'
++#               || (IVSIZE == 8 ? $typeletter eq 'q': 0)){
++#            $unpackletter = 'j', goto UNPACK;
++#        }elsif(IVSIZE == 4 && ($typeletter eq 'q' || $typeletter eq 'Q')){
++#            #need more data, 32 bit machine
++#            $finalParam = $packedparam . $arr->[++$i];
++#        }elsif($typeletter eq 'p' || $typeletter eq 'P'){
++#            if(!IsBadStringPtr($arr->[$i], ~0)){ #P letter is terrible design
++#                $unpackletter = 'p', goto UNPACK;
++#            }#else undef
++#        }
++#        else{ die "Win32::API::Callback::MakeParamArr unknown in type letter $typeletter";}
++#        goto GOTPARAM;
++#        UNPACK:
++#        $finalParam = unpack($unpackletter, $packedparam);
++#        GOTPARAM:
++#        $i++;
++#        push(@pass_arr, $finalParam);
++#    }
++#    return \@pass_arr;
++#}
++
++#on x64
++#void RunCB($self, $EBP_ESP, $retval)
++#on x86
++#void RunCB($self, $EBP_ESP, $retval, $unwindcount, $F_or_D)
++if(! ISX64 ) {
++*RunCB  = sub {#32 bits
++    my $self = $_[0];
++    my (@pass_arr, $return, $typeletter, $inbytes);
++    $inbytes = $self->{inbytes};
++    #first is ebp copy then ret address
++    $inbytes += IVSIZE * 2;
++    my $paramcount = $inbytes / IVSIZE ;
++    my $stackstr = unpack('P['.$inbytes.']', pack('J', $_[1]));
++    my @arr = unpack("(a[J])[$paramcount]",$stackstr);
++    #print Dumper(\@arr);
++    shift @arr, shift @arr; #remove ebp copy and ret address
++    $paramcount -= 2;
++    $return = &{$self->{sub}}(@{MakeParamArr($self, \@arr)});
++    
++    #now the return type
++    $typeletter = $self->{outtype};
++    #float_or_double flag, its always used
++    #float is default for faster copy of probably unused value
++    $_[4] = 0;
++    #its all the same in memory
++    if($typeletter eq 'n' || $typeletter eq 'N'
++          || $typeletter eq 'l' || $typeletter eq 'L'
++          || $typeletter eq 'i' || $typeletter eq 'I'){
++        $_[2] = pack('J', $return);
++    }elsif($typeletter eq 'q' || $typeletter eq 'Q'){
++        if($self->{'UseMI64'}){ #un/signed meaningless
++            $_[2] = Math::Int64::int64_to_native($return);
++        }
++        else{
++            warn("Win32::API::Callback::RunCB return value for return type Q is under 8 bytes long")
++            if length($return) < 8;
++            $_[2] = $return.''; #$return should be a 8 byte string
++            #will be garbage padded in XS if < 8, but must be a string, not a IV or under
++        }
++    }elsif($typeletter eq 'f' || $typeletter eq 'F' ){
++        $_[2] = pack('f', $return);
++    }elsif($typeletter eq 'd' || $typeletter eq 'D' ){
++        $_[2] = pack('d', $return);
++        $_[4] = 1; #use double
++    }else { #return null
++        $_[2] = pack('J', 0);
++    }
++    
++    if(! $self->{cdecl}){
++        $_[3] = IVSIZE * $paramcount; #stack rewind amount in bytes
++    }
++    else{$_[3] = 0;}
++};
++}
++else{ #64 bits
++*RunCB  = sub {
++    my $self = $_[0];
++    my (@pass_arr, $return, $typeletter);
++    my $paramcount = $self->{inbytes} / IVSIZE;
++    my $stack_ptr = unpack('P[J]', pack('J', ($_[1]+CONTEXT_RAX())));
++    my $stack_str = unpack('P['.$self->{inbytes}.']', $stack_ptr);
++    my @stack_arr = unpack("(a[J])[$paramcount]",$stack_str);
++    #not very efficient, todo search for f/F/d/D in new() not here
++    my $XMMStr = unpack('P['.(4 * 16).']',  pack('J', ($_[1]+CONTEXT_XMM0())));
++    #print Dumper([unpack('(H[32])[4]', $XMMStr)]);
++    my @XMM = unpack('(a[16])[4]', $XMMStr);
++    #assume registers are copied to shadow stack space already
++    #because of ... prototype, so only XMM registers need to be fetched.
++    #Limitation, vararg funcs on x64 get floating points in normal registers
++    #not XMMs, so a vararg function taking floats and doubles in the first 4
++    #parameters isn't supported
++    if($paramcount){
++        for(0..($paramcount > 4 ? 4 : $paramcount)-1){
++            my $typeletter = ${$self->{intypes}}[$_];
++            if($typeletter eq 'f' || $typeletter eq 'F' || $typeletter eq 'd'
++               || $typeletter eq 'D'){
++        #x64 calling convention does not use the high 64 bits of a XMM register
++        #although right here the high 64 bits are in @XMM elements
++        #J on x64 is 8 bytes, a double will not corrupt, this is unreachable on x86
++        #note we are copying 16 bytes elements to @stack_arr, @stack_arr is
++        #normally 8 byte elements, unpack ignores the excess bytes later
++                $stack_arr[$_] =  $XMM[$_];
++            }
++        }
++    }
++    #print Dumper(\@stack_arr);
++    #print Dumper(\@XMM);
++    $return = &{$self->{sub}}(@{MakeParamArr($self, \@stack_arr)});
++    
++    #now the return type
++    $typeletter = $self->{outtype};
++    #its all the same in memory
++    if($typeletter eq 'n' || $typeletter eq 'N'
++          || $typeletter eq 'l' || $typeletter eq 'L'
++          || $typeletter eq 'i' || $typeletter eq 'I'
++          || $typeletter eq 'q' || $typeletter eq 'Q'){
++        $_[2] = pack('J', $return);
++    }
++    elsif($typeletter eq 'f' || $typeletter eq 'F' ){
++        $_[2] = pack('f', $return);
++    }
++    elsif($typeletter eq 'd' || $typeletter eq 'D' ){
++        $_[2] = pack('d', $return);
++    }
++    else { #return null
++        $_[2] = pack('J', 0);
++    }
++};
++}
++
++sub MakeCB{
++    
++    my $self = $_[0];
++    #this x86 function does not corrupt the callstack in a debugger since it
++    #uses ebp and saves ebp on the stack, the function won't have a pretty
++    #name though
++    my $code =  (!ISX64) ? ('' #parenthesis required to constant fold
++    ."\x55" #          push    ebp
++    ."\x8B\xEC" #      mov     ebp, esp
++    ."\x83\xEC\x0C"#   sub     esp, 0Ch
++    ."\x8D\x45\xFC" #  lea     eax, [ebp+FuncRtnCxtVar]
++    ."\x50"#           push    eax
++    ."\x8D\x45\xF4"#   lea     eax, [ebp+retval]
++    ."\x50"#           push    eax
++    ."\x8B\xC5"#       mov     eax,ebp 
++    ."\x50"#           push    eax
++    ."\xB8").PackedRVTarget($self)#B8 mov imm32 to eax, a HV * winds up here
++    .("\x50"#           push    eax
++    ."\xB8").$Stage2FuncPtrPkd # mov     eax, 0C0DE0001h
++    .("\xFF\xD0"#       call    eax
++    #since ST(0) is volatile, we dont care if we fill it with garbage
++    ."\x80\x7D\xFE\x00"#cmp    [ebp+FuncRtnCxtVar.F_Or_D], 0
++    ."\x74\x05"#       jz      5 bytes
++    ."\xDD\x45\xF4"#   fld     qword ptr [ebp+retval] (double)
++    ."\xEB\x03"#       jmp     3 bytes
++    ."\xD9\x45\xF4"#   fld     dword ptr [ebp+retval] (float)
++    #rewind sp to entry sp, no pop push after this point
++    ."\x83\xC4\x24"#   add     esp, 24h
++    ."\x8B\x45\xF4"#   mov     eax, dword ptr [ebp+retval]
++    #edx might be garbage, we dont care, caller only looks at volatile
++    #registers that the caller's prototype says the caller does
++    ."\x8B\x55\xF8"#   mov     edx, dword ptr [ebp+retval+4]
++    #can't use retn op, it requires a immediate count, our count is in a register
++    #only one register available now, this will be complicated
++    ."\x0F\xB7\x4D\xFC"#movzx  ecx, word ptr [ebp+FuncRtnCxtVar.unwind_len]
++    ."\x01\xCC"#       add     esp, ecx , might be zero or more
++    ."\x8B\x4D\x04"#   mov     ecx, dword ptr [ebp+4] ret address
++    ."\x8B\x6D\x00"#   mov     ebp, dword ptr [ebp+0] restore BP
++    ."\xFF\xE1")#       jmp     ecx
++
++
++    #begin x64 part
++    #these packs dont constant fold :-(
++    #they are here for readability
++    :(''.pack('C', 0b01000000 #REX base
++            | 0b00001000 #REX.W
++            | 0b00000001 #REX.B
++    ).pack('C', 0xB8+2) #mov to r10 register
++    .PackedRVTarget($self)
++    .pack('C', 0b01000000 #REX base
++            | 0b00001000 #REX.W
++    ).pack('C', 0xB8) #mov to rax register
++    .$Stage2FuncPtrPkd
++    ."\xFF\xE0");#       jmp     rax
++##--- c:\documents and settings\administrator\desktop\w32api\callback\callback.c -
++#    $code .= "\x4C\x8B\xDC";#         mov         r11,rsp
++#    $code .= "\x49\x89\x4B\x08";#      mov         qword ptr [r11+8],rcx 
++#    $code .= "\x49\x89\x53\x10";#      mov         qword ptr [r11+10h],rdx 
++#    $code .= "\x4D\x89\x43\x18";#      mov         qword ptr [r11+18h],r8 
++#    $code .= "\x4D\x89\x4B\x20";#      mov         qword ptr [r11+20h],r9 
++#    $code .= "\x48\x83\xEC\x78";#      sub         rsp,78h 
++#    #void (*LPerlCallback)(SV *, void *, unsigned __int64 *, void *) =
++#    #( void (*)(SV *, void *, unsigned __int64 *, void *)) 0xC0DE00FFFF000001;
++#    #__m128 arr [4];
++#    #__m128 retval;
++##     arr[0].m128_u64[0] = 0xFFFF00000000FF10;
++##00000000022D1017 48 B8 10 FF 00 00 00 00 FF FF mov         rax,0FFFF00000000FF10h 
++##arr[0].m128_u64[1] = 0xFFFF00000000FF11;
++##     arr[1].m128_u64[0] = 0xFFFF00000000FF20;
++##     arr[1].m128_u64[1] = 0xFFFF00000000FF21;
++##     arr[2].m128_u64[0] = 0xFFFF00000000FF30;
++##     arr[2].m128_u64[1] = 0xFFFF00000000FF31;
++##     arr[3].m128_u64[0] = 0xFFFF00000000FF40;
++##     arr[3].m128_u64[1] = 0xFFFF00000000FF41;
++#
++##    LPerlCallback((SV *)0xC0DE00FFFF000002, (void*) arr, (unsigned __int64 *)&retval,
++##                  (DWORD_PTR)&a);
++##00000000022D1021 4D 8D 4B 08      lea         r9,[r11+8] #no 4th param
++#    $code .= "\x4D\x8D\x43\xA8";#      lea         r8,[r11-58h] #&retval param
++##00000000022D1029 49 89 43 B8      mov         qword ptr [r11-48h],rax 
++##00000000022D102D 48 B8 11 FF 00 00 00 00 FF FF mov         rax,0FFFF00000000FF11h 
++#    $code .= "\x49\x8D\x53\xB8";#     lea         rdx,[r11-48h] #arr param
++##00000000022D103B 49 89 43 C0      mov         qword ptr [r11-40h],rax 
++##00000000022D103F 48 B8 20 FF 00 00 00 00 FF FF mov         rax,0FFFF00000000FF20h 
++##00000000022D1049 48 B9 02 00 00 FF FF 00 DE C0 mov         rcx,0C0DE00FFFF000002h
++#    $code .= "\x48\xB9".PackedRVTarget($self);# mov         rcx, the HV *
++##00000000022D1053 49 89 43 C8      mov         qword ptr [r11-38h],rax 
++##00000000022D1057 48 B8 21 FF 00 00 00 00 FF FF mov         rax,0FFFF00000000FF21h 
++##00000000022D1061 49 89 43 D0      mov         qword ptr [r11-30h],rax 
++##00000000022D1065 48 B8 30 FF 00 00 00 00 FF FF mov         rax,0FFFF00000000FF30h 
++##00000000022D106F 49 89 43 D8      mov         qword ptr [r11-28h],rax 
++##00000000022D1073 48 B8 31 FF 00 00 00 00 FF FF mov         rax,0FFFF00000000FF31h 
++##00000000022D107D 49 89 43 E0      mov         qword ptr [r11-20h],rax 
++##00000000022D1081 48 B8 40 FF 00 00 00 00 FF FF mov         rax,0FFFF00000000FF40h 
++##00000000022D108B 49 89 43 E8      mov         qword ptr [r11-18h],rax 
++##00000000022D108F 48 B8 41 FF 00 00 00 00 FF FF mov         rax,0FFFF00000000FF41h 
++##00000000022D1099 49 89 43 F0      mov         qword ptr [r11-10h],rax 
++##00000000022D109D 48 B8 01 00 00 FF FF 00 DE C0 mov         rax,0C0DE00FFFF000001h
++#    $code .= "\x48\xB8".$Stage2FuncPtrPkd; # mov         rax,0C0DE00FFFF000001h 
++#    $code .= "\xFF\xD0";#            call        rax  
++##    return *(void **)&retval;
++#    $code .= "\x48\x8B\x44\x24\x20";#   mov         rax,qword ptr [retval] 
++##}
++#    $code .= "\x48\x83\xC4\x78";#      add         rsp,78h 
++#    $code .= "\xC3";#              ret              
++
++#$self->{codestr} = $code; #save memory
++#32 bit perl doesn't use DEP in my testing, but use executable heap to be safe
++#a Win32::API::Callback::HeapBlock is a ref to scalar, that scalar has the void *
++my $ptr = ${($self->{codeExecAlloc} = Win32::API::Callback::HeapBlock->new(length($code)))};
++WriteMemory($ptr, $code, length($code));
++return $ptr;
++}
++
++
+ 1;
+ 
+ __END__
+@@ -161,10 +433,97 @@
+ 
+ =item *
+ Documentation is in the work. Either see the SYNOPSIS above
+-or the samples in the F<samples> directory.
++or the samples in the F<samples> or the tests in the F<t> directory.
+ 
+ =back
+ 
++=head1 USAGE
++
++Win32::API::Callback uses a subset of the type letters of Win32::API. C Prototype
++interface isn't supported. Not all the type letters of Win32::API are supported
++in Win32::API::Callback.
++
++=over 4
++
++=item C<I>: 
++value is an unsigned integer (unsigned int)
++
++=item C<i>: 
++value is an signed integer (signed int or int)
++
++=item C<N>: 
++value is a unsigned pointer sized number (unsigned long)
++
++=item C<n>: 
++value is a signed pointer sized number (signed long or long)
++
++=item C<Q>: 
++value is a unsigned 64 bit integer number (unsigned long long, unsigned __int64)
++See next item for details.
++
++=item C<q>: 
++value is a signed 64 bit integer number (long long, __int64)
++If your perl has 'Q'/'q' quads support for L<pack> then Win32::API's 'q'
++is a normal perl numeric scalar. All 64 bit Perls have quad support. Almost no
++32 bit Perls have quad support. On 32 bit Perls, without quad support,
++Win32::API::Callback's 'q'/'Q' letter is a packed 8 byte string.
++So C<0x8000000050000000> from a perl with native Quad support
++would be written as C<"\x00\x00\x00\x50\x00\x00\x00\x80"> on a 32 bit
++Perl without Quad support. To improve the use of 64 bit integers with
++Win32::API::Callback on a 32 bit Perl without Quad support, there is
++a per Win32::API::Callback object setting called L<Win32::API/UseMI64>
++that causes all quads to be accepted as, and returned as L<Math::Int64>
++objects. 4 to 8 byte long pass by copy/return type C aggregate types
++are very rare in Windows, but they are supported as "in" and return
++types by using 'q'/'Q' on 32 and 64 bits. Converting between the C aggregate
++and its representation as a quad is upto the reader.
++
++=item C<F>: 
++value is a floating point number (float)
++
++=item C<D>: 
++value is a double precision number (double)
++
++=item C<Unimplemented types>:
++Unimplemented in Win32::API::Callback types such as shorts, chars, and
++smaller than "machine word size" (32/64bit) numbers can be processed
++by specifiying N, then masking off the high bytes.
++For example, to get a char, specify N, then do C<$numeric_char = $_[2] & 0xFF;>
++in your Perl callback sub. To get a short, specify N, then do
++C<$numeric_char = $_[2] & 0xFFFF;> in your Perl callback sub.
++
++=back
++
++=head2 FUNCTIONS
++
++=head3 new
++
++    $CallbackObj = Win32::API::Callback->new( sub { print "hello world";},
++                                            'NDF', 'Q', '__cdecl');
++    $CallbackObj = Win32::API::Callback->new( sub { print "hello world";},
++                                            $in, $out);
++
++Creates and returns a new Win32::API::Callback object. Calling convetion
++parameter is optional.  Calling convention parameter has same behaviour as
++Win32::API's calling convention parameter. C prototype parsing of Win32::API
++is not available with Win32::API::Callback. If the C caller assumes the
++callback has vararg parameters, and the platform is 64 bits/x64, in the first 4
++parameters, if they are floats or doubles they will be garbage. Note there is
++no way to create a Win32::API::Callback callback with a vararg prototype.
++A workaround is to put "enough" Ns as the in types, and stop looking at the @_
++slices in your Perl sub callback after a certain count. Usually the first
++parameter will somehow indiciate how many additional stack parameters you are
++receiving. The Ns in @_ will eventually become garbage, technically they are
++the return address, saved registers, and C stack allocated variables of the
++caller. They are effectivly garbage for your vararg callback. All vararg
++callbacks on 32 bits must supply a calling convention, and it must be '__cdecl'.
++
++=head2 METHODS
++
++=head3 UseMI64
++
++See L<Win32::API/UseMI64>.
++
+ =head1 AUTHOR
+ 
+ Aldo Calpini ( I<dada@perl.it> ).
+@@ -174,4 +533,3 @@
+ Cosimo Streppone ( I<cosimo@cpan.org> ).
+ 
+ =cut
+-
+diff -ruN --strip-trailing-cr v69/Changes v70genpatch/Changes
+--- v69/Changes	2012-06-06 14:02:59.843750000 -0400
++++ v70genpatch/Changes	2012-06-08 13:37:25.375000000 -0400
+@@ -1,5 +1,14 @@
+ History of Win32::API perl extension.
+ 
++2012-??-??  Win32::API v0.70    bulk88
++   - Added, Callback now works on x64
++   - Added, Quads on API and Callback for 32 bit perl, they are
++     8 byte strings or Math::Int64 objs on 32 bit perl 
++   - Added, floats and doubles work in Callback
++   - Callback has been rewritten, much less C and machine code, more Perl
++   - Fixed RT #55660 and #77677, nonvolatile registers were corrupted on x64,
++     especially if more than 4 parameters
++
+ 2012-??-??  Win32::API v0.69    bulk88
+    - Fixed RT #12057, dll leak if func not found
+      (https://rt.cpan.org/Ticket/Display.html?id=12057)
+diff -ruN --strip-trailing-cr v69/Makefile.PL v70genpatch/Makefile.PL
+--- v69/Makefile.PL	2012-06-06 14:02:59.843750000 -0400
++++ v70genpatch/Makefile.PL	2012-06-08 15:52:33.140625000 -0400
+@@ -13,12 +13,10 @@
+ my $is_64bit_build = ($Config{ptrsize} == 8);
+ my $is_msvc_compiler = ($Config{cc} =~ /cl/);
+ 
+-# Don't build the Callback module by default
+-# on 64 bit architectures, since it's known to fail
+-my $build_callback = $is_64bit_build ? 0 : 1;
+ 
+ use ExtUtils::MakeMaker;
+ WriteMakefile1(
++    PL_FILES => {},
+     LICENSE => 'perl',
+     META_MERGE => {
+         resources => {
+@@ -28,6 +26,7 @@
+     },
+     BUILD_REQUIRES => {
+         'Test::More' => 0,
++        'Math::Int64' => 0
+     },
+ 
+     'NAME'	=> 'Win32::API',
+@@ -40,9 +39,7 @@
+         'Type.pm'     => '$(INST_LIBDIR)/API/Type.pm',
+         'Struct.pm'   => '$(INST_LIBDIR)/API/Struct.pm',
+         'Test.pm'     => '$(INST_LIBDIR)/API/Test.pm',
+-        $build_callback
+-			? ('Callback.pm' => '$(INST_LIBDIR)/API/Callback.pm')
+-			: (),
++        'Callback.pm' => '$(INST_LIBDIR)/API/Callback.pm'
+ 	},
+ 
+     'VERSION_FROM' => 'API.pm',
+@@ -53,8 +50,7 @@
+     },
+ 
+     # Win32 is a prerequisite, at least for our tests
+-    'PREREQ_PM' => { 'Win32' => 0 },
+-
++    'PREREQ_PM' => { 'Win32' => 0 , 'Scalar::Util' => 0},
+     # One day, I'd like to restore the dynamic API_test.dll
+     #'clean' => {FILES => 'API_test.dll API_test_dll/Release/*'},
+ 
+@@ -94,19 +90,18 @@
+     }
+     #end-of old 64bit strawberryperl hack
+      
+-     #-Zi is MS ASM only
+-    return ($is_msvc_compiler?'
++    return  ($is_msvc_compiler?'
+ ASFLAGS =  -Zi
+ 
+-
+-':'').'
++':'')
++.'
+ .asm$(OBJ_EXT):
+ 	ml64 $(ASFLAGS) -c $<
+ 
+ .s$(OBJ_EXT):
+ 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
+ 
+-'
++';
+ }
+ 
+ sub WriteMakefile1 {  #Written by Alexandr Ciornii, version 0.21. Added by eumm-upgrade.
+diff -ruN --strip-trailing-cr v69/TODO v70genpatch/TODO
+--- v69/TODO	2011-12-25 16:09:32.000000000 -0500
++++ v70genpatch/TODO	2012-06-08 17:03:34.437500000 -0400
+@@ -1,4 +1,4 @@
+-Last updated: 2009/07/25
++Last updated: 2012/06/05
+ 
+ * Review Win32::API::Struct
+ 
+@@ -10,3 +10,45 @@
+   4) implement a 64-bit flag, so that all word sizes are automatically
+      calculated as 8 bytes instead of hardwiring 4 bytes
+ 
++
++bulk88's comments
++
++1.  callback's in parameters are similar to api's out parameter and
++    callback's out parameter is similar to api's in parameter, merge them
++2.  vararg prototype processing, whether to supply the stack pointer as an IV
++    or implement a Perl class with c lib va_list API IDK
++3.  Callback.xs needs to be eliminated, its too small to put in its own DLL
++4.  Use Win32's LoadLibrary and FreeLibrary instead of our own to save DLL
++    space?
++5.  APIPARAM needs to be a union
++6.  create 1 time use intra-process DLLs with Callback's function pointers in
++    the DLL export table?
++7.  create standalone DLLs that start a perl interps in the process and have
++    Callback's function pointers in the DLL export table?
++8.  stop using unpackstring in Callback, start using unpackstring in API?
++9. Register user supplied callbacks for type packing/unpacking, probably
++    it should inspect caller() to make sure one packages/module's type callbacks
++    dont collide with the type callbacks of another
++10. Void ** doesn't parse.
++11. Callback needs more logic to be moved from runtime to constructor time.
++    Currently a bad type letter isn't caught until runtime, with
++    a croak/longjmp through the foreign C lib.
++12. Multi OS threading catching stderr message isn't tested properly by
++    the test suite.
++13. Certain calling conventions on certain platforms, pass by copy silently
++    becomes pass by pointer when the struct exceeds a certain size.
++    API/Callback's C parsing don't do this at the moment.
++14. Alot of GV lookups could be cached to their pointers and kept inside
++    START_MY_CXT globals. On clone the pointers can be refreshed from the new
++    interp. I (bulk88) have done this before.
++15. When using hv_fetch and hv_store, a slight performance optimization can
++    be obtained by the char * being passed, being exactly equal to the PV *
++    in the SV thats part of the HEK using the shared string table system,
++    and by precalculating the hash number for that string per interp.
++    I (bulk88) have done this before.
++16. Stop installing Test.pm on users computers, delete existing copies.
++17. If someone asks for fastcall/thiscall on x86, add it.
++18. If someone asks for MSVC C++ name demangling and supplies a patch, add it.
++    No reason other it being extremely extremely difficult that C++ can't be
++    supported.
++
+diff -ruN --strip-trailing-cr v69/Type.pm v70genpatch/Type.pm
+--- v69/Type.pm	2012-06-06 14:02:59.843750000 -0400
++++ v70genpatch/Type.pm	2012-06-08 13:39:32.781250000 -0400
+@@ -12,7 +12,7 @@
+ #
+ #######################################################################
+ 
+-$VERSION = '0.63';
++$VERSION = '0.64';
+ 
+ use Carp;
+ use Config;
+@@ -161,7 +161,7 @@
+     my $type = ($self eq 'Win32::API::Type') ? shift : $self;
+     my $name = shift;
+     my $pass_numeric = shift;
+-
++    
+     # DEBUG "(PM)Type::packing: got '$type', '$name'\n";
+     my ($modifier, $size, $packing);
+     if (exists $Pointer{$type}) {
+@@ -235,6 +235,19 @@
+     my $pack_type = packing($type);
+     #print "Pack: type $type pack_type $pack_type\n";
+     if ($pack_type eq 'p') { #char or wide char pointer
++        #$pack_type = 'Z*';
++        return;
++    }
++    elsif(IVSIZE() == 4 && ($pack_type eq 'q' || $pack_type eq 'Q')){
++        if($_[0]->{'UseMI64'}){ #un/signed meaningless
++            $_[2] = Math::Int64::int64_to_native($_[2]);
++        }
++        else{
++            if(length($_[2]) < 8){
++                warn("Win32::API::Call value for 64 bit integer is under 8 bytes long");
++                $_[2] = pack('a[8]', $_[2]);
++            }
++        }
+         return;
+     }
+     $_[2] = pack($pack_type, $_[2]);
+@@ -248,9 +261,25 @@
+ 
+     if ($pack_type eq 'p') {
+         DEBUG "(PM)Type::Unpack: got packing 'p': is a pointer\n";
+-        return ();
++        #$pack_type = 'Z*';
++        return;
++    }
++    elsif(IVSIZE() == 4){
++        #todo debugging output
++        if($pack_type eq 'q'){
++            if($_[0]->{'UseMI64'}){
++            $_[2] = Math::Int64::native_to_int64($_[2]);
++            DEBUG "(PM)Type::Unpack: returning signed Math::Int64 '".$_[2]."'\n";
++            }
++            return;
++        }elsif($pack_type eq 'Q'){
++            if($_[0]->{'UseMI64'}){
++            $_[2] = Math::Int64::native_to_uint64($_[2]);
++            DEBUG "(PM)Type::Unpack: returning unsigned Math::Int64 '".$_[2]."'\n";
++            }
++            return;
++        }
+     }
+-
+     DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$_[2]'\n";
+     $_[2] = unpack($pack_type, $_[2]);
+     DEBUG "(PM)Type::Unpack: returning '" . ($_[2] || '') . "'\n";
+diff -ruN --strip-trailing-cr v69/api-test/API_test.cpp v70genpatch/api-test/API_test.cpp
+--- v69/api-test/API_test.cpp	2012-06-06 14:02:59.843750000 -0400
++++ v70genpatch/api-test/API_test.cpp	2012-06-06 20:05:32.234375000 -0400
+@@ -91,6 +91,11 @@
+ 	return 1;
+ }
+ 
++API_TEST_API LONG64 __stdcall sum_quads_ref(LONG64 a, LONG64 b, LONG64 * c) {
++	*c = a + b;
++	return *c;
++}
++
+ API_TEST_API double __stdcall sum_doubles(double a, double b) {
+ 	return a + b;
+ }
+@@ -223,6 +228,13 @@
+ 	return r;
+ }
+ 
++API_TEST_API unsigned __int64 __stdcall do_callback_void_q(callback_func_void_q function) {
++	unsigned __int64 r;
++    r = function();
++	printf("do_callback_void_q: returning sgnd %I64d unsgnd %I64u\n", r, r); 
++	return r;
++}
++
+ API_TEST_API BOOL __stdcall GetHandle(LPHANDLE pHandle) {
+ 	if(!IsBadReadPtr(pHandle, sizeof(*pHandle))){
+         *pHandle =  (HANDLE)4000;
+@@ -238,8 +250,37 @@
+     else return FALSE;
+ }
+ 
++API_TEST_API void * __stdcall Take41Params(
++    void * p0, void * p1, void * p2, void * p3,
++    void * p4, void * p5, void * p6, void * p7,
++    void * p8, void * p9, void * p10, void * p11,
++    void * p12, void * p13, void * p14, void * p15,
++    void * p16, void * p17, void * p18, void * p19,
++    void * p20, void * p21, void * p22, void * p23,
++    void * p24, void * p25, void * p26, void * p27,
++    void * p28, void * p29, void * p30, void * p31,
++    void * p32, void * p33, void * p34, void * p35,
++    void * p36, void * p37, void * p38, void * p39,
++    void * p40) {
++    if (
++   p0 != (void *)0 || p1 != (void *)1   || p2 != (void *)2   || p3 != (void *)3   || p4 != (void *)4
++   || p5 != (void *)5   || p6 != (void *)6   || p7 != (void *)7   || p8 != (void *)8
++   || p9 != (void *)9   || p10 != (void *)10   || p11 != (void *)11   || p12 != (void *)12
++   || p13 != (void *)13   || p14 != (void *)14   || p15 != (void *)15   || p16 != (void *)16
++   || p17 != (void *)17   || p18 != (void *)18   || p19 != (void *)19   || p20 != (void *)20
++   || p21 != (void *)21   || p22 != (void *)22   || p23 != (void *)23   || p24 != (void *)24
++   || p25 != (void *)25   || p26 != (void *)26   || p27 != (void *)27   || p28 != (void *)28
++   || p29 != (void *)29   || p30 != (void *)30   || p31 != (void *)31   || p32 != (void *)32
++   || p33 != (void *)33   || p34 != (void *)34   || p35 != (void *)35   || p36 != (void *)36
++   || p37 != (void *)37   || p38 != (void *)38   || p39 != (void *)39   || p40 != (void *)40
++    ){
++        printf("One of the 40 In params was bad\n");
++        return *(void **)0;
++    }
++    return (void *)1;
++}
+ 
+ /* cdecl functions */
+ API_TEST_API int __cdecl c_sum_integers(int a, int b) {
+ 	return a + b;
+-}
++}
+\ No newline at end of file
+diff -ruN --strip-trailing-cr v69/api-test/API_test.def v70genpatch/api-test/API_test.def
+--- v69/api-test/API_test.def	2012-06-06 14:02:59.843750000 -0400
++++ v70genpatch/api-test/API_test.def	2012-06-06 19:59:17.406250000 -0400
+@@ -11,6 +11,7 @@
+   sum_shorts
+   sum_shorts_ref
+   sum_char_ref
++  sum_quads_ref
+   str_cmp
+   wstr_cmp
+   buffer_overflow
+@@ -23,7 +24,9 @@
+   do_callback_5_param_cdec
+   do_callback_void_d
+   do_callback_void_f
++  do_callback_void_q
+   GetHandle
+   GetGetHandle
+   FreeHandle
+-  c_sum_integers
++  Take41Params
++  c_sum_integers
+\ No newline at end of file
+diff -ruN --strip-trailing-cr v69/api-test/API_test.h v70genpatch/api-test/API_test.h
+--- v69/api-test/API_test.h	2012-06-06 14:02:59.859375000 -0400
++++ v70genpatch/api-test/API_test.h	2012-06-01 01:35:22.000000000 -0400
+@@ -37,6 +37,7 @@
+ 
+ typedef double (__stdcall * callback_func_void_d)();
+ typedef float  (__stdcall * callback_func_void_f)();
++typedef unsigned __int64  (__stdcall * callback_func_void_q)();
+ typedef int    (__stdcall * callback_func_5_param)
+ (char, unsigned __int64, four_char_struct *, float, double);
+ typedef int    (__cdecl   * callback_func_5_param_cdec)
+@@ -57,4 +58,4 @@
+ API_TEST_API int    __stdcall mangle_simple_struct(simple_struct *x);
+ API_TEST_API BOOL   __stdcall GetHandle(LPHANDLE pHandle);
+ API_TEST_API BOOL   __stdcall FreeHandle(HANDLE Handle);
+-API_TEST_API int    __cdecl   c_sum_integers(int a, int b);
++API_TEST_API int    __cdecl   c_sum_integers(int a, int b);
+\ No newline at end of file
+diff -ruN --strip-trailing-cr v69/call_asm_x64_gnu.s v70genpatch/call_asm_x64_gnu.s
+--- v69/call_asm_x64_gnu.s	2011-12-25 16:09:32.000000000 -0500
++++ v70genpatch/call_asm_x64_gnu.s	2012-06-07 12:22:32.312500000 -0400
+@@ -12,9 +12,6 @@
+ 	movq    %r8,32(%rbp)	# float_registers
+ 	movq    %r9,40(%rbp)	# stack
+ 
+-	# Save regs we are gonna use
+-	pushq	%rsi
+-	pushq	%r10
+ 
+ 	# Load up integer registers first... 
+ 	movq    24(%rbp),%rax	# rax = int_registers
+@@ -31,7 +28,7 @@
+ 	movsd	24(%rax),%xmm3
+ 
+ 	# Now the stack 
+-	movq	40(%rbp),%rsi	# rsi = stack
++	movq	40(%rbp),%r11	# r11 = stack
+ 	movq	48(%rbp),%rax	# rax = nstack
+ 
+ 	# Except not if there isn't any 
+@@ -40,7 +37,7 @@
+ 
+ copystack:
+ 	subq	$1,%rax
+-	movq	(%rsi,%rax,8),%r10
++	movq	(%r11,%rax,8),%r10
+ 	pushq	%r10
+ 	testq	%rax,%rax
+ 	jne	copystack
+@@ -58,9 +55,6 @@
+ 	movq	64(%rbp),%r10	# r10 = dret
+ 	movsd	%xmm0,(%r10)
+  
+-	# Restore regs
+-	popq	%r10
+-	popq	%rsi
+ 	
+ 	movq	%rbp,%rsp
+ 	popq	%rbp
+diff -ruN --strip-trailing-cr v69/call_asm_x64_msvc.asm v70genpatch/call_asm_x64_msvc.asm
+--- v69/call_asm_x64_msvc.asm	2012-06-06 14:02:59.859375000 -0400
++++ v70genpatch/call_asm_x64_msvc.asm	2012-06-07 02:07:05.390625000 -0400
+@@ -37,7 +37,7 @@
+     movsd xmm3, qword ptr [rax+24]
+ 
+     ; Now the stack
+-    mov rsi, qword ptr [rbp+40]
++    mov r11, qword ptr [rbp+40]
+     mov rax, qword ptr [rbp+48]
+ 
+     ; Except not if there isn't any
+@@ -46,7 +46,7 @@
+ 
+ copystack:
+     sub rax, 1
+-    mov r10, qword ptr [rsi+8*rax]
++    mov r10, qword ptr [r11+8*rax]
+     push r10
+     test rax, rax
+     jnz copystack
+diff -ruN --strip-trailing-cr v69/call_i686.h v70genpatch/call_i686.h
+--- v69/call_i686.h	2012-06-06 14:02:59.859375000 -0400
++++ v70genpatch/call_i686.h	2012-06-04 00:48:31.687500000 -0400
+@@ -34,6 +34,9 @@
+     ApiDouble   *ApiFunctionDouble;
+     ApiVoid     *ApiFunctionVoid;
+     ApiInteger  *ApiFunctionInteger;
++#ifdef T_QUAD
++    ApiQuad     *ApiFunctionQuad;
++#endif
+ 
+     /* int    iParam; */
+     long   lParam;
+@@ -42,12 +45,14 @@
+     /* char   cParam; */
+     char  *pParam;
+     LPBYTE ppParam;
+-
++#ifdef T_QUAD
++    __int64 qParam;
++#endif
+ 	char *pReturn;
+ 
+ 	int words_pushed;
+ 	int i;
+-
++	
+ 	/* #### PUSH THE PARAMETER ON THE (ASSEMBLER) STACK #### */
+ 	words_pushed = 0;
+ 	for(i = nparams-1; i >= 0; i--) {
+@@ -114,6 +119,28 @@
+ 			words_pushed++;
+ 			words_pushed++;
+ 			break;
++#ifdef T_QUAD
++		case T_QUAD:
++			qParam = params[i].q;
++#ifdef WIN32_API_DEBUG
++			printf("(XS)Win32::API::Call: parameter %d (Q) is %I64d\n", i, qParam);
++#endif
++#if (defined(_MSC_VER) || defined(BORLANDC))
++			__asm {
++				mov   eax, dword ptr [qParam + 4]  ;
++				push  eax                          ;
++				mov   eax, dword ptr [qParam]      ;
++				push  eax                          ;
++			};
++#elif (defined(__GNUC__))
++	/* probably uglier than necessary, but works */
++	asm ("pushl %0":: "g" (((unsigned int*)&qParam)[1]));
++	asm ("pushl %0":: "g" (((unsigned int*)&qParam)[0]));
++#endif
++			words_pushed++;
++			words_pushed++;
++			break;
++#endif
+ 		case T_CODE:
+ 			lParam = params[i].l;
+ #ifdef WIN32_API_DEBUG
+@@ -199,14 +226,29 @@
+     	printf("(XS)Win32::API::Call: ApiFunctionInteger returned %d\n", retval->l);
+ #endif
+         break;
++#ifdef T_QUAD
++    case T_QUAD:
++    case (T_QUAD|T_FLAG_UNSIGNED):
++        ApiFunctionQuad = (ApiQuad *) ApiFunction;
++#ifdef WIN32_API_DEBUG
++    	printf("(XS)Win32::API::Call: Calling ApiFunctionQuad()\n");
++#endif
++        retval->q = ApiFunctionQuad();
++#ifdef WIN32_API_DEBUG
++        printf("(XS)Win32::API::Call: ApiFunctionQuad returned %I64d\n", retval->q);
++#endif
++        break;
++#endif
+     case T_VOID:
+-    default:
+ #ifdef WIN32_API_DEBUG
+     	printf("(XS)Win32::API::Call: Calling ApiFunctionVoid() (tout=%d)\n", retval->t);
+ #endif
+         ApiFunctionVoid = (ApiVoid *) ApiFunction;
+         ApiFunctionVoid();
+         break;
++    default:
++        croak("Win32::API::Call: unknown out type");
++        break;
+     }
+ 
+     // cleanup stack for _cdecl type functions.
+diff -ruN --strip-trailing-cr v69/t/00_API.t v70genpatch/t/00_API.t
+--- v69/t/00_API.t	2012-06-06 14:02:59.875000000 -0400
++++ v70genpatch/t/00_API.t	2012-06-08 11:05:26.359375000 -0400
+@@ -11,7 +11,7 @@
+ use File::Spec;
+ use Test::More;
+ use Encode;
+-plan tests => 46;
++plan tests => 47;
+ use vars qw($function $result $input $test_dll $ptr);
+ 
+ use_ok('Win32::API');
+@@ -31,7 +31,7 @@
+ ok(-e $test_dll, 'found API test dll');
+ #$Win32::API::DEBUG = 1;
+ 
+-
++ 
+ SKIP: {
+ 
+     # TODO Check if this test still makes sense in 2008
+@@ -267,6 +267,14 @@
+ $function = new Win32::API($test_dll, 'BOOL __stdcall str_cmp(LPVOID string)');
+ is($function->Call("Just another perl hacker"), 1,
+    'str_cmp() with LPVOID returns the expected value');
++
++
++#test very high amounts of stack parameters, its intended for x64
++$function = new Win32::API($test_dll, 'Take41Params', 'N' x 41, 'N');
++is($function->Call(0..40), 1, #the C++ func was written using a perl script
++   'Take41Params() returns the expected value');
++
++
+ __END__
+ #### 12: sum integers and double via _cdecl function
+ $function = new Win32::API($test_dll, 'int _cdecl c_call_sum_int(int a, int b)');
+diff -ruN --strip-trailing-cr v69/t/03_undef.t v70genpatch/t/03_undef.t
+--- v69/t/03_undef.t	2012-02-13 16:02:14.000000000 -0500
++++ v70genpatch/t/03_undef.t	2012-06-07 02:59:04.687500000 -0400
+@@ -6,7 +6,7 @@
+ 
+ use strict;
+ use warnings;
+-use Test::More skip_all => "Currently bombs out on 64 bit architectures";
++use Test::More;
+ 
+ use IPC::Open3 qw(open3);
+ use Win32::API qw();
+diff -ruN --strip-trailing-cr v69/t/v69.t v70genpatch/t/v69.t
+--- v69/t/v69.t	2012-06-06 14:02:59.906250000 -0400
++++ v70genpatch/t/v69.t	2012-06-08 10:18:42.750000000 -0400
+@@ -12,14 +12,10 @@
+ use Test::More;
+ use Encode;
+ 
+-plan tests => 33;
++plan tests => 34;
+ use vars qw($function $function2 $result $test_dll $input $ptr);
+ 
+-#use_ok('Win32::API', qw( ReadMemory ));
+-BEGIN {
+-    $DB::single = 1;
+-}
+-use Win32::API qw( ReadMemory IsBadReadPtr MoveMemory WriteMemory);
++use_ok('Win32::API', qw( ReadMemory IsBadReadPtr MoveMemory WriteMemory));
+ use_ok('Win32::API::Test');
+ use_ok('Win32');
+ 
+@@ -176,4 +172,4 @@
+    "IsBadReadPtr returned false on a good pointer");
+ 
+ $function2 = new Win32::API::More( 'kernel32.dll' , 'HANDLE  GetProcessHeap( void ** ptr )');
+-is($function2, undef, "** types do not parse currently");
++is($function2, undef, "** types do not parse currently");
+\ No newline at end of file
+diff -ruN --strip-trailing-cr v69/t/v70.t v70genpatch/t/v70.t
+--- v69/t/v70.t	1969-12-31 19:00:00.000000000 -0500
++++ v70genpatch/t/v70.t	2012-06-08 11:03:41.640625000 -0400
+@@ -0,0 +1,99 @@
++#!perl -w
++
++# $Id$
++
++# Before `make install' is performed this script should be runnable with
++# `make test'. After `make install' it should work as `perl test.pl'
++
++use strict;
++
++use File::Spec;
++use Test::More;
++use Math::Int64 qw( hex_to_int64 );
++
++
++plan tests => 17;
++use vars qw($function $result $return $test_dll );
++
++SKIP: {
++    skip('Quads are native on this computer', 17) if 
++        length(pack('J',0)) == 8;
++
++use_ok('Win32::API');
++use_ok('Win32::API::Test');
++use_ok('Win32');
++
++
++$test_dll = Win32::API::Test::find_test_dll();
++diag('API test dll found at (' . $test_dll . ')');
++ok(-e $test_dll, 'found API test dll');
++
++#$Win32::API::DEBUG = 1;
++
++#old api
++$function = new Win32::API($test_dll, 'LONG64 __stdcall sum_quads_ref(LONG64 a, LONG64 b, LONG64 * c)');
++ok(defined($function), 'sum_quads_ref() function defined');
++
++$result = "\x00\x00\x00\x00\x00\x00\x00\x00"; #or buffer overflow
++is($function->Call("\x00\x00\x00\x00\x00\x00\x00\x02",
++                   "\x00\x00\x00\x00\x00\x00\x00\x03", $result),
++    "\x00\x00\x00\x00\x00\x00\x00\x05",
++   'old api sum_quads_ref() returns the expected value');
++is($result, "\x00\x00\x00\x00\x00\x00\x00\x05",
++   'sum_quads_ref() correctly modifies its ref argument');
++
++#now new api
++$function = new Win32::API::More($test_dll, 'LONG64 __stdcall sum_quads_ref(LONG64 a, LONG64 b, LONG64 * c)');
++ok(defined($function), 'sum_quads_ref() function defined');
++
++$result = "\x00\x00\x00\x00\x00\x00\x00\x00"; #or buffer overflow
++#now you'd think we automatically pack/unpack this since its a *, but we can't
++#even though Win32::API::Type::Pack() gets this parameter, it can't pack it
++#without Math::Int64 support, so in effect, Quad *, without Math::Int64,
++#act like Win32::API not Win32::API::More
++is($function->Call("\x00\x00\x00\x00\x00\x00\x00\x02",
++                   "\x00\x00\x00\x00\x00\x00\x00\x03", $result),
++    "\x00\x00\x00\x00\x00\x00\x00\x05",
++   'new api sum_quads_ref() returns the expected value');
++is($result, "\x00\x00\x00\x00\x00\x00\x00\x05", 'sum_quads_ref() correctly modifies its ref argument');
++
++#old api with MI64
++$function = new Win32::API($test_dll, 'LONG64 __stdcall sum_quads_ref(LONG64 a, LONG64 b, LONG64 * c)');
++ok(defined($function), 'sum_quads_ref() function defined');
++$function->UseMI64(1);
++$result = "\x00\x00\x00\x00\x00\x00\x00\x00";
++#no automatic un/packing for ptrs
++is($function->Call(hex_to_int64("0x0200000000000000"),
++                   hex_to_int64("0x0300000000000000"),
++                   $result),
++    hex_to_int64("0x0500000000000000"),
++   'old api with MI64 sum_quads_ref() returns the expected value');
++
++is($result, "\x00\x00\x00\x00\x00\x00\x00\x05",
++   'sum_quads_ref() correctly modifies its ref argument');
++
++#now new api with MI64
++$function = new Win32::API::More($test_dll, 'LONG64 __stdcall sum_quads_ref(LONG64 a, LONG64 b, LONG64 * c)');
++ok(defined($function), 'sum_quads_ref() function defined');
++
++my $pass = 1;
++$return = $function->UseMI64();
++$pass = $pass && ! $return;
++$pass = $pass && $function->UseMI64(1);
++$return = $function->UseMI64();
++$pass = $pass && $return;
++$pass = $pass && ! $function->UseMI64(0);
++$return = $function->UseMI64();
++$pass = $pass && ! $return;
++$pass = $pass && $function->UseMI64(1);
++ok($pass, "UseMI64 works correctly");
++
++$result = 0; #cant be undef
++$return = $function->Call(hex_to_int64("0x0200000000000000"),
++                   1, $result); #note, 1 isn't an int64 obj
++#print $return." ".hex_to_int64("0x0500000000000001")."\n";
++is($return,
++    hex_to_int64("0x0200000000000001"),
++   'new api with MI64 sum_quads_ref() returns the expected value');
++is($result, hex_to_int64("0x0200000000000001"), 'sum_quads_ref() correctly modifies its ref argument');
++}
