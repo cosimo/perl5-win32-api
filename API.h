@@ -25,6 +25,12 @@ typedef unsigned long long_ptr;
 #define T_CHAR				6
 #define T_SHORT				7
 
+//T_QUAD is a 8 byte string,
+//use T_VOID or T_NUMBER for a 8 byte IV if 64 bit perl
+//T_QUAD is also used in ifdefs around the C code implementing T_QUAD
+#ifndef _WIN64
+    #define T_QUAD          8
+#endif
 #define T_STRUCTURE			51
 
 #define T_POINTERPOINTER	22
@@ -40,6 +46,9 @@ typedef double ApiDouble(void);
 typedef void   ApiVoid(void);
 typedef int    ApiInteger(void);
 typedef short  ApiShort(void);
+#ifdef T_QUAD
+typedef __int64 ApiQuad(void);
+#endif
 
 //This is a packing padding nightmare, union or reorder, side effects unknown
 typedef struct {
@@ -50,6 +59,9 @@ typedef struct {
 	long_ptr l; // 4 bytes on 32bit; 8 bytes on 64bbit; not sure if it is correct
 	float f;
 	double d;
+#ifdef T_QUAD
+    __int64 q;
+#endif
 } APIPARAM;
 
 typedef struct {
@@ -74,3 +86,10 @@ typedef struct {
 } SENTINAL_STRUCT;
 #pragma pack(pop)
 #pragma pack(pop)
+
+#ifndef mPUSHs
+#  define mPUSHs(s)                      PUSHs(sv_2mortal(s))
+#endif
+#ifndef mXPUSHs
+#  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
+#endif

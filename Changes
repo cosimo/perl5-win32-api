@@ -1,5 +1,14 @@
 History of Win32::API perl extension.
 
+2012-??-??  Win32::API v0.70    bulk88
+   - Added, Callback now works on x64
+   - Added, Quads on API and Callback for 32 bit perl, they are
+     8 byte strings or Math::Int64 objs on 32 bit perl 
+   - Added, floats and doubles work in Callback
+   - Callback has been rewritten, much less C and machine code, more Perl
+   - Fixed RT #55660 and #77677, nonvolatile registers were corrupted on x64,
+     especially if more than 4 parameters
+
 2012-??-??  Win32::API v0.69    bulk88
    - Fixed RT #12057, dll leak if func not found
      (https://rt.cpan.org/Ticket/Display.html?id=12057)

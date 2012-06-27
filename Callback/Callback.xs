@@ -1,12 +1,12 @@
 /*
     # Win32::API::Callback - Perl Win32 API Import Facility
     #
-    # Author: Aldo Calpini <dada@perl.it>
+    # Original Author: Aldo Calpini <dada@perl.it>
+    # Rewrite Author: Daniel Dragan <bulk88@hotmail.com>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
-    # Changes for gcc/cygwin by Reini Urban <rurban@x-ray.at> 
-    # TODO: This does not work yet with the 64bit gcc cygwin-thread-multi-64int 
-    #       (cygwin default)
+    # Other Credits:
+    # Changes for gcc/cygwin by Reini Urban <rurban@x-ray.at>  (code removed)
     #
     # $Id$
  */
@@ -15,6 +15,7 @@
 #include <windows.h>
 #include <memory.h>
 
+#define PERL_NO_GET_CONTEXT
 #include "EXTERN.h"
 #include "perl.h"
 
@@ -24,17 +25,42 @@
 #include "XSUB.h"
 #define CROAK croak
 
-
-#ifndef mPUSHs
-#  define mPUSHs(s)                      PUSHs(sv_2mortal(s))
-#endif
-
-#ifndef mXPUSHs
-#  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
+#ifndef _WIN64
+#define WIN32BIT
+#define WIN32BITBOOL 1
+#else
+#define WIN32BITBOOL 0
 #endif
 
 
 #include "../API.h"
+
+//older VSes dont have this flag
+#ifndef HEAP_CREATE_ENABLE_EXECUTE
+#define HEAP_CREATE_ENABLE_EXECUTE      0x00040000
+#endif
+
+HANDLE execHeap;
+
+BOOL WINAPI DllMain(
+    HINSTANCE hinstDLL,
+    DWORD fdwReason,
+    LPVOID lpReserved )
+{
+    switch( fdwReason ) 
+    { 
+        case DLL_PROCESS_ATTACH:
+            if(!DisableThreadLibraryCalls(hinstDLL)) return FALSE;
+            execHeap = HeapCreate(HEAP_CREATE_ENABLE_EXECUTE
+                              | HEAP_GENERATE_EXCEPTIONS, 0, 0);
+            if(!execHeap) return FALSE;
+            break;
+        case DLL_PROCESS_DETACH:
+            return HeapDestroy(execHeap);
+            break;
+    }
+    return TRUE;
+}
 
 
 
@@ -61,920 +87,436 @@
 #	define call_sv(name, flags) perl_call_sv(name, flags)
 #endif
 
-#ifdef __GNUC__
-/* itoa is NOT in newlib. We need only the simple base 10 version. */
-char * itoa(int n, char *str, int radix);
-char * itoa(int n, char *str, int radix) {
-    sprintf(str, "%d", n);
-}
-#endif
 
+#define PERL_API_VERSION_LE(R, V, S) (PERL_API_REVISION < (R) || \
+(PERL_API_REVISION == (R) && (PERL_API_VERSION < (V) ||\
+(PERL_API_VERSION == (V) && (PERL_API_SUBVERSION <= (S))))))
 
-int PerformCallback(SV* self, int nparams, APIPARAM* params);
-
-SV* fakesv;
-int fakeint;
-
-int RelocateCode(unsigned char* cursor, unsigned int displacement) {
-	int skip;
-	unsigned int reladdr;
-
-	switch(*cursor) {
-
-		// skip +0
-		case 0x50:	// push eax
-		case 0x51:	// push ecx
-		case 0x55:	// push ebp
-		case 0x56:	// push esi
-		case 0x59:	// pop ecx
-		case 0x5E:	// pop esi
-		case 0xC3:	// ret
-		case 0xC9:	// leave
-			skip = 0;
-			break;
-
-		// skip +1
-		case 0x33:	// xor
-		case 0x3B:	// cmp
-		case 0x6A:	// push (1 byte)
-		case 0x74:	// je
-		case 0x75:	// jne
-		case 0x7D:	// jge
-		case 0x7E:	// jle
-		case 0x85:	// test
-		case 0xEB:	// jmp
-			skip = 1;
-			break;
-
-		// skip +1/+2
-		case 0x2B:
-			if(*(cursor+1) == 0x30	// sub esi, dword ptr [eax]
-			) {
-				skip = 1;
-				break;
-			} else
-			if (*(cursor+1) == 0x45	// sub eax, dword ptr [ebp+1 byte]
-			) {
-				skip = 2;
-				break;
-			}
-
-		// skip +1/+2
-		case 0x89:
-
-			if(*(cursor+1) == 0x01	// mov dword ptr [ecx], eax
-			|| *(cursor+1) == 0x08	// mov dword ptr [eax], ecx
-			|| *(cursor+1) == 0x30	// mov dword ptr [eax], esi
-			) {
-				skip = 1;
-				break;
-			}
-			if(*(cursor+1) == 0x45	// mov dword ptr [ebp+1 byte], eax
-			|| *(cursor+1) == 0x4D	// mov dword ptr [ebp+1 byte], ecx
-			|| *(cursor+1) == 0x04	// mov dword ptr [edx+ecx*1 byte], eax
-			) {
-				skip = 2;
-				break;
-			}
-
-		// skip +1/+2
-		case 0x8B:
-
-			if(*(cursor+1) == 0x00	// mov eax,dword ptr [eax]
-			|| *(cursor+1) == 0x09	// mov ecx,dword ptr [ecx]
-			|| *(cursor+1) == 0x0E	// mov ecx,dword ptr [esi]
-			|| *(cursor+1) == 0xEC	// mov ebp,esp
-			|| *(cursor+1) == 0xF0	// mov esi,eax
-			) {
-				skip = 1;
-				break;
-			} else
-			if(*(cursor+1) == 0x40	// mov eax,dword ptr [eax+1 byte]
-			|| *(cursor+1) == 0x45	// mov eax,dword ptr [ebp+1 byte]
-			|| *(cursor+1) == 0x4D	// mov ecx,dword ptr [ebp+1 byte]
-			|| *(cursor+1) == 0x55	// mov edx,dword ptr [ebp+1 byte]
-			|| *(cursor+1) == 0x75	// mov esi,dword ptr [ebp+1 byte]
-			) {
-				skip = 2;
-				break;
-			}
-
-		case 0xFF:
-			if(*(cursor+1) == 0x30	// push dword ptr [eax]
-			) {
-				skip = 1;
-				break;
-			} else
-			if(*(cursor+1) == 0x75	// push dword ptr [epb+1 byte]
-			|| *(cursor+1) == 0x34	// push dword ptr [ecx+eax*4]
-			) {
-				skip = 2;
-				break;
-			} else
-			if(*(cursor+1) == 0x15	// call dword ptr ds:(4 byte)
-			|| *(cursor+1) == 0x35	// push dword ptr ds:(4 byte)
-			) {
-				skip = 5;
-				break;
-			}
-
-		// skip +2
-		case 0xC1:	// sar
-			skip = 2;
-			break;
-
-		// skip +2/+3
-		case 0x83:
-			if(*(cursor+1) != 0x65	// add|sub|cmp
-			) {
-				skip = 2;
-				break;
-			} else
-			if(*(cursor+1) == 0x65	// add|sub|cmp
-			) {
-				skip = 3;
-				break;
-			}
-
-		// skip +4
-		case 0x25:	// and
-		case 0x68:	// push (4 bytes)
-			skip = 4;
-			break;
-
-
-		// skip +6
-		case 0xC7:	// mov dword ptr (ebp+1 byte), (4 byte)
-			skip = 6;
-			break;
-
-		case 0xE8:
-			// we relocate here!
-			reladdr = *((int*)(cursor + 1));
-			*((int*)(cursor + 1)) = (unsigned int) (reladdr - displacement);
-			skip = 4;
-			break;
-
-		default:
-#ifdef WIN32_API_DEBUG
-			printf("(C)RelocateCode: %08X ????    0x%x\n", cursor, *cursor);
-#endif
-			skip = 0;
-			break;
+#if PERL_API_VERSION_LE(5, 13, 8)
+MAGIC * my_find_mg(SV * sv, int type, const MGVTBL *vtbl){
+	MAGIC *mg;
+	for (mg = SvMAGIC (sv); mg; mg = mg->mg_moremagic) {
+		if (mg->mg_type == type && mg->mg_virtual == vtbl)
+			assert (mg->mg_ptr);
+			return mg;
 	}
-#ifdef WIN32_API_DEBUG
-	{
-		int i;
-		printf("(C)RelocateCode: %08X skip +%1d ", cursor, skip);
-		for(i = 0; i <= skip; i++) {
-			printf("%02X ", *(cursor+i));
-		}
-		printf("\n");
-	}
+	return NULL;
+}
+#define mg_findext(a,b,c) my_find_mg(a,b,c)
 #endif
-	return 1 + skip;
+
+#ifdef WIN32BIT
+typedef struct {
+    unsigned short unwind_len;
+    unsigned char F_Or_D;
+    unsigned char unused;
+} FuncRtnCxt;
+
+#if 0
+////the template used in the MakeCB for x86
+unsigned __int64 CALLBACK CallbackTemplate2() {
+    void (*PerlCallback)(SV *, void *, unsigned __int64 *, FuncRtnCxt *) = 0xC0DE0001;
+    FuncRtnCxt FuncRtnCxtVar;
+    unsigned __int64 retval;
+    PerlCallback((SV *)0xC0DE0002, (void*)0xC0DE0003, &retval, &FuncRtnCxtVar);
+    return retval;
 }
 
 
-// SV* CallbackMakeStruct(SV* self, int nparam, char *addr) {
-int CallbackMakeStruct(SV* self, int nparam, char *addr) {
-#ifdef dTHX
-	dTHX;
-#endif
-	dSP;
-	SV* structobj = NULL;
-	char ikey[80];
-/*
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackMakeStruct: got self='%s'\n", SvPV_nolen(self));
-	sv_dump(self);
-	if(SvROK(self)) sv_dump(SvRV(self));
-	printf("(C)CallbackMakeStruct: got nparam=%d\n", nparam);
-	printf("(C)CallbackMakeStruct: got addr=0x%08x\n", addr);
-	// memcpy( SvPV_nolen(self), 0, 1000);
-#endif
-*/
-	ENTER;
-	SAVETMPS;
-	// XPUSHs(sv_2mortal(newSVrv(self, "Win32::API::Callback")));
-	PUSHMARK(SP);
-	XPUSHs(sv_2mortal(newSVsv(self)));
-	XPUSHs(sv_2mortal(newSViv(nparam)));
-	XPUSHs(sv_2mortal(newSViv((long) addr)));
-	PUTBACK;
-	call_pv("Win32::API::Callback::MakeStruct", G_SCALAR);
-	SPAGAIN;
-	structobj = newSVsv(POPs);
+typedef union {
+    float f;
+    double d;
+} FDUNION;
 
-	itoa(nparam, ikey, 10);
-	hv_store( (HV*)SvRV(self), ikey, strlen(ikey), structobj, 0 );
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackTemplate: self{'%s'}='%s'\n", ikey, SvPV_nolen(*(hv_fetch( (HV*)SvRV(self), ikey, strlen(ikey), 0 ))));
-#endif
-/*
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackMakeStruct: structobj='%s'\n", SvPV_nolen(structobj));
-	sv_dump(structobj);
-	if(SvROK(structobj)) sv_dump(SvRV(structobj));
-#endif
-*/
-	PUTBACK;
-	FREETMPS;
-	LEAVE;
-	return 1;
-	// return structobj;
+
+////the template used in the MakeCB for x86
+double CALLBACK CallbackTemplateD() {
+    void (*PerlCallback)(SV *, void *, unsigned __int64 *, FuncRtnCxt *) = 0xC0DE0001;
+    FuncRtnCxt FuncRtnCxtVar;
+    FDUNION retval;
+    PerlCallback((SV *)0xC0DE0002, (void*)0xC0DE0003, (unsigned __int64 *)&retval, &FuncRtnCxtVar);
+    if(FuncRtnCxtVar.F_Or_D){
+        return (double) retval.f;
+    }
+    else{
+        return retval.d;        
+    }
 }
-
-//turn off "global optimizations", -Od -O1 and -O2 tested ok
-#pragma optimize("g", off)
-int CALLBACK CallbackTemplate() {
-	SV* myself = (SV*) 0xC0DE0001; 	// checkpoint_SELFPOS
-	int nparams = 0xC0DE0002; 		// checkpoint_NPARAMS
-	APIPARAM* params;
-	unsigned int checkpoint;
-	int i, r;
-
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackTemplate: nparams=%d\n", nparams);
-//	printf("(C)CallbackTemplate: myself='%s'\n", SvPV_nolen(myself));
-//	sv_dump(myself);
-//	if(SvROK(myself)) sv_dump(SvRV(myself));
+#endif //#if 0
 #endif
-#ifdef aTHX
+
+////unused due to debugger callstack corruption
+////alternate design was implemented
+//#ifdef _WIN64
+//
+//#pragma optimize( "y", off)
+//////the template used in the MakeCBx64
+//void * CALLBACK CallbackTemplate64fin( void * a
+//                                      //, void * b, void * c, void * d
+//                                      , ...
+//                                      ) {
+//    void (*LPerlCallback)(SV *, void *, unsigned __int64 *, void *) =
+//    ( void (*)(SV *, void *, unsigned __int64 *, void *)) 0xC0DE00FFFF000001;
+//    __m128 arr [4];
+//    __m128 retval;
+//     arr[0].m128_u64[0] = 0xFFFF00000000FF10;
+//     arr[0].m128_u64[1] = 0xFFFF00000000FF11;
+//     arr[1].m128_u64[0] = 0xFFFF00000000FF20;
+//     arr[1].m128_u64[1] = 0xFFFF00000000FF21;
+//     arr[2].m128_u64[0] = 0xFFFF00000000FF30;
+//     arr[2].m128_u64[1] = 0xFFFF00000000FF31;
+//     arr[3].m128_u64[0] = 0xFFFF00000000FF40;
+//     arr[3].m128_u64[1] = 0xFFFF00000000FF41;
+//
+//    LPerlCallback((SV *)0xC0DE00FFFF000002, (void*) arr, (unsigned __int64 *)&retval,
+//                  (DWORD_PTR)&a);
+//    return *(void **)&retval;
+//}
+//#pragma optimize( "", on )
+//#endif
+
+#ifdef WIN32BIT
+typedef unsigned __int64 CBRETVAL; //8 bytes
+#else
+//using a M128 SSE variable casues VS to use aligned SSE movs, Perl's malloc
+//(ithread mempool tracking included) on x64 apprently aligns to 8 bytes,
+//not 16, then it crashes so DONT use a SSE type, even though it is
+typedef struct {
+    char arr[16];
+} CHAR16ARR;
+typedef CHAR16ARR CBRETVAL; //16 bytes
+#endif
+
+void PerlCallback(SV * obj, void * ebp, CBRETVAL * retval
+#ifdef WIN32BIT               
+                  ,FuncRtnCxt * rtncxt
+#endif                  
+                  ) {
+    dTHX;
+#if defined(USE_ITHREADS)
     {
-        dTHX;
         if(aTHX == NULL) {
-//perl overrode CRT's fprintf, undo that since the error message has to be
-//printed with zero perl involvement
-            fprintf(stderr, "Win32::API::Callback::CallbackTemplate: no perl interp "
+            //due to NO_XSLOCKS, these are real CRT and not perl stdio hooks
+            fprintf(stderr, "Win32::API::Callback (XS) no perl interp "
                    "in thread id %u, callback can not run\n", GetCurrentThreadId());
-            r = 0; //dont return uninitialized value
-            checkpoint = 0xC0DE0050;
-            goto END;
+            //can't return safely without stack unwind count from perl on x86,
+            //so exit thread is next safest thing, some/most libs will leak
+            //from this
+            ExitThread(0); // 0 means failure? IDK.
         }
     }
 #endif
-	params = (APIPARAM*) safemalloc(  nparams * sizeof(APIPARAM) );
-	checkpoint = 0xC0DE0010;		// checkpoint_PUSHI
-	i = 0xC0DE0003;					// checkpoint_IPOS
-	params[i].t = T_INTEGER;
-	params[i].l = fakeint;
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackTemplate: PUSHI(%d)=", i);
-	printf("%d\n", params[i].l);
-#endif
-	checkpoint = 0xC0DE0020;		// checkpoint_PUSHL
-	i = 0xC0DE0003;					// checkpoint_IPOS
-	params[i].t = T_NUMBER;
-	params[i].l = fakeint;
-	checkpoint = 0xC0DE0030;		// checkpoint_PUSHP
-	i = 0xC0DE0003;					// checkpoint_IPOS
-	params[i].t = T_POINTER;
-	params[i].p = (char*) fakeint;
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackTemplate: PUSHP(%d)=", i);
-	printf("%08x (%s)\n", params[i].p, params[i].p);
-#endif
-	checkpoint = 0xC0DE0040;		// checkpoint_PUSHS
-	i = 0xC0DE0003;					// checkpoint_IPOS
-	params[i].t = T_STRUCTURE;
-	params[i].p = (char*) fakeint;
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackTemplate: PUSHS(%d)=", i);
-	printf("%08x\n", params[i].p);
-#endif
-
-/*
-	checkpoint = 0xC0DE0050;		// checkpoint_PUSHD
-	i = 0xC0DE0003;					// checkpoint_IPOS
-	params[i].t = T_DOUBLE;
-	params[i].d = fakedouble;
-*/
-
-	checkpoint = 0xC0DE9999;		// checkpoint_END
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackTemplate: Calling PerformCallback...\n");
-#endif
-	r = PerformCallback(myself, nparams, params);
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackTemplate: r=%d\n", r);
-#endif
-	safefree(params);
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackTemplate: RETURNING\n");
-#endif
-    END:
-    checkpoint = 0xC0DE0060;
-	return r;
-}
-//restore back to cmd line defaults
-#pragma optimize( "", on )
-
-
-int PerformCallback(SV* self, int nparams, APIPARAM* params) {
-	SV* mycode;
-	int i = 0;
-	char ikey[80];
-	int r;
-#ifdef dTHX
-	dTHX;
-#endif
+    {
 	dSP;
-
-	mycode = *(hv_fetch((HV*)SvRV(self), "sub", 3, FALSE));
-
-	for(i=0; i < nparams; i++) {
-		if(params[i].t == T_STRUCTURE) {
-			CallbackMakeStruct(self, i, params[i].p);
-		}
-	}
-
+    SV * retvalSV;
+#ifdef WIN32BIT
+    SV * unwindSV;
+    SV * F_Or_DSV;
+#endif
 	ENTER;
-	SAVETMPS;
+    SAVETMPS;
 	PUSHMARK(SP);
-	for(i=0; i < nparams; i++) {
-		switch(params[i].t) {
-		case T_STRUCTURE:
-			itoa(i, ikey, 10);
-			XPUSHs(sv_2mortal(*(hv_fetch((HV*)SvRV(self), ikey, strlen(ikey), 0))));
-			break;
-		case T_POINTER:
-			XPUSHs(sv_2mortal(newSVpv((char *) params[i].p, 0)));
-			break;
-		case T_INTEGER:
-		case T_NUMBER:
-			XPUSHs(sv_2mortal(newSViv((int) params[i].l)));
-			break;
-		}
-	}
-
+    EXTEND(SP, (WIN32BITBOOL?5:3));
+    mPUSHs(newRV_inc((SV*)obj));
+    mPUSHs(newSVuv((UV)ebp));
+    retvalSV = sv_newmortal();
+	PUSHs(retvalSV);
+#ifdef WIN32BIT
+    unwindSV = sv_newmortal();
+    PUSHs(unwindSV);
+    F_Or_DSV = sv_newmortal();
+    PUSHs(F_Or_DSV);
+#endif
 	PUTBACK;
-	call_sv(mycode, G_EVAL | G_SCALAR);
-	SPAGAIN;
-	r = POPi;
-	PUTBACK;
-	FREETMPS;
+	call_pv("Win32::API::Callback::RunCB", G_VOID);
+#ifdef WIN32BIT
+    rtncxt->F_Or_D = (unsigned char) SvUV(F_Or_DSV);
+    rtncxt->unwind_len = (unsigned short) SvUV(unwindSV);
+#endif
+    //pad out the buffer, uninit irrelavent
+    *retval = *(CBRETVAL *)SvGROW(retvalSV, sizeof(CBRETVAL));
+    FREETMPS;
 	LEAVE;
-	return r;
+    return;
+    }
 }
 
-unsigned char * FixupAsmSection(unsigned char * cursor, unsigned int section_PUSH, unsigned int j,
-                            unsigned int displacement, unsigned char ebpcounter
-#ifdef WIN32_API_DEBUG
-            , char * SvType
-#endif
-            ){
-    unsigned int i, r;
-#ifdef WIN32_API_DEBUG
-	printf("(C)FixupAsmSection: section_PUSH         is: 0x%08X\n", section_PUSH);
-#endif
-    for(i=0; i < section_PUSH; i++) {
-        // 8B 15 18 75 3A 00 mov         edx,dword ptr [_fakeint (3A7518h)] 
-        if(*(cursor+0) == 0x8B
-        //below is a disp32 source
-        //look at ModR/M Byte table in Intel x86 manual, then this makes sense
-        && (((*(cursor+1) & 0x0F) == 0x05 || (*(cursor+1) & 0x0F) == 0x0D) && (*(cursor+1) & 0xF0) < 0x40)
-        && *((int*)(cursor+2)) == (int) &fakeint
-        ) {
-#ifdef WIN32_API_DEBUG
-            printf("(C)CallbackCreate:     FOUND THE %s at 0x%x\n", cursor, SvType);
-            printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
-#endif
-            *(cursor+0) = 0x8B;
-            *(cursor+1) = *(cursor+1) + 0x40; //0x40 is from disp32 to disp 8 ebp
-            *(cursor+2) = ebpcounter;
-            *(cursor+3) = 0x90;		// push ecx
-            *(cursor+4) = 0x90;		// push esi
-            *(cursor+5) = 0x90;		// pop esi
-            cursor += 5; 
-            i += 4;
-        }
-        //-Od puts A1 18 85 3A 00          mov     eax, ds:_fakeint
-        //opcode A1 is a special case, not a table
-        else if(*(cursor+0) == 0xA1
-        && *((int*)(cursor+1)) == (int) &fakeint){
-#ifdef WIN32_API_DEBUG
-            printf("(C)CallbackCreate:     FOUND THE %s at 0x%x\n", cursor, SvType);
-            printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
-#endif
-            *(cursor+0) = 0x8B;
-            *(cursor+1) = 0x45;
-            *(cursor+2) = ebpcounter;
-            *(cursor+3) = 0x90;
-            *(cursor+4) = 0x90;
-            cursor += 4; 
-            i += 3;
-        }
-        else
-        if(*(cursor+0) == 0xC7
-        && *(cursor+1) == 0x45
-        && (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
-        && *((int*)(cursor+3)) == 0xC0DE0003
-        ) {
-#ifdef WIN32_API_DEBUG
-            printf("(C)CallbackCreate:     FOUND NPARAM   at 0x%x\n", cursor);
-            printf("(C)CallbackCreate:     writing         = 0x%08X\n", j);
-#endif
-            *((int*)(cursor+3)) = j;
-#ifdef WIN32_API_DEBUG
-            printf("(C)CallbackCreate:     NPARAM now is   = 0x%08X\n", *((int*)(cursor+3)));
-#endif
-            cursor += 6;
-            i += 5;
-        } else {
-            r = RelocateCode(cursor, displacement);
-            cursor += r;
-            if(r > 1) i += (r-1);
-        }
+#ifdef _WIN64
 
+//on entry R10 register must be a HV *
+//, ... triggers copying to shadow space the 4 param registers on VS
+//relying on compiler to not optimize away copying void *s b,c,d to shadow space
+void CALLBACK Stage2CallbackX64( void * a
+                                      //, void * b, void * c, void * d
+                                      , ...
+                                      ) {
+    //CONTEXT is a macro in Perl, can't use it
+    struct _CONTEXT cxt;
+    CBRETVAL retval; //RtlCaptureContext is using a bomb to light a cigarette
+    //a more efficient version is to write this in ASM, but that means GCC and
+    //MASM versions, this func is pure C, "struct _CONTEXT cxt;" is 1232 bytes
+    //long, pure hand written machine code in a string, like the jump trampoline
+    //corrupts the callstack in VS 2008, RtlAddFunctionTable is ignored by VS
+    //2008 but not WinDbg, but WinDbg is impossibly hard to use, if its not
+    //in a DLL enumeratable by ToolHelp/Process Status API, VS won't see it
+    //I tried a MMF of a .exe, the pages were formally backed by a copy of the
+    //original .exe, VMMap verified, did a RtlAddFunctionTable, VS 2008 ignored
+    //it, having Win32::API::Callback generate 1 function 1 time use DLLs from
+    //a binary blob template in pure Perl is possible but insane
+    RtlCaptureContext(&cxt); //null R10 in context is a flag to return
+    if(!cxt.R10){//stack unwinding is not done
+        return; //by callee on x64 so all funcs are vararg/cdecl safe
     }
-    return cursor;
+    //don't assume there aren't any secret variables or secret alignment padding
+    //, security cookie, etc, dont try to hard code &cxt-&a into a perl const sub
+    //C compiler won't produce such a offset unless you run callbacktemplate live
+    //calculating the offset in C watch window and hard coding it is going to
+    //break in the future
+    cxt.Rax = (unsigned __int64) &a;
+    PerlCallback((SV *) cxt.R10, (void*) &cxt, &retval);
+    cxt.Rax = *(unsigned __int64 *)&retval;
+    cxt.Xmm0 = *(M128A *)&retval;
+    cxt.R10 = (unsigned __int64)NULL; //trigger a return
+    RtlRestoreContext(&cxt, NULL);//this jumps to the RtlCaptureContext line
+    //unreachable
 }
-
-unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* callback) {
-
-	unsigned char * code;
-	unsigned char * cursor;
-	unsigned int i, j, r, toalloc, displacement;
-	unsigned char ebpcounter = 8;
-	unsigned char * source;
-	BOOL done = FALSE;
-	unsigned int distance = 0;
-	BOOL added_INIT_STRUCT = FALSE;
-	int N_structs = 0;
-    unsigned char * myCallbackTemplate = (unsigned char *)CallbackTemplate;
-    unsigned char * myPerformCallback = (unsigned char *)PerformCallback;
-    unsigned char epilog_back_up;
-
-	unsigned int
-		checkpoint_PUSHI = 0,
-		checkpoint_PUSHL = 0,
-		checkpoint_PUSHP = 0,
-		checkpoint_PUSHS = 0,
-		checkpoint_END = 0,
-		checkpoint_DONE = 0,
-        checkpoint_GOTO_END = 0,
-        checkpoint_END_LABEL = 0
-        ;
-
-	unsigned int
-		section_START,
-		section_PUSHI,
-		section_PUSHL,
-		section_PUSHP,
-		section_PUSHS,
-		section_END,
-        section_END_END_LABEL;
-    //this block deals with VC's ILT jump table
-    if(*myCallbackTemplate == 0xE9){
-//E9 is opcode for JMP rel32, +5 is next instruction +1 is rel32 num
-        myCallbackTemplate  = myCallbackTemplate+5+(*(DWORD_PTR *)(myCallbackTemplate+1));
-    }
-    source = myCallbackTemplate;
-	cursor = source;
-
-    //this block deals with VC's ILT jump table
-    if(*myPerformCallback == 0xE9){
-//E9 is opcode for JMP rel32, +5 is next instruction +1 is rel32 num
-        myPerformCallback  = myPerformCallback+5+(*(DWORD_PTR *)(myPerformCallback+1));
-    }
-	while(!done) {
-
-		if(*(cursor+0) == 0x10
-		&& *(cursor+1) == 0x00
-		&& *(cursor+2) == 0xDE
-		&& *(cursor+3) == 0xC0
-		) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate.Study: checkpoint_PUSHI=%d\n", distance);
-#endif
-			checkpoint_PUSHI = distance - 3;
-		}
-
-		if(*(cursor+0) == 0x20
-		&& *(cursor+1) == 0x00
-		&& *(cursor+2) == 0xDE
-		&& *(cursor+3) == 0xC0
-		) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate.Study: checkpoint_PUSHL=%d\n", distance);
-#endif
-			checkpoint_PUSHL = distance - 3;
-		}
-
-		if(*(cursor+0) == 0x30
-		&& *(cursor+1) == 0x00
-		&& *(cursor+2) == 0xDE
-		&& *(cursor+3) == 0xC0
-		) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate.Study: checkpoint_PUSHP=%d\n", distance);
-#endif
-			checkpoint_PUSHP = distance - 3;
-		}
-
-		if(*(cursor+0) == 0x40
-		&& *(cursor+1) == 0x00
-		&& *(cursor+2) == 0xDE
-		&& *(cursor+3) == 0xC0
-		) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate.Study: checkpoint_PUSHS=%d\n", distance);
-#endif
-			checkpoint_PUSHS = distance - 3;
-		}
-
-		if(*(cursor+0) == 0x50
-		&& *(cursor+1) == 0x00
-		&& *(cursor+2) == 0xDE
-		&& *(cursor+3) == 0xC0
-		) {
-            if(*(cursor+4) == 0xE9){//E9 = jmp rel32
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate.Study: checkpoint_GOTO_END=%d\n", distance);
-#endif
-                checkpoint_GOTO_END = distance + 4;
-            }
-            else{
-                croak("unknown opcode %.2X after 0xC0DE0050 checkpoint");
-            }
-
-		}
-
-		if(*(cursor+0) == 0x60
-		&& *(cursor+1) == 0x00
-		&& *(cursor+2) == 0xDE
-		&& *(cursor+3) == 0xC0
-		) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate.Study: checkpoint_END_LABEL=%d\n", distance);
-#endif
-			checkpoint_END_LABEL = distance + 4;
-		}
-
-		if(*(cursor+0) == 0x99
-		&& *(cursor+1) == 0x99
-		&& *(cursor+2) == 0xDE
-		&& *(cursor+3) == 0xC0
-		) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate.Study: checkpoint_END=%d\n", distance);
-#endif
-			checkpoint_END = distance - 3;
-		}
-
-
-#ifdef WIN32_API_DEBUG
-		if(checkpoint_END > 0) {
-			printf("(C)CallbackCreate.Study: after END got 0x%02X at %d\n", *cursor, distance);
-		}
-#endif
-	
-		if(*(cursor+0) == 0xC9	// leave
-            && *(cursor+1) == 0xC3	// ret
-		) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate.Study: leave ret checkpoint_DONE=%d\n", distance);
-#endif
-			epilog_back_up = 2;
-            checkpoint_DONE = distance + 2;
-			done = TRUE;
-		}
-
-        if(*(cursor+0) == 0x8B
-            && *(cursor+1) == 0xE5 //mov esp,ebp
-            && *(cursor+2) == 0x5D //pop ebp
-            && *(cursor+3) == 0xC3 //ret
-		) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate.Study: mov pop ret checkpoint_DONE=%d\n", distance);
-#endif
-			epilog_back_up = 4;
-			checkpoint_DONE = distance + 4;
-			done = TRUE;
-		}
-// this can't possibly work, we can't write in the stdcall stack unwind amount
-// the dyn func will be broken if we go down this path
-
-//        // this test only works if the compiler does not reorder the functions in the output.
-//		if((unsigned char *) myCallbackTemplate < (unsigned char *) myPerformCallback &&
-//            cursor >= (unsigned char *) myPerformCallback) {
-//			checkpoint_DONE = distance;
-//		 	done = TRUE;
-//		}
-        // this test only works if the compiler does not reorder the functions in the output.
-		if((unsigned char *) myCallbackTemplate < (unsigned char *) myPerformCallback &&
-            cursor >= (unsigned char *) myPerformCallback) {
-            //havent reached the malloc yet, this is safe, no malloc in
-            //XS_Win32__API__Callback_CallbackCreate
-            croak("Win32::API::Callback::CallbackCreate: "
-                  "Compiler not supported (couldn't find end of CallbackTemplate)");
-		}
-		// TODO: add fallback (eg. if cursor >= CallbackCreate then done)
-
-		cursor++;
-		distance++;
-	}
-
-	section_START = checkpoint_PUSHI;
-	section_PUSHI = checkpoint_PUSHL	- checkpoint_PUSHI;
-	section_PUSHL = checkpoint_PUSHP	- checkpoint_PUSHL;
-	section_PUSHP = checkpoint_PUSHS	- checkpoint_PUSHP;
-	section_PUSHS = checkpoint_END 	- checkpoint_PUSHS;
-	section_END   = checkpoint_DONE	- checkpoint_END;
-    section_END_END_LABEL = checkpoint_END_LABEL - checkpoint_END;
-
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackCreate: section_PUSHS         is: 0x%08X\n", section_PUSHS);
-	printf("(C)CallbackCreate: section_PUSHI         is: 0x%08X\n", section_PUSHI);
-	printf("(C)CallbackCreate: section_PUSHP         is: 0x%08X\n", section_PUSHP);
-#endif
-	toalloc  = section_START;
-	toalloc += section_END;
-
-	/* We'll need 4 extra bytes for the callback epilogue */
-	toalloc += 4;
-
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackCreate: toalloc=%d\n", toalloc);
 #endif
 
-	for(i=0; i<nparams; i++) {
 
-		if(params[i].t == T_NUMBER) {
-			toalloc += section_PUSHI;
-		}
-
-		if(params[i].t == T_POINTER) {
-			toalloc += section_PUSHP;
-		}
-
-		if(params[i].t == T_STRUCTURE) {
-			toalloc += section_PUSHS;
-		}
-
-#ifdef WIN32_API_DEBUG
-		printf("(C)CallbackCreate: summing param[%d] (%d), toalloc=%d\n", i, params[i].t, toalloc);
-#endif
-
-	}
-
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackCreate: fakeint          is at: 0x%08X\n", &fakeint);
-	printf("(C)CallbackCreate: fakesv           is at: 0x%08X\n", &fakesv);
-	printf("(C)CallbackCreate: CallbackTemplate is at: 0x%08X\n", myCallbackTemplate);
-	printf("(C)CallbackCreate: allocating %d bytes\n", toalloc);
-#endif
-	code = (unsigned char *) malloc(toalloc);
-
-	if(code == NULL) {
-		printf("can't allocate callback code, aborting!\n");
-		return 0;
-	}
-	cursor = code;
-
-	displacement = code - source;
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackCreate: source       = 0x%x\n", source);
-	printf("(C)CallbackCreate: code         = 0x%x\n", code);
-#endif
-
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackCreate: COPYING SECTION section_START (%d bytes)\n", section_START);
-#endif
-	memcpy( (void *) cursor, source, section_START);
-
-	for(i=0; i < section_START; i++) {
-		r = RelocateCode(cursor, displacement);
-		if(r == 7
-		&& *(cursor+3) == 0xDE
-		&& *(cursor+4) == 0xC0
-		&& *(cursor+5) == 0xFF
-		&& *(cursor+6) == 0xFF) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate:     FOUND CODE at 0x%x...\n", cursor+3);
-			printf("(C)CallbackCreate:     callback    = 0x%x\n", callback);
-#endif
-			*((int*)(cursor+3)) = (int) callback;
-
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate:     CODE now is = 0x%x\n", *((int*)(cursor+3)));
-#endif
-		}
-		if(r == 7
-		&& *(cursor+3) == 0x01
-		&& *(cursor+4) == 0x00
-		&& *(cursor+5) == 0xDE
-		&& *(cursor+6) == 0xC0) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate:     FOUND SELF at 0x%08x...\n", cursor+3);
-			printf("(C)CallbackCreate:     self        = 0x%08x\n", self);
-#endif
-			hv_store((HV*) SvRV(self), "selfpos", 7, newSViv((long) cursor+3), 0);
-			*((int*)(cursor+3)) = (int) self;
-
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate:     SELF now is = 0x%08x\n", *((int*)(cursor+3)));
-#endif
-		}
-		if(r == 7
-		&& *(cursor+3) == 0x02
-		&& *(cursor+4) == 0x00
-		&& *(cursor+5) == 0xDE
-		&& *(cursor+6) == 0xC0) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate:     FOUND NPARAMS 0x%08x...\n", cursor+3);
-			printf("(C)CallbackCreate:     NPARAMS     = 0x%08x\n", nparams);
-#endif
-			*((int*)(cursor+3)) = nparams;
-
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate:     NPARAMS now = 0x%08x\n", *((int*)(cursor+3)));
-#endif
-		}
-
-		cursor += r;
-		if(r > 1) i += (r-1);
-	}
-
-	for(j=0; j<nparams; j++) {
-
-		if(params[j].t == T_STRUCTURE) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate: COPYING SECTION section_PUSHS (%d bytes)\n", section_PUSHS);
-#endif
-			memcpy( (void *) cursor, source + checkpoint_PUSHS, section_PUSHS );
-			displacement = cursor - (source + checkpoint_PUSHS);
-
-            cursor = FixupAsmSection(cursor, section_PUSHS, j, displacement, ebpcounter
-#ifdef WIN32_API_DEBUG
-                    ,"SVPV"
-#endif
-                    );
-		}
-
-		if(params[j].t == T_NUMBER) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate: COPYING SECTION section_PUSHI (%d bytes)\n", section_PUSHI);
-#endif
-			memcpy( (void *) cursor, source + checkpoint_PUSHI, section_PUSHI );
-			displacement = cursor - (source + checkpoint_PUSHI);
-
-            cursor = FixupAsmSection(cursor, section_PUSHI, j, displacement, ebpcounter
-#ifdef WIN32_API_DEBUG
-                    ,"SVIV"
-#endif
-                    );
-		}
-
-
-		if(params[j].t == T_POINTER) {
-#ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate: COPYING SECTION section_PUSHP (%d bytes)\n", section_PUSHP);
-#endif
-			memcpy( (void *) cursor, source + checkpoint_PUSHP, section_PUSHP );
-			displacement = cursor - (source + checkpoint_PUSHP);
-
-            cursor = FixupAsmSection(cursor, section_PUSHP, j, displacement, ebpcounter
-#ifdef WIN32_API_DEBUG
-                    ,"SVPV"
-#endif
-                    );
-		}
-
-		ebpcounter += 4;
-	}
-
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackCreate: COPYING SECTION section_END (%d bytes) at 0x%08x\n", section_END, cursor);
-#endif
-	memcpy( (void *) cursor, source + checkpoint_END, section_END );
-
-//fixup the goto END; now that the END section is in place, +1 skip E9
-    *(int *)(code+checkpoint_GOTO_END+1) //rel 32 operand
-    = (cursor + section_END_END_LABEL) //abs ptr jmp target, after 0xC0DE0060 mov checkpoint
-    - (code+checkpoint_GOTO_END+1+4); //next instruction after the JMP rel32
+#if defined(USE_ITHREADS)
+//Code here to make a inter thread refcount to deal with ithreads cloning
+//to prevent a double free
     
-	displacement = cursor - (source + checkpoint_END);
-
-	for(i=0; i < section_END; i++) {
-		r = RelocateCode(cursor, displacement);
-		cursor += r;
-		if(r > 1) i += (r-1);
-	}
-
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackCreate: adjusting callback epilogue...\n");
-#endif
-
-	// #### back up the cursor to two bytes for (leave/ret)
-    // or 4 bytes for mov/pop/ret
-	cursor -= epilog_back_up;
-
-	// #### insert the callback epilogue
-	*(cursor+0) = 0x8B; // mov esp,ebp
-	*(cursor+1) = 0xE5;
-	*(cursor+2) = 0x5D; // pop ebp
-	*(cursor+3) = 0xC2; // ret + 2 bytes
-	*(cursor+4) = ebpcounter - 8;
-	*(cursor+5) = 0x00;
-
-#ifdef WIN32_API_DEBUG
-	printf("(C)CallbackCreate: DONE!\n");
-#endif
-
-	return code;
+int HeapBlockMgDup(pTHX_ MAGIC *mg, CLONE_PARAMS *param) {
+    InterlockedIncrement((LONG *)mg->mg_ptr);
+    return 1;
 }
-
+const static struct mgvtbl vtbl_HeapBlock = {
+    NULL, NULL, NULL, NULL, NULL, NULL, HeapBlockMgDup, NULL, 
+};
+#endif
 
 MODULE = Win32::API::Callback   PACKAGE = Win32::API::Callback
 
 PROTOTYPES: DISABLE
 
-unsigned int
-CallbackCreate(self)
-	SV* self
+BOOT:
+{
+    SV * PtrHolder = get_sv("Win32::API::Callback::Stage2FuncPtrPkd", 1);
+#ifdef _WIN64
+    void * p = (void *)Stage2CallbackX64;
+#else
+    void * p = (void *)PerlCallback;
+#endif
+    HV *stash;
+    sv_setpvn(PtrHolder, (char *)&p, sizeof(void *)); //gen a packed value
+    stash = gv_stashpv("Win32::API::Callback", TRUE);
+#ifdef _WIN64
+    newCONSTSUB(stash, "CONTEXT_XMM0", newSViv(offsetof(struct  _CONTEXT, Xmm0)));
+    newCONSTSUB(stash, "CONTEXT_RAX", newSViv(offsetof(struct  _CONTEXT, Rax)));
+#endif
+}
+
+void
+PackedRVTarget(sv)
+    SV * sv
+PPCODE:
+    mPUSHs(newSVpvn((char*)&(SvRV(sv)), sizeof(SV *)));
+
+# MakeParamArr is written without null checks or lvalue=true since
+# the chance of crashing is zero unless someone messed with the PM file and
+# broke it, this isn't a public sub, putting in null checking
+# and croaking if null is a waste of resources, if someone is
+# modifying ::Callback, the crash will
+# alert them to their errors similar to an assert(), but without the cost of
+# asserts or lack of them in non-debugging builds
+#
+# all parts of MakeParamArr must be croak safe, all SVs must be mortal where
+# appropriate, the type letters are from the user, they are not sanitized,
+# so group upper and lower together where 1 of the letters is meaningless
+#
+# arr is emptied out of elements/cleared/destroyed by this sub, so Dumper() it
+# before this is called for debugging if you want but not after calling this
+void
+MakeParamArr( self, arr)
+    HV * self
+    AV * arr
 PREINIT:
-    APIPARAM *params;
-    HV*		obj;
-    SV**	obj_sub;
-    SV*		sub;
-    SV**	obj_in;
-    SV**	obj_out;
-    SV**	in_type;
-    AV*		inlist;
-    int nin, tout, i;
-CODE:
-#ifdef WIN32_API_DEBUG
-	printf("(XS)CallbackCreate: got self='%s'\n", SvPV_nolen(self));
-	printf("(XS)CallbackCreate: self dump:\n");
-	sv_dump(self);
-	if(SvROK(self)) sv_dump(SvRV(self));
+    AV * retarr = (AV*)sv_2mortal((SV*)newAV()); //croak possible
+    int iTypes;
+    AV * Types;
+    I32 lenTypes;
+PPCODE:
+    //intypes array ref is always created in PM file
+    Types = (AV*)SvRV(*hv_fetch(self, "intypes", sizeof("intypes")-1, 0));
+    lenTypes = av_len(Types)+1;
+    for(iTypes=0;iTypes < lenTypes;iTypes++){
+        SV * typeSV = *av_fetch(Types, iTypes, 0);
+        char type = *SvPVX(typeSV);
+//both are never used on 64 bits
+#if IVSIZE == 4
+#define MK_PARAM_OP_8B 0x1
+#define MK_PARAM_OP_32BIT_QUAD 0x2
 #endif
-    obj = (HV*) SvRV(self);
-    obj_in = hv_fetch(obj, "in", 2, FALSE);
-    obj_out = hv_fetch(obj, "out", 3, FALSE);
-    inlist = (AV*) SvRV(*obj_in);
-    nin  = av_len(inlist);
-#ifdef WIN32_API_DEBUG
-	printf("(XS)CallbackCreate: nin=%d\n", nin);
+        char op = 0;
+        SV * packedParamSV;
+        char * packedParam;
+        SV * unpackedParamSV;
+        switch(type){
+        case 's':
+        case 'S':
+            croak("Win32::API::Callback::MakeParamArr type letter \"S\" and"
+                  " struct support not implemented");
+            //in Perl this would be #push(@arr, MakeStruct($self, $i, $packedparam));
+            //but ::Callback doesn't have C prototype type parsing
+            //intypes arr is letters not C types
+            break;
+        case 'I': //type is already the correct unpack letter
+        case 'i':
+            break;
+        case 'F':
+            type = 'f';
+        case 'f':
+            break;
+        case 'D':
+            type = 'd';
+        case 'd':
+#if IVSIZE == 4
+                op = MK_PARAM_OP_8B;
 #endif
-    tout = SvIV(*obj_out);
-#ifdef WIN32_API_DEBUG
-	printf("(XS)CallbackCreate: tout=%d\n", tout);
+            break;
+        case 'N':
+        case 'L':
+#if IVSIZE == 8
+        case 'Q':
 #endif
-	obj_sub = hv_fetch(obj, "sub", 3, FALSE);
-	sub = *obj_sub;
-#ifdef WIN32_API_DEBUG
-	printf("(XS)CallbackCreate: self.sub='%s'\n", SvPV_nolen(sub));
-	printf("(XS)CallbackCreate: self.sub dump:\n");
-	sv_dump(sub);
-	if(SvROK(sub)) sv_dump(SvRV(sub));
+            type = 'J';
+            break;
+        case 'n':
+        case 'l':
+#if IVSIZE == 8
+        case 'q':
 #endif
-    EXTEND(SP, 1);
-    if(nin >= 0) {
-        params = (APIPARAM *) _alloca((nin+1) * sizeof(APIPARAM));
-        for(i = 0; i <= nin; i++) {
-            in_type = av_fetch(inlist, i, 0);
-            params[i].t = SvIV(*in_type);
-            // params[i].t = T_NUMBER;
+            type = 'j';
+            break;
+#if IVSIZE == 4
+        case 'q':
+        case 'Q':
+            op = MK_PARAM_OP_32BIT_QUAD | MK_PARAM_OP_8B;
+            break;
+#endif
+        case 'P': //p/P are not documented and not implemented as a Callback ->
+            type = 'p'; //return type, as "in" type probably works but this is 
+        case 'p': //untested
+            break;
+        default:
+            croak("Win32::API::Callback::MakeParamArr "
+                  "\"in\" parameter %d type letter \"%c\" is unknown", iTypes+1, type);
         }
-	}
-	RETVAL = (unsigned int) CallbackCreate(nin+1, params, self, sub);
-#ifdef WIN32_API_DEBUG
-	printf("(XS)CallbackCreate: got RETVAL=0x%08x\n", RETVAL);
-	printf("(XS)CallbackCreate: returning to caller\n");
+        
+        packedParamSV = sv_2mortal(av_shift(arr));
+#if IVSIZE == 4
+        if(op & MK_PARAM_OP_8B)
+            sv_catsv_nomg(packedParamSV, sv_2mortal(av_shift(arr)));
+        if((op & MK_PARAM_OP_32BIT_QUAD) == 0){
 #endif
-OUTPUT:
-	RETVAL
+        packedParam = SvPVX(packedParamSV);
+        if(type == 'p'){ //test if acc vio before a null is found, ret undef then
+            if(IsBadStringPtr(packedParam, ~0)){
+                unpackedParamSV = &PL_sv_undef;
+            }
+            else{
+                unpackedParamSV = newSVpv(packedParam, 0);
+            }
+            goto HAVEUNPACKED;
+        }
+        PUTBACK;    
+        unpackstring(&type, &type+1, packedParam, packedParam+SvCUR(packedParamSV), 0);
+        SPAGAIN;
+        unpackedParamSV = POPs;
+#if IVSIZE == 4
+        }
+        else{//have MK_PARAM_OP_32BIT_QUAD
+            SV ** tmpsv = hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
+            if(tmpsv && sv_true(*tmpsv)){
+                ENTER;
+                PUSHMARK(SP); //stack extend not needed since we got 2 params
+                //on the stack already from caller, so stack minimum 2 long
+                PUSHs(packedParamSV); //currently mortal
+                PUTBACK; //don't check return count, assume its 1
+                call_pv(type == 'Q' ? "Math::Int64::native_to_uint64":
+                        "Math::Int64::native_to_int64", G_SCALAR);
+                SPAGAIN;
+                unpackedParamSV = POPs; //this is also mortal
+                LEAVE;
+            }
+            else{//pass through the 8 byte packed string
+                unpackedParamSV = packedParamSV;
+            }
+        }
+#endif
+        SvREFCNT_inc_simple_NN(unpackedParamSV);//cancel the mortal
+        HAVEUNPACKED: //used by 'p'/'P' for returning undef or a SVPV
+        av_push(retarr, unpackedParamSV);
+    }
+    mPUSHs(newRV_inc((SV*)retarr)); //cancel the mortal, no X needed, 2 in params
+#if IVSIZE == 4
+#undef MK_PARAM_OP_8B
+#undef MK_PARAM_OP_32BIT_QUAD
+#endif
 
+MODULE = Win32::API::Callback   PACKAGE = Win32::API::Callback::HeapBlock
 
 void
-PushSelf(self)
-	SV* self
+new(classSV, size)
+    SV * classSV
+    UV size
 PREINIT:
-	HV*		obj;
-	SV**	obj_selfpos;
-CODE:
-#ifdef WIN32_API_DEBUG
-	printf("(XS)PushSelf: got self='%s' (SV=0x%08x)\n", SvPV_nolen(self), self);
+    SV * newSVUVVar;
+    char * block;
+#if defined(USE_ITHREADS)
+    MAGIC * mg;
+    int alignRemainder;
 #endif
-	obj = (HV*) SvRV(self);
-	obj_selfpos = hv_fetch(obj, "selfpos", 7, FALSE);
-	if(obj_selfpos != NULL) {
-#ifdef WIN32_API_DEBUG
-		printf("(XS)PushSelf: obj_selfpos=0x%08x\n", SvIV(*obj_selfpos));
+PPCODE:
+    //Code here to make a inter thread refcount to deal with ithreads cloning
+    //to prevent a double free
+#if defined(USE_ITHREADS)
+    alignRemainder = (size % sizeof(LONG)); //4%4 = 0, we are aligned
+    size += sizeof(LONG) + (alignRemainder ? sizeof(LONG)-alignRemainder : 0);
 #endif
-		*((int*)SvIV(*obj_selfpos)) = (int) self;
-	}
+    block = HeapAlloc(execHeap, 0, size);
+    newSVUVVar = newSVuv((UV)block);
+#if defined(USE_ITHREADS)
+    mg = sv_magicext(newSVUVVar, NULL, PERL_MAGIC_ext,&vtbl_HeapBlock,NULL,0);
+    mg->mg_flags |= MGf_DUP;
+    mg->mg_ptr = block+size-sizeof(LONG);
+    *((LONG *)mg->mg_ptr) = 1; //initial reference count
+#endif
+    mXPUSHs(sv_bless(newRV_noinc(newSVUVVar),
+                    gv_stashsv(classSV,0)
+                    )
+           );
 
 void
-DESTROY(self)
-	SV* self
+DESTROY( ptr_obj )
+    SV * ptr_obj
 PREINIT:
-    HV*		obj;
-    SV**	obj_code;
-CODE:
-	obj = (HV*) SvRV(self);
-	obj_code = hv_fetch(obj, "code", 4, FALSE);
-	if(obj_code != NULL) free((unsigned char *) SvIV(*obj_code));
+    SV * SVUVVar;
+#if defined(USE_ITHREADS)
+    LONG refcnt;
+    MAGIC * mg;
+#endif
+PPCODE:
+    //Code here to make a inter thread refcount to deal with ithreads cloning
+    //to prevent a double free
+    SVUVVar = SvRV(ptr_obj);
+    #if defined(USE_ITHREADS)
+    mg = mg_findext(SVUVVar, PERL_MAGIC_ext,&vtbl_HeapBlock);    
+    refcnt = InterlockedDecrement((LONG *) mg->mg_ptr);
+    if(refcnt == 0 ){ //if -1 or -2, means another thread will free it
+    #endif
+    HeapFree(execHeap, 0, (LPVOID)SvUV(SVUVVar));
+    #if defined(USE_ITHREADS)
+    }
+    #endif

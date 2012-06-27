@@ -91,6 +91,11 @@ API_TEST_API int __stdcall sum_integers_ref(int a, int b, int *c) {
 	return 1;
 }
 
+API_TEST_API LONG64 __stdcall sum_quads_ref(LONG64 a, LONG64 b, LONG64 * c) {
+	*c = a + b;
+	return *c;
+}
+
 API_TEST_API double __stdcall sum_doubles(double a, double b) {
 	return a + b;
 }
@@ -223,6 +228,13 @@ API_TEST_API float __stdcall do_callback_void_f(callback_func_void_f function) {
 	return r;
 }
 
+API_TEST_API unsigned __int64 __stdcall do_callback_void_q(callback_func_void_q function) {
+	unsigned __int64 r;
+    r = function();
+	printf("do_callback_void_q: returning sgnd %I64d unsgnd %I64u\n", r, r); 
+	return r;
+}
+
 API_TEST_API BOOL __stdcall GetHandle(LPHANDLE pHandle) {
 	if(!IsBadReadPtr(pHandle, sizeof(*pHandle))){
         *pHandle =  (HANDLE)4000;
@@ -238,6 +250,35 @@ API_TEST_API BOOL __stdcall FreeHandle(HANDLE Handle) {
     else return FALSE;
 }
 
+API_TEST_API void * __stdcall Take41Params(
+    void * p0, void * p1, void * p2, void * p3,
+    void * p4, void * p5, void * p6, void * p7,
+    void * p8, void * p9, void * p10, void * p11,
+    void * p12, void * p13, void * p14, void * p15,
+    void * p16, void * p17, void * p18, void * p19,
+    void * p20, void * p21, void * p22, void * p23,
+    void * p24, void * p25, void * p26, void * p27,
+    void * p28, void * p29, void * p30, void * p31,
+    void * p32, void * p33, void * p34, void * p35,
+    void * p36, void * p37, void * p38, void * p39,
+    void * p40) {
+    if (
+   p0 != (void *)0 || p1 != (void *)1   || p2 != (void *)2   || p3 != (void *)3   || p4 != (void *)4
+   || p5 != (void *)5   || p6 != (void *)6   || p7 != (void *)7   || p8 != (void *)8
+   || p9 != (void *)9   || p10 != (void *)10   || p11 != (void *)11   || p12 != (void *)12
+   || p13 != (void *)13   || p14 != (void *)14   || p15 != (void *)15   || p16 != (void *)16
+   || p17 != (void *)17   || p18 != (void *)18   || p19 != (void *)19   || p20 != (void *)20
+   || p21 != (void *)21   || p22 != (void *)22   || p23 != (void *)23   || p24 != (void *)24
+   || p25 != (void *)25   || p26 != (void *)26   || p27 != (void *)27   || p28 != (void *)28
+   || p29 != (void *)29   || p30 != (void *)30   || p31 != (void *)31   || p32 != (void *)32
+   || p33 != (void *)33   || p34 != (void *)34   || p35 != (void *)35   || p36 != (void *)36
+   || p37 != (void *)37   || p38 != (void *)38   || p39 != (void *)39   || p40 != (void *)40
+    ){
+        printf("One of the 40 In params was bad\n");
+        return *(void **)0;
+    }
+    return (void *)1;
+}
 
 /* cdecl functions */
 API_TEST_API int __cdecl c_sum_integers(int a, int b) {

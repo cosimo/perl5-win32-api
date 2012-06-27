@@ -11,7 +11,7 @@ use strict;
 use File::Spec;
 use Test::More;
 use Encode;
-plan tests => 46;
+plan tests => 47;
 use vars qw($function $result $input $test_dll $ptr);
 
 use_ok('Win32::API');
@@ -31,7 +31,7 @@ diag('API test dll found at (' . $test_dll . ')');
 ok(-e $test_dll, 'found API test dll');
 #$Win32::API::DEBUG = 1;
 
-
+ 
 SKIP: {
 
     # TODO Check if this test still makes sense in 2008
@@ -267,6 +267,14 @@ is($result,$input,'ReadMemory() works');
 $function = new Win32::API($test_dll, 'BOOL __stdcall str_cmp(LPVOID string)');
 is($function->Call("Just another perl hacker"), 1,
    'str_cmp() with LPVOID returns the expected value');
+
+
+#test very high amounts of stack parameters, its intended for x64
+$function = new Win32::API($test_dll, 'Take41Params', 'N' x 41, 'N');
+is($function->Call(0..40), 1, #the C++ func was written using a perl script
+   'Take41Params() returns the expected value');
+
+
 __END__
 #### 12: sum integers and double via _cdecl function
 $function = new Win32::API($test_dll, 'int _cdecl c_call_sum_int(int a, int b)');

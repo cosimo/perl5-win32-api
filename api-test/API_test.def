@@ -11,6 +11,7 @@ EXPORTS
   sum_shorts
   sum_shorts_ref
   sum_char_ref
+  sum_quads_ref
   str_cmp
   wstr_cmp
   buffer_overflow
@@ -23,7 +24,9 @@ EXPORTS
   do_callback_5_param_cdec
   do_callback_void_d
   do_callback_void_f
+  do_callback_void_q
   GetHandle
   GetGetHandle
   FreeHandle
+  Take41Params
   c_sum_integers

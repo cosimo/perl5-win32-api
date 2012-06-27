@@ -1,4 +1,4 @@
-Last updated: 2009/07/25
+Last updated: 2012/06/05
 
 * Review Win32::API::Struct
 
@@ -9,4 +9,46 @@ Last updated: 2009/07/25
 	 and types non aligned to 4 bytes
   4) implement a 64-bit flag, so that all word sizes are automatically
      calculated as 8 bytes instead of hardwiring 4 bytes
+
+
+bulk88's comments
+
+1.  callback's in parameters are similar to api's out parameter and
+    callback's out parameter is similar to api's in parameter, merge them
+2.  vararg prototype processing, whether to supply the stack pointer as an IV
+    or implement a Perl class with c lib va_list API IDK
+3.  Callback.xs needs to be eliminated, its too small to put in its own DLL
+4.  Use Win32's LoadLibrary and FreeLibrary instead of our own to save DLL
+    space?
+5.  APIPARAM needs to be a union
+6.  create 1 time use intra-process DLLs with Callback's function pointers in
+    the DLL export table?
+7.  create standalone DLLs that start a perl interps in the process and have
+    Callback's function pointers in the DLL export table?
+8.  stop using unpackstring in Callback, start using unpackstring in API?
+9. Register user supplied callbacks for type packing/unpacking, probably
+    it should inspect caller() to make sure one packages/module's type callbacks
+    dont collide with the type callbacks of another
+10. Void ** doesn't parse.
+11. Callback needs more logic to be moved from runtime to constructor time.
+    Currently a bad type letter isn't caught until runtime, with
+    a croak/longjmp through the foreign C lib.
+12. Multi OS threading catching stderr message isn't tested properly by
+    the test suite.
+13. Certain calling conventions on certain platforms, pass by copy silently
+    becomes pass by pointer when the struct exceeds a certain size.
+    API/Callback's C parsing don't do this at the moment.
+14. Alot of GV lookups could be cached to their pointers and kept inside
+    START_MY_CXT globals. On clone the pointers can be refreshed from the new
+    interp. I (bulk88) have done this before.
+15. When using hv_fetch and hv_store, a slight performance optimization can
+    be obtained by the char * being passed, being exactly equal to the PV *
+    in the SV thats part of the HEK using the shared string table system,
+    and by precalculating the hash number for that string per interp.
+    I (bulk88) have done this before.
+16. Stop installing Test.pm on users computers, delete existing copies.
+17. If someone asks for fastcall/thiscall on x86, add it.
+18. If someone asks for MSVC C++ name demangling and supplies a patch, add it.
+    No reason other it being extremely extremely difficult that C++ can't be
+    supported.
 

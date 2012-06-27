@@ -37,6 +37,7 @@ typedef int (__stdcall * callback_func)(int);
 
 typedef double (__stdcall * callback_func_void_d)();
 typedef float  (__stdcall * callback_func_void_f)();
+typedef unsigned __int64  (__stdcall * callback_func_void_q)();
 typedef int    (__stdcall * callback_func_5_param)
 (char, unsigned __int64, four_char_struct *, float, double);
 typedef int    (__cdecl   * callback_func_5_param_cdec)

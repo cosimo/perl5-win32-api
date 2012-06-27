@@ -18,16 +18,18 @@ package Win32::API;
 require Exporter;      # to export the constants to the main:: space
 require DynaLoader;    # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
-@EXPORT_OK = qw( ReadMemory IsBadReadPtr IsBadStringPtr MoveMemory
+@EXPORT_OK = qw( ReadMemory IsBadReadPtr MoveMemory
 WriteMemory ); # symbols to export on request
 
 use vars qw( $DEBUG $sentinal );
+use Scalar::Util qw( looks_like_number );
+
 $DEBUG = 0;
 
 BEGIN {
 sub ERROR_NOACCESS () { 998 }
+eval " *Win32::API::Type::IVSIZE = *Win32::API::More::IVSIZE = *IVSIZE = sub  () { ".length(pack('J',0))." }";
 }
-
 
 sub DEBUG {
     if ($Win32::API::DEBUG) {
@@ -45,7 +47,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.69';
+$VERSION = '0.70';
 
 #### some package-global hash to
 #### keep track of the imported
@@ -72,7 +74,7 @@ sub new {
     my $self = {};
     if(! defined $hproc){
         if ($^O eq 'cygwin' and $dll ne File::Basename::basename($dll)) {
-
+    
             # need to convert $dll to win32 path
             # isn't there an API for this?
             my $newdll = `cygpath -w "$dll"`;
@@ -80,7 +82,7 @@ sub new {
             DEBUG "(PM)new: converted '$dll' to\n  '$newdll'\n";
             $dll = $newdll;
         }
-
+    
         #### avoid loading a library more than once
         if (exists($Libraries{$dll})) {
             DEBUG "Win32::API::new: Library '$dll' already loaded, handle=$Libraries{$dll}\n";
@@ -92,7 +94,7 @@ sub new {
             $freedll = 1;
     #        $Libraries{$dll} = $hdll;
         }
-
+    
         #### if the dll can't be loaded, set $! to Win32's GetLastError()
         if (!$hdll) {
             $! = Win32::GetLastError();
@@ -101,7 +103,7 @@ sub new {
         }
     }
     else{
-        if(IsBadReadPtr($hproc, 4)){
+        if(!looks_like_number($hproc) || IsBadReadPtr($hproc, 4)){
             Win32::SetLastError(ERROR_NOACCESS);
             DEBUG "FAILED Function pointer '$hproc' is not a valid memory location\n";
             return undef;
@@ -130,7 +132,7 @@ sub new {
                 push(@{$self->{in}}, $class->type_to_num($_));
             }
         }
-        $self->{out}   = $class->type_to_num($out);
+        $self->{out}   = $class->type_to_num($out, 1);
         $self->{cdecl} = calltype_to_num($callconvention);
     }
 
@@ -142,7 +144,7 @@ sub new {
         if (!$hproc) {
             my $tproc = $proc;
             $tproc .= (IsUnicode() ? "W" : "A");
-
+    
             # print "Win32::API::new: procedure not found, trying '$tproc'...\n";
             $hproc = Win32::API::GetProcAddress($hdll, $tproc);
         }
@@ -243,8 +245,7 @@ sub type_to_num {
         or $type eq 'n'
         or $type eq 'l'
         or $type eq 'L'
-        or $type eq 'Q'
-        or $type eq 'q')
+        or ( IVSIZE == 8  and $type eq 'Q' || $type eq 'q'))
     {
         $num = 1;
     }
@@ -272,6 +273,10 @@ sub type_to_num {
         or $type eq 'C')
     {
         $num = 6;
+    }
+    elsif (IVSIZE == 4 and $type eq 'q' || $type eq 'Q')
+    {
+        $num = 8;
     }
     else {
         $num = 0;
@@ -317,8 +322,7 @@ sub type_to_num {
         or $type eq 'n'
         or $type eq 'l'
         or $type eq 'L'
-        or $type eq 'Q'
-        or $type eq 'q'
+        or ( IVSIZE == 8  and $type eq 'Q' || $type eq 'q')
         or (! $out and  # in XS short 'in's are interger/numbers code
             $type eq 'S'
             || $type eq 's'))
@@ -357,6 +361,13 @@ sub type_to_num {
     {
         $num = 6;
         if(defined $out && $type eq 'C'){
+            $num |= 0x80;
+        }
+    }
+    elsif (IVSIZE == 4 and $type eq 'q' || $type eq 'Q')
+    {
+        $num = 8;
+        if(defined $out && $type eq 'Q'){
             $num |= 0x80;
         }
     }
@@ -414,7 +425,7 @@ sub parse_prototype {
 
         DEBUG "(PM)parse_prototype: got PROC '%s'\n",   $proc;
         DEBUG "(PM)parse_prototype: got PARAMS '%s'\n", $params;
-
+        
         foreach my $param (split(/\s*,\s*/, $params)) {
             my ($type, $name);
             #match "in_t* _var" "in_t * _var" "in_t *_var" "in_t _var" "in_t*_var" supported
@@ -518,9 +529,9 @@ Win32::API - Perl Win32 API Import Facility
       'mydll', 'int sum_integers(int a, int b)',
   );
   $return = $function->Call(3, 2);
-  
+
   #### Method 2: with prototype and your function pointer
-  
+
   use Win32::API;
   $function = Win32::API::More->new(
       undef, 38123456, 'int name_ignored(int a, int b)',
@@ -534,7 +545,7 @@ Win32::API - Perl Win32 API Import Facility
       'mydll', 'sum_integers', 'II', 'I',
   );
   $return = $function->Call(3, 2);
-  
+     
   #### Method 4: with parameter list and your function pointer
   
   use Win32::API;
@@ -619,10 +630,10 @@ can check the content of C<$^E>).
 
 =head2 IMPORTING A FUNCTION
 
-You can import a function from a 32 bit Dynamic Link Library (DLL) file 
-with the C<new()> function or, starting in 0.69, supply your own
-function pointer. This will create a Perl object that contains
-the reference to that function, which you can later C<Call()>.
+You can import a function from a 32 bit Dynamic Link Library (DLL) file with
+the C<new()> function or, starting in 0.69, supply your own function pointer.
+This will create a Perl object that contains the reference to that function,
+which you can later C<Call()>.
 
 What you need to know is the prototype of the function you're going to import
 (eg. the definition of the function expressed in C syntax).
@@ -753,7 +764,7 @@ mean supplying undef.
 
 Now for the real second parameter: the name of the function.
 It must be written exactly as it is exported 
-by the library (case is significant here). 
+by the library (case is significant here).
 If you are using Windows 95 or NT 4.0, you can use the B<Quick View> 
 command on the DLL file to see the function it exports. 
 Remember that you can only import functions from 32 bit DLLs:
@@ -814,6 +825,22 @@ value is a unsigned pointer sized number (unsigned long)
 =item C<n>: 
 value is a signed pointer sized number (signed long or long)
 
+=item C<Q>: 
+value is a unsigned 64 bit integer number (unsigned long long, unsigned __int64)
+See next item for details.
+
+=item C<q>: 
+value is a signed 64 bit integer number (long long, __int64)
+If your perl has 'Q'/'q' quads support for L<perlfunc/pack> then Win32::API's 'q'
+is a normal perl numeric scalar. All 64 bit Perls have quad support. Almost no
+32 bit Perls have quad support. On 32 bit Perls, without quad support,
+Win32::API's 'q'/'Q' letter is a packed 8 byte string. So C<0x8000000050000000>
+from a perl with native Quad support would be written as
+C<"\x00\x00\x00\x50\x00\x00\x00\x80"> on a 32 bit Perl without Quad support.
+To improve the use of 64 bit integers with Win32::API on a 32 bit Perl without
+Quad support, there is a per Win32::API object setting called L</UseMI64>
+that causes all quads to be accepted as, and returned as L<Math::Int64> objects.
+
 =item C<F>: 
 value is a floating point number (float)
 
@@ -827,7 +854,7 @@ value is a unsigned short (unsigned short)
 value is a signed short (signed short or short)
 
 =item C<C>: 
-value is a char (char), pass as C<"a>", not C<97>, C<"abc"> will truncate to C<"a">
+value is a char (char), pass as C<"a">, not C<97>, C<"abc"> will truncate to C<"a">
 
 =item C<P>: 
 value is a pointer (to a string, structure, etc...)
@@ -844,6 +871,23 @@ value is a Win32::API::Struct object (see below)
 value is a Win32::API::Callback object (see L<Win32::API::Callback>)
 
 =back
+
+For beginners, just skip this paragraph.
+Note, all parameter types are little endian. This is probably what you want
+unless the documentation for the C function you are calling explictly says
+the parameters must be big endian. If there is no documentation for your C
+function or no mention of endianess in the doucmentation, this doesn't apply
+to you and skip the rest of this paragraph. There is no inherant support
+for big endian parameters. Perl's scalar numbers model is that numeric
+scalars are effectivly opaque and their machine representation is
+irrelavent. On Windows Perl, scalar numbers are little endian
+internally. So C<$number = 5; print "$number";> will put 5 on the screen.
+C<$number> given to Win32::API will pass little endian integer 5 to the C
+function call. This is almost surly what you want. If you really must pass
+a big endian integer, do C<$number = unpack('L', pack('N', 5));>, then
+C<print "$number";> will put 83886080 on the screen, but this is big endian 5,
+and passing 83886080 to C<-E<gt>Call()> will make sure that that
+the C function is getting big endian 5. See L<perlpacktut> for more.
 
 Our function needs two parameters: a number (C<DWORD>) and a pointer to a 
 string (C<LPSTR>):
@@ -982,13 +1026,13 @@ you can still use the low-level approach to use structures:
 
 =item 1.
 
-you have to pack() the required elements in a variable:
+you have to L<pack()|perlfunc/pack> the required elements in a variable:
 
     $lpPoint = pack('ll', 0, 0); # store two LONGs
 
 =item 2.
 
-to access the values stored in a structure, unpack() it as required:
+to access the values stored in a structure, L<unpack()|perlfunc/unpack> it as required:
 
     ($x, $y) = unpack(';;', $lpPoint); # get the actual values
 
@@ -1038,6 +1082,27 @@ or remove it once your code is stable. C<$ptr> is in the format of 123456,
 not C<"\x01\x02\x03\x04">. See MS's documentation for alot more
 on this function of the same name.
 
+=head2 METHODS
+
+=head3 Call
+
+The main method of a Win32::API object. Documented elsewhere in this document.
+
+=head3 UseMI64
+
+    $bool = $APIObj->UseMI64();
+    $t_or_f_of_newbool = $APIObj->UseMI64($newbool);
+
+Turns on Quads as L<Math::Int64> objects support for a particular object
+instance. You must call L<perlfunc/use>/L<perlfunc/require> on Math::Int64
+before calling UseMI64. Win32::API does not C<use> Math::Int64 for you.
+Works on Win32::API and Win32::API::Callback objects. This method
+does not exist if your Perl natively supports Quads (64 bit Perl for example).
+Takes 1 optional parameter, which is a true or false value to use or don't use
+Math::Int64, returns the new setting, which is a true or false value. If called
+without any parameters, returns current setting, which is a true or false value,
+without setting the option. As discussed in L<q>, if your not using Math::Int64
+you must supply/will receive 8 byte scalar strings for quads.
 
 =head1 HISTORY
 
@@ -1072,9 +1137,33 @@ Starting with 0.69, when using Win32::API::More, there is automatic un/packing
 of pointers to numbers-ish things for in parameters when using the C
 prototype interface.
 
+=item Quads on 32 bit
+
+Added in 0.70.
+
 =back
 
-See the C<Changes> file for more details.
+See the C<Changes> file for more details, many of which not mentioned here.
+
+=head1 BUGS AND LIMITATIONS
+
+=over 4
+
+=item E<nbsp> 32 bit perls with native quads
+
+Untested.
+
+=item E<nbsp> ithreads/fork/cloning
+
+Untested.
+
+=back
+
+=head1 SEE ALSO
+
+L<Math::Int64>
+
+L<http://homepage.ntlworld.com/jonathan.deboynepollard/FGA/function-calling-conventions.html>
 
 =head1 AUTHOR
 

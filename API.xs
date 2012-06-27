@@ -2,6 +2,7 @@
     # Win32::API - Perl Win32 API Import Facility
     #
     # Author: Aldo Calpini <dada@perl.it>
+    # Author: Daniel Dragan <bulk88@hotmail.com>
     # Maintainer: Cosimo Streppone <cosimo@cpan.org>
     #
     # $Id$
@@ -51,15 +52,7 @@
 #error "Don't know what architecture I'm on."
 #endif
 
-#ifndef mPUSHs
-#  define mPUSHs(s)                      PUSHs(sv_2mortal(s))
-#endif
-
-#ifndef mXPUSHs
-#  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
-#endif
-
-void pointerCallPack(pTHX_ SV * obj, SV * param, SV * type) {
+void pointerCallUnpackOrPack(pTHX_ SV * obj, SV * param, SV * type, BOOL unpack) {
 	dSP;
 	ENTER;
 	PUSHMARK(SP);
@@ -68,21 +61,8 @@ void pointerCallPack(pTHX_ SV * obj, SV * param, SV * type) {
     PUSHs(type);
 	PUSHs(param);
 	PUTBACK;
-	call_pv("Win32::API::Type::Pack", G_VOID);
-	LEAVE;
-}
-
-
-void pointerCallUnpack(pTHX_ SV * obj, SV * param, SV * type) {
-	dSP;
-	ENTER;
-	PUSHMARK(SP);
-    EXTEND(SP, 3);
-    PUSHs(obj);
-    PUSHs(type);
-	PUSHs(param);
-	PUTBACK;
-	call_pv("Win32::API::Type::Unpack", G_VOID);
+	call_pv(unpack ? "Win32::API::Type::Unpack"
+            :"Win32::API::Type::Pack", G_VOID);
 	LEAVE;
 }
 
@@ -111,7 +91,7 @@ BOOT:
     DUMPMEM(double,d);
     printf("(XS)Win32::API::boot: APIPARAM total size=%u\n", sizeof(APIPARAM));
 #undef DUMPMEM
-#endif
+#endif	
     //this is not secure against malicious overruns
     //QPC doesn't like unaligned pointers
     if(!QueryPerformanceCounter(&counter))
@@ -123,6 +103,32 @@ BOOT:
     sv_setpvn(sentinal, (char*)&sentinal_struct, sizeof(sentinal_struct));
 }
 
+#if IVSIZE == 4
+
+void
+UseMI64(...)
+PREINIT:
+    SV * flag;
+    HV * self;
+PPCODE:
+    if (items < 1 || items > 2)
+       croak_xs_usage(cv,  "self [, FlagBool]");
+    self = (HV*)ST(0);
+	if (!(SvROK((SV*)self) && ((self = (HV*)SvRV((SV*)self)), SvTYPE((SV*)self) == SVt_PVHV)))
+        Perl_croak(aTHX_ "%s: %s is not a hash reference",
+			"Win32::API::UseMI64",
+			"self");
+    if(items == 2){
+        flag = boolSV(sv_true(ST(1)));
+        hv_store(self, "UseMI64", sizeof("UseMI64")-1, flag, 0);
+    }
+    else{ //dont create one if doesn't exist
+        flag = (SV *)hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
+        if(flag) flag = *(SV **)flag;
+    }
+    PUSHs(boolSV(sv_true(flag))); //flag might be NULL
+
+#endif
 
 HINSTANCE
 LoadLibrary(name)
@@ -236,6 +242,8 @@ PPCODE:
     XST_mPV(0, (char *) SvIV(ST(0)));
     XSRETURN(1);
 
+# IsBadStringPtr is not public API of Win32::API
+
 void
 IsBadReadPtr(addr, len)
     long_ptr addr
@@ -324,10 +332,10 @@ PPCODE:
 
     int nin, tout, i;
     long_ptr tin;
-    int words_pushed;
     BOOL c_call;
 	BOOL has_proto = FALSE;
     UCHAR is_more = sv_isa(api, "Win32::API::More");
+    UCHAR UseMI64;
     SV * sentinal = get_sv("Win32::API::sentinal", 0);
     obj = (HV*) SvRV(api);
     obj_proc = hv_fetch(obj, "proc", 4, FALSE);
@@ -335,7 +343,10 @@ PPCODE:
     ApiFunction = (FARPROC) SvIV(*obj_proc);
 
     obj_proto = hv_fetch(obj, "proto", 5, FALSE);
-
+    {SV ** tmpsv = hv_fetch(obj, "UseMI64", sizeof("UseMI64")-1, 0);
+    if(tmpsv && sv_true(*tmpsv)){UseMI64 = 1;}
+    else{UseMI64 = 0;}
+    }
     if(obj_proto != NULL && SvIV(*obj_proto)) {
 		has_proto = TRUE;
 		obj_intypes = hv_fetch(obj, "intypes", 7, FALSE);
@@ -385,6 +396,31 @@ PPCODE:
 				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%ld\n", i, params[i].t, params[i].l);
 #endif
                 break;
+#ifdef T_QUAD
+            case T_QUAD:{
+                __int64 * pI64;
+                if(UseMI64){
+                    ENTER; //behaviour is undefined
+                    PUSHMARK(SP); //stack extend not needed since we got 1 params
+                    //on the stack already from caller, so stack minimum 1 long
+                    PUSHs(pl_stack_param); //currently mortal
+                    PUTBACK; //don't check return count, assume its 1
+                    call_pv("Math::Int64::int64_to_native", G_SCALAR);
+                    SPAGAIN;//un/signed irrelavent
+                    pl_stack_param = POPs; //this is also mortal
+                    LEAVE;
+                }
+                pI64 = (__int64 *) SvPV_nolen(pl_stack_param);
+                if(SvCUR(pl_stack_param) != 8)
+                croak("Win32::API::Call: parameter %d is a 64 bit integer, "
+                      "it must be a packed 8 bytes long string, (Math::Int64 broken?)", i+1);
+                params[i].t = T_QUAD;
+				params[i].q = *pI64;
+#ifdef WIN32_API_DEBUG
+				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%I64d\n", i, params[i].t, params[i].q);
+#endif
+                }break;
+#endif
             case T_CHAR:
                 params[i].t = T_CHAR;
                 //ASM x64 vs i686 is messy, both must fill
@@ -426,7 +462,7 @@ PPCODE:
                 if(has_proto) {
                     if(SvOK(pl_stack_param)) {
                         if(is_more) {
-                            pointerCallPack(aTHX_ api, pl_stack_param, *av_fetch(intypes, i, 0));
+                            pointerCallUnpackOrPack(aTHX_ api, pl_stack_param, *av_fetch(intypes, i, 0), FALSE);
                         }
                         goto PTR_IN_USE_PV;
                     /* When arg is undef, use NULL pointer */
@@ -568,23 +604,6 @@ PPCODE:
                 printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%s (0x%08x)\n", i, params[i].t, params[i].p, params[i].p);
 #endif
 			}
-
-			if(params[i].t == T_CODE) {
-				int count;
-
-				ENTER;
-				SAVETMPS;
-				PUSHMARK(SP);
-				XPUSHs(origST[i]);
-				PUTBACK;
-				count = call_method("PushSelf", G_DISCARD);
-				PUTBACK;
-				FREETMPS;
-				LEAVE;
-#ifdef WIN32_API_DEBUG
-				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=0x%x\n", i, params[i].t, params[i].l);
-#endif
-			}
 		}
     }
 
@@ -607,7 +626,7 @@ PPCODE:
                 SvCUR_set(origST[i], SvCUR(origST[i])-sizeof(SENTINAL_STRUCT));
             }
             if(has_proto && is_more) {
-                pointerCallUnpack(aTHX_ api, origST[i], *av_fetch(intypes, i, 0));
+                pointerCallUnpackOrPack(aTHX_ api, origST[i], *av_fetch(intypes, i, 0), TRUE);
             }
 		}
 		if(params[i].t == T_STRUCTURE) {
@@ -668,6 +687,27 @@ PPCODE:
 #endif
         retsv = newSVuv((UV)(unsigned short)retval.l);
         break;
+#ifdef T_QUAD
+    case T_QUAD:
+    case (T_QUAD|T_FLAG_UNSIGNED):
+#ifdef WIN32_API_DEBUG
+	   	printf("(XS)Win32::API::Call: returning %I64d.\n", retval.q);
+#endif
+        retsv = newSVpvn((char *)&retval.q, sizeof(retval.q));
+        if(UseMI64){
+            ENTER;
+            PUSHMARK(SP);
+            mXPUSHs(retsv);
+            PUTBACK; //don't check return count, assume its 1
+            call_pv(tout & T_FLAG_UNSIGNED ? 
+            "Math::Int64::native_to_uint64" : "Math::Int64::native_to_int64", G_SCALAR);
+            SPAGAIN;
+            retsv = POPs; //8 byte str PV was already mortaled
+            SvREFCNT_inc_simple_void_NN(retsv); //cancel the mortal, will be remortaled later
+            LEAVE;
+        }
+        break;
+#endif
     case T_FLOAT:
 #ifdef WIN32_API_DEBUG
 	   	printf("(XS)Win32::API::Call: returning %f.\n", retval.f);

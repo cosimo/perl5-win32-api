@@ -34,6 +34,9 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
     ApiDouble   *ApiFunctionDouble;
     ApiVoid     *ApiFunctionVoid;
     ApiInteger  *ApiFunctionInteger;
+#ifdef T_QUAD
+    ApiQuad     *ApiFunctionQuad;
+#endif
 
     /* int    iParam; */
     long   lParam;
@@ -42,12 +45,14 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
     /* char   cParam; */
     char  *pParam;
     LPBYTE ppParam;
-
+#ifdef T_QUAD
+    __int64 qParam;
+#endif
 	char *pReturn;
 
 	int words_pushed;
 	int i;
-
+	
 	/* #### PUSH THE PARAMETER ON THE (ASSEMBLER) STACK #### */
 	words_pushed = 0;
 	for(i = nparams-1; i >= 0; i--) {
@@ -114,6 +119,28 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 			words_pushed++;
 			words_pushed++;
 			break;
+#ifdef T_QUAD
+		case T_QUAD:
+			qParam = params[i].q;
+#ifdef WIN32_API_DEBUG
+			printf("(XS)Win32::API::Call: parameter %d (Q) is %I64d\n", i, qParam);
+#endif
+#if (defined(_MSC_VER) || defined(BORLANDC))
+			__asm {
+				mov   eax, dword ptr [qParam + 4]  ;
+				push  eax                          ;
+				mov   eax, dword ptr [qParam]      ;
+				push  eax                          ;
+			};
+#elif (defined(__GNUC__))
+	/* probably uglier than necessary, but works */
+	asm ("pushl %0":: "g" (((unsigned int*)&qParam)[1]));
+	asm ("pushl %0":: "g" (((unsigned int*)&qParam)[0]));
+#endif
+			words_pushed++;
+			words_pushed++;
+			break;
+#endif
 		case T_CODE:
 			lParam = params[i].l;
 #ifdef WIN32_API_DEBUG
@@ -199,13 +226,28 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
     	printf("(XS)Win32::API::Call: ApiFunctionInteger returned %d\n", retval->l);
 #endif
         break;
+#ifdef T_QUAD
+    case T_QUAD:
+    case (T_QUAD|T_FLAG_UNSIGNED):
+        ApiFunctionQuad = (ApiQuad *) ApiFunction;
+#ifdef WIN32_API_DEBUG
+    	printf("(XS)Win32::API::Call: Calling ApiFunctionQuad()\n");
+#endif
+        retval->q = ApiFunctionQuad();
+#ifdef WIN32_API_DEBUG
+        printf("(XS)Win32::API::Call: ApiFunctionQuad returned %I64d\n", retval->q);
+#endif
+        break;
+#endif
     case T_VOID:
-    default:
 #ifdef WIN32_API_DEBUG
     	printf("(XS)Win32::API::Call: Calling ApiFunctionVoid() (tout=%d)\n", retval->t);
 #endif
         ApiFunctionVoid = (ApiVoid *) ApiFunction;
         ApiFunctionVoid();
+        break;
+    default:
+        croak("Win32::API::Call: unknown out type");
         break;
     }
 

@@ -12,9 +12,6 @@ Call_x64_real:
 	movq    %r8,32(%rbp)	# float_registers
 	movq    %r9,40(%rbp)	# stack
 
-	# Save regs we are gonna use
-	pushq	%rsi
-	pushq	%r10
 
 	# Load up integer registers first... 
 	movq    24(%rbp),%rax	# rax = int_registers
@@ -31,7 +28,7 @@ Call_x64_real:
 	movsd	24(%rax),%xmm3
 
 	# Now the stack 
-	movq	40(%rbp),%rsi	# rsi = stack
+	movq	40(%rbp),%r11	# r11 = stack
 	movq	48(%rbp),%rax	# rax = nstack
 
 	# Except not if there isn't any 
@@ -40,7 +37,7 @@ Call_x64_real:
 
 copystack:
 	subq	$1,%rax
-	movq	(%rsi,%rax,8),%r10
+	movq	(%r11,%rax,8),%r10
 	pushq	%r10
 	testq	%rax,%rax
 	jne	copystack
@@ -58,9 +55,6 @@ docall:
 	movq	64(%rbp),%r10	# r10 = dret
 	movsd	%xmm0,(%r10)
  
-	# Restore regs
-	popq	%r10
-	popq	%rsi
 	
 	movq	%rbp,%rsp
 	popq	%rbp

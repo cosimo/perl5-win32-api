@@ -13,12 +13,10 @@ use Config;
 my $is_64bit_build = ($Config{ptrsize} == 8);
 my $is_msvc_compiler = ($Config{cc} =~ /cl/);
 
-# Don't build the Callback module by default
-# on 64 bit architectures, since it's known to fail
-my $build_callback = $is_64bit_build ? 0 : 1;
 
 use ExtUtils::MakeMaker;
 WriteMakefile1(
+    PL_FILES => {},
     LICENSE => 'perl',
     META_MERGE => {
         resources => {
@@ -28,6 +26,7 @@ WriteMakefile1(
     },
     BUILD_REQUIRES => {
         'Test::More' => 0,
+        'Math::Int64' => 0
     },
 
     'NAME'	=> 'Win32::API',
@@ -40,9 +39,7 @@ WriteMakefile1(
         'Type.pm'     => '$(INST_LIBDIR)/API/Type.pm',
         'Struct.pm'   => '$(INST_LIBDIR)/API/Struct.pm',
         'Test.pm'     => '$(INST_LIBDIR)/API/Test.pm',
-        $build_callback
-			? ('Callback.pm' => '$(INST_LIBDIR)/API/Callback.pm')
-			: (),
+        'Callback.pm' => '$(INST_LIBDIR)/API/Callback.pm'
 	},
 
     'VERSION_FROM' => 'API.pm',
@@ -53,8 +50,7 @@ WriteMakefile1(
     },
 
     # Win32 is a prerequisite, at least for our tests
-    'PREREQ_PM' => { 'Win32' => 0 },
-
+    'PREREQ_PM' => { 'Win32' => 0 , 'Scalar::Util' => 0},
     # One day, I'd like to restore the dynamic API_test.dll
     #'clean' => {FILES => 'API_test.dll API_test_dll/Release/*'},
 
@@ -94,19 +90,18 @@ EOM1
     }
     #end-of old 64bit strawberryperl hack
      
-     #-Zi is MS ASM only
-    return ($is_msvc_compiler?'
+    return  ($is_msvc_compiler?'
 ASFLAGS =  -Zi
 
-
-':'').'
+':'')
+.'
 .asm$(OBJ_EXT):
 	ml64 $(ASFLAGS) -c $<
 
 .s$(OBJ_EXT):
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
 
-'
+';
 }
 
 sub WriteMakefile1 {  #Written by Alexandr Ciornii, version 0.21. Added by eumm-upgrade.

@@ -37,7 +37,7 @@ Call_x64_real PROC FRAME
     movsd xmm3, qword ptr [rax+24]
 
     ; Now the stack
-    mov rsi, qword ptr [rbp+40]
+    mov r11, qword ptr [rbp+40]
     mov rax, qword ptr [rbp+48]
 
     ; Except not if there isn't any
@@ -46,7 +46,7 @@ Call_x64_real PROC FRAME
 
 copystack:
     sub rax, 1
-    mov r10, qword ptr [rsi+8*rax]
+    mov r10, qword ptr [r11+8*rax]
     push r10
     test rax, rax
     jnz copystack

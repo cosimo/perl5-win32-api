@@ -12,14 +12,10 @@ use File::Spec;
 use Test::More;
 use Encode;
 
-plan tests => 33;
+plan tests => 34;
 use vars qw($function $function2 $result $test_dll $input $ptr);
 
-#use_ok('Win32::API', qw( ReadMemory ));
-BEGIN {
-    $DB::single = 1;
-}
-use Win32::API qw( ReadMemory IsBadReadPtr MoveMemory WriteMemory);
+use_ok('Win32::API', qw( ReadMemory IsBadReadPtr MoveMemory WriteMemory));
 use_ok('Win32::API::Test');
 use_ok('Win32');
 

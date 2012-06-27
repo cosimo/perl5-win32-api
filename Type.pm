@@ -12,7 +12,7 @@ package Win32::API::Type;
 #
 #######################################################################
 
-$VERSION = '0.63';
+$VERSION = '0.64';
 
 use Carp;
 use Config;
@@ -161,7 +161,7 @@ sub packing {
     my $type = ($self eq 'Win32::API::Type') ? shift : $self;
     my $name = shift;
     my $pass_numeric = shift;
-
+    
     # DEBUG "(PM)Type::packing: got '$type', '$name'\n";
     my ($modifier, $size, $packing);
     if (exists $Pointer{$type}) {
@@ -235,6 +235,19 @@ sub Pack {
     my $pack_type = packing($type);
     #print "Pack: type $type pack_type $pack_type\n";
     if ($pack_type eq 'p') { #char or wide char pointer
+        #$pack_type = 'Z*';
+        return;
+    }
+    elsif(IVSIZE() == 4 && ($pack_type eq 'q' || $pack_type eq 'Q')){
+        if($_[0]->{'UseMI64'}){ #un/signed meaningless
+            $_[2] = Math::Int64::int64_to_native($_[2]);
+        }
+        else{
+            if(length($_[2]) < 8){
+                warn("Win32::API::Call value for 64 bit integer is under 8 bytes long");
+                $_[2] = pack('a[8]', $_[2]);
+            }
+        }
         return;
     }
     $_[2] = pack($pack_type, $_[2]);
@@ -248,9 +261,25 @@ sub Unpack {
 
     if ($pack_type eq 'p') {
         DEBUG "(PM)Type::Unpack: got packing 'p': is a pointer\n";
-        return ();
+        #$pack_type = 'Z*';
+        return;
     }
-
+    elsif(IVSIZE() == 4){
+        #todo debugging output
+        if($pack_type eq 'q'){
+            if($_[0]->{'UseMI64'}){
+            $_[2] = Math::Int64::native_to_int64($_[2]);
+            DEBUG "(PM)Type::Unpack: returning signed Math::Int64 '".$_[2]."'\n";
+            }
+            return;
+        }elsif($pack_type eq 'Q'){
+            if($_[0]->{'UseMI64'}){
+            $_[2] = Math::Int64::native_to_uint64($_[2]);
+            DEBUG "(PM)Type::Unpack: returning unsigned Math::Int64 '".$_[2]."'\n";
+            }
+            return;
+        }
+    }
     DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$_[2]'\n";
     $_[2] = unpack($pack_type, $_[2]);
     DEBUG "(PM)Type::Unpack: returning '" . ($_[2] || '') . "'\n";
