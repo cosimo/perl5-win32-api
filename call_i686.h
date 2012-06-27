@@ -128,6 +128,11 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 	/* #### NOW CALL THE FUNCTION #### */
     switch(retval->t) {
     case T_NUMBER:
+    case T_NUMBER | T_FLAG_UNSIGNED:
+    case T_SHORT:
+    case T_SHORT | T_FLAG_UNSIGNED:
+    case T_CHAR:
+    case T_CHAR | T_FLAG_UNSIGNED:
         ApiFunctionNumber = (ApiNumber *) ApiFunction;
 #ifdef WIN32_API_DEBUG
     	printf("(XS)Win32::API::Call: Calling ApiFunctionNumber()\n");
@@ -139,6 +144,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 #ifdef WIN32_API_DEBUG
     	printf("(XS)Win32::API::Call: Calling ApiFunctionFloat()\n");
 #endif
+        retval->f = ApiFunctionFloat();
 #ifdef WIN32_API_DEBUG
         printf("(XS)Win32::API::Call: ApiFunctionFloat returned %f\n", retval->f);
 #endif
@@ -179,11 +185,11 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
         printf("(XS)Win32::API::Call: ApiFunctionPointer returned 0x%x '%s'\n", pReturn, pReturn);
 #endif
 		/* #### only works with strings... #### */
-		retval->p = (char *) safemalloc(strlen(pReturn));
-		strcpy(retval->p, pReturn);
+		retval->p = pReturn ;
 
         break;
     case T_INTEGER:
+    case T_INTEGER | T_FLAG_UNSIGNED:
         ApiFunctionInteger = (ApiInteger *) ApiFunction;
 #ifdef WIN32_API_DEBUG
     	printf("(XS)Win32::API::Call: Calling ApiFunctionInteger()\n");

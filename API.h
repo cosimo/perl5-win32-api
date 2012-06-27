@@ -23,11 +23,15 @@ typedef unsigned long long_ptr;
 #define T_FLOAT				4
 #define T_DOUBLE			5
 #define T_CHAR				6
+#define T_SHORT				7
 
 #define T_STRUCTURE			51
 
 #define T_POINTERPOINTER	22
-#define T_CODE				101
+#define T_CODE				55
+
+#define T_FLAG_UNSIGNED     (0x80)
+#define T_FLAG_NUMERIC      (0x40)
 
 typedef char  *ApiPointer(void);
 typedef long   ApiNumber(void);
@@ -35,7 +39,9 @@ typedef float  ApiFloat(void);
 typedef double ApiDouble(void);
 typedef void   ApiVoid(void);
 typedef int    ApiInteger(void);
+typedef short  ApiShort(void);
 
+//This is a packing padding nightmare, union or reorder, side effects unknown
 typedef struct {
 	int t;
 	LPBYTE b;
@@ -54,3 +60,17 @@ typedef struct {
 typedef struct {
 	SV* object;
 } APICALLBACK;
+
+#define STATIC_ASSERT(expr) ((void)sizeof(char[1 - 2*!!!(expr)]))
+
+//because of unknown alignment, put 2 wide nulls,
+//some permutation will be 1 wide null char
+#pragma pack(push)
+#pragma pack(push, 1)
+typedef struct {
+    wchar_t null1;
+    wchar_t null2;
+    LARGE_INTEGER counter;
+} SENTINAL_STRUCT;
+#pragma pack(pop)
+#pragma pack(pop)

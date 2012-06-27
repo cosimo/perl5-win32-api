@@ -12,7 +12,7 @@
 
 package Win32::API::Callback;
 
-$VERSION = '0.68';
+$VERSION = '0.69';
 
 require Exporter;      # to export the constants to the main:: space
 require DynaLoader;    # to dynuhlode the module.
@@ -77,16 +77,16 @@ sub new {
     $self{in} = [];
     if (ref($in) eq 'ARRAY') {
         foreach (@$in) {
-            push(@{$self{in}}, Win32::API::type_to_num($_));
+            push(@{$self{in}}, Win32::API->type_to_num($_));
         }
     }
     else {
         my @in = split '', $in;
         foreach (@in) {
-            push(@{$self{in}}, Win32::API::type_to_num($_));
+            push(@{$self{in}}, Win32::API->type_to_num($_));
         }
     }
-    $self{out} = Win32::API::type_to_num($out);
+    $self{out} = Win32::API->type_to_num($out);
     $self{sub} = $proc;
     my $self = bless \%self, $class;
 

@@ -18,9 +18,16 @@ package Win32::API;
 require Exporter;      # to export the constants to the main:: space
 require DynaLoader;    # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
+@EXPORT_OK = qw( ReadMemory IsBadReadPtr IsBadStringPtr MoveMemory
+WriteMemory ); # symbols to export on request
 
-use vars qw( $DEBUG );
+use vars qw( $DEBUG $sentinal );
 $DEBUG = 0;
+
+BEGIN {
+sub ERROR_NOACCESS () { 998 }
+}
+
 
 sub DEBUG {
     if ($Win32::API::DEBUG) {
@@ -38,7 +45,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.68';
+$VERSION = '0.69';
 
 #### some package-global hash to
 #### keep track of the imported
@@ -56,83 +63,102 @@ bootstrap Win32::API;
 # PUBLIC METHODS
 #
 sub new {
-    my ($class, $dll, $proc, $in, $out, $callconvention) = @_;
-    my $hdll;
+    my ($class, $dll, $hproc) = (shift, shift);
+    if(! defined $dll){
+        $hproc = shift;
+    }
+    my ($proc, $in, $out, $callconvention) = @_;
+    my ($hdll, $freedll) = (0, 0);
     my $self = {};
+    if(! defined $hproc){
+        if ($^O eq 'cygwin' and $dll ne File::Basename::basename($dll)) {
 
-    if ($^O eq 'cygwin' and $dll ne File::Basename::basename($dll)) {
+            # need to convert $dll to win32 path
+            # isn't there an API for this?
+            my $newdll = `cygpath -w "$dll"`;
+            chomp $newdll;
+            DEBUG "(PM)new: converted '$dll' to\n  '$newdll'\n";
+            $dll = $newdll;
+        }
 
-        # need to convert $dll to win32 path
-        # isn't there an API for this?
-        my $newdll = `cygpath -w "$dll"`;
-        chomp $newdll;
-        DEBUG "(PM)new: converted '$dll' to\n  '$newdll'\n";
-        $dll = $newdll;
+        #### avoid loading a library more than once
+        if (exists($Libraries{$dll})) {
+            DEBUG "Win32::API::new: Library '$dll' already loaded, handle=$Libraries{$dll}\n";
+            $hdll = $Libraries{$dll};
+        }
+        else {
+            DEBUG "Win32::API::new: Loading library '$dll'\n";
+            $hdll = Win32::API::LoadLibrary($dll);
+            $freedll = 1;
+    #        $Libraries{$dll} = $hdll;
+        }
+
+        #### if the dll can't be loaded, set $! to Win32's GetLastError()
+        if (!$hdll) {
+            $! = Win32::GetLastError();
+            DEBUG "FAILED Loading library '$dll': $!\n";
+            return undef;
+        }
     }
-
-    #### avoid loading a library more than once
-    if (exists($Libraries{$dll})) {
-        DEBUG "Win32::API::new: Library '$dll' already loaded, handle=$Libraries{$dll}\n";
-        $hdll = $Libraries{$dll};
+    else{
+        if(IsBadReadPtr($hproc, 4)){
+            Win32::SetLastError(ERROR_NOACCESS);
+            DEBUG "FAILED Function pointer '$hproc' is not a valid memory location\n";
+            return undef;
+        }
     }
-    else {
-        DEBUG "Win32::API::new: Loading library '$dll'\n";
-        $hdll = Win32::API::LoadLibrary($dll);
-
-#        $Libraries{$dll} = $hdll;
-    }
-
-    #### if the dll can't be loaded, set $! to Win32's GetLastError()
-    if (!$hdll) {
-        $! = Win32::GetLastError();
-        DEBUG "FAILED Loading library '$dll': $!\n";
-        delete $Libraries{$dll};
-        return undef;
-    }
-
-    #### determine if we have a prototype or not
+    #### determine if we have a prototype or not, outtype is for future use in XS
     if ((not defined $in) and (not defined $out)) {
-        ($proc, $self->{in}, $self->{intypes}, $self->{out}, $self->{cdecl}) =
-            parse_prototype($proc);
-        return undef unless $proc;
+        ($proc, $self->{in}, $self->{intypes}, $self->{out}, $self->{outtype},
+         $self->{cdecl}) = parse_prototype($class, $proc);
+        if( ! $proc ){
+            Win32::API::FreeLibrary($hdll) if $freedll;
+            return undef;
+        }
         $self->{proto} = 1;
     }
     else {
         $self->{in} = [];
         if (ref($in) eq 'ARRAY') {
             foreach (@$in) {
-                push(@{$self->{in}}, type_to_num($_));
+                push(@{$self->{in}}, $class->type_to_num($_));
             }
         }
         else {
             my @in = split '', $in;
             foreach (@in) {
-                push(@{$self->{in}}, type_to_num($_));
+                push(@{$self->{in}}, $class->type_to_num($_));
             }
         }
-        $self->{out}   = type_to_num($out);
+        $self->{out}   = $class->type_to_num($out);
         $self->{cdecl} = calltype_to_num($callconvention);
     }
 
-    #### first try to import the function of given name...
-    my $hproc = Win32::API::GetProcAddress($hdll, $proc);
+    if(!$hproc){ #if not non DLL func
+        #### first try to import the function of given name...
+        $hproc = Win32::API::GetProcAddress($hdll, $proc);
+    
+        #### ...then try appending either A or W (for ASCII or Unicode)
+        if (!$hproc) {
+            my $tproc = $proc;
+            $tproc .= (IsUnicode() ? "W" : "A");
 
-    #### ...then try appending either A or W (for ASCII or Unicode)
-    if (!$hproc) {
-        my $tproc = $proc;
-        $tproc .= (IsUnicode() ? "W" : "A");
-
-        # print "Win32::API::new: procedure not found, trying '$tproc'...\n";
-        $hproc = Win32::API::GetProcAddress($hdll, $tproc);
+            # print "Win32::API::new: procedure not found, trying '$tproc'...\n";
+            $hproc = Win32::API::GetProcAddress($hdll, $tproc);
+        }
+    
+        #### ...if all that fails, set $! accordingly
+        if (!$hproc) {
+            $! = Win32::GetLastError();
+            DEBUG "FAILED GetProcAddress for Proc '$proc': $!\n";
+            Win32::API::FreeLibrary($hdll) if $freedll;
+            return undef;
+        }
+        DEBUG "GetProcAddress('$proc') = '$hproc'\n";
     }
-
-    #### ...if all that fails, set $! accordingly
-    if (!$hproc) {
-        $! = Win32::GetLastError();
-        DEBUG "FAILED GetProcAddress for Proc '$proc': $!\n";
-        return undef;
+    else {
+        DEBUG "Using non-DLL function pointer '$hproc' for '$proc'\n";
     }
-    DEBUG "GetProcAddress('$proc') = '$hproc'\n";
 
     #### ok, let's stuff the object
     $self->{procname} = $proc;
@@ -141,9 +167,10 @@ sub new {
     $self->{proc}     = $hproc;
 
     #### keep track of the imported function
-    $Libraries{$dll} = $hdll;
-    $Procedures{$dll}++;
-
+    if(defined $dll){
+        $Libraries{$dll} = $hdll;
+        $Procedures{$dll}++;
+    }
     DEBUG "Object blessed!\n";
 
     #### cast the spell
@@ -168,6 +195,7 @@ sub Import {
 sub DESTROY {
     my ($self) = @_;
 
+    return if ! defined $self->{dllname};
     #### decrease this library's procedures reference count
     $Procedures{$self->{dllname}}--;
 
@@ -188,7 +216,7 @@ sub calltype_to_num {
     if (!$type || $type eq "__stdcall") {
         return 0;
     }
-    elsif ($type eq "_cdecl") {
+    elsif ($type eq "_cdecl" || $type eq "__cdecl") {
         return 1;
     }
     else {
@@ -197,15 +225,26 @@ sub calltype_to_num {
     }
 }
 
+
 sub type_to_num {
+    die "wrong class" if shift ne "Win32::API";
     my $type = shift;
     my $out  = shift;
-    my $num;
+    my ($num, $numeric);
+    if(index($type, 'num', 0) == 0){
+        substr($type, 0, length('num'), '');
+        $numeric = 1;
+    }
+    else{
+        $numeric = 0;
+    }
 
     if (   $type eq 'N'
         or $type eq 'n'
         or $type eq 'l'
-        or $type eq 'L')
+        or $type eq 'L'
+        or $type eq 'Q'
+        or $type eq 'q')
     {
         $num = 1;
     }
@@ -236,7 +275,7 @@ sub type_to_num {
     }
     else {
         $num = 0;
-    }
+    }#not valid return types of the C func
     unless (defined $out) {
         if (   $type eq 's'
             or $type eq 'S')
@@ -251,22 +290,124 @@ sub type_to_num {
         elsif ($type eq 'k'
             or $type eq 'K')
         {
-            $num = 101;
+            $num = 55;
         }
     }
+    $num |= 0x40 if $numeric;
     return $num;
 }
 
+package Win32::API::More;
+
+@ISA = qw ( Win32::API );
+sub type_to_num {
+    die "wrong class" if shift ne "Win32::API::More";
+    my $type = shift;
+    my $out  = shift;
+    my ($num, $numeric);
+    if(index($type, 'num', 0) == 0){
+        substr($type, 0, length('num'), '');
+        $numeric = 1;
+    }
+    else{
+        $numeric = 0;
+    }
+
+    if (   $type eq 'N'
+        or $type eq 'n'
+        or $type eq 'l'
+        or $type eq 'L'
+        or $type eq 'Q'
+        or $type eq 'q'
+        or (! $out and  # in XS short 'in's are interger/numbers code
+            $type eq 'S'
+            || $type eq 's'))
+    {
+        $num = 1;
+        if(defined $out && ($type eq 'N' || $type eq 'L'
+                        ||  $type eq 'S' || $type eq 'Q')){
+            $num |= 0x80;
+        }
+    }
+    elsif ($type eq 'P'
+        or $type eq 'p')
+    {
+        $num = 2;
+    }
+    elsif ($type eq 'I'
+        or $type eq 'i')
+    {
+        $num = 3;
+        if(defined $out && $type eq 'I'){
+            $num |= 0x80;
+        }
+    }
+    elsif ($type eq 'f'
+        or $type eq 'F')
+    {
+        $num = 4;
+    }
+    elsif ($type eq 'D'
+        or $type eq 'd')
+    {
+        $num = 5;
+    }
+    elsif ($type eq 'c'
+        or $type eq 'C')
+    {
+        $num = 6;
+        if(defined $out && $type eq 'C'){
+            $num |= 0x80;
+        }
+    }
+    elsif ($type eq 's') #7 is only used for out params
+    {
+        $num = 7;        
+    }
+    elsif ($type eq 'S')
+    {
+        $num = 7 | 0x80;
+    }    
+    else {
+        $num = 0;
+    } #not valid return types of the C func
+    unless (defined $out) {
+        if (   $type eq 't'
+            or $type eq 'T')
+        {
+            $num = 51;
+        }
+        elsif ($type eq 'b'
+            or $type eq 'B')
+        {
+            $num = 22;
+        }
+        elsif ($type eq 'k'
+            or $type eq 'K')
+        {
+            $num = 55;
+        }
+    }
+    $num |= 0x40 if $numeric;
+    return $num;
+}
+package Win32::API;
+
 sub parse_prototype {
-    my ($proto) = @_;
+    my ($class, $proto) = @_;
 
     my @in_params = ();
-    my @in_types  = ();
-    if ($proto =~ /^\s*(\S+)(?:\s+(\w+))?\s+(\S+)\s*\(([^\)]*)\)/) {
-        my $ret            = $1;
-        my $callconvention = $2;
-        my $proc           = $3;
-        my $params         = $4;
+    my @in_types  = (); #one day create a BNF-ish formal grammer parser here
+    if ($proto =~ /^\s*((?:(?:un|)signed\s+|) #optional signedness
+        \S+)(?:\s*(\*)\s*|\s+) #type and maybe a *
+        (?:(\w+)\s+)? # maybe a calling convention
+        (\S+)\s* #func name
+        \(([^\)]*)\) #param list
+        /x) {
+        my $ret            = $1.(defined($2)?$2:'');
+        my $callconvention = $3;
+        my $proc           = $4;
+        my $params         = $5;
 
         $params =~ s/^\s+//;
         $params =~ s/\s+$//;
@@ -276,35 +417,41 @@ sub parse_prototype {
 
         foreach my $param (split(/\s*,\s*/, $params)) {
             my ($type, $name);
-            if ($param =~ /(\S+)\s+(\S+)/) {
-                ($type, $name) = ($1, $2);
+            #match "in_t* _var" "in_t * _var" "in_t *_var" "in_t _var" "in_t*_var" supported
+            #unsigned or signed or nothing as prefix supported
+            # "in_t ** _var" and "const in_t* var" not supported
+            if ($param =~ /((?:(?:un|)signed\s+|)\w+)(?:\s*(\*)\s*|\s+)(\w+)/) {
+                ($type, $name) = ($1.(defined($2)? $2:''), $3);
             }
-
+            {
+                no warnings 'uninitialized';
+                if($type eq '') {goto BADPROTO;} #something very wrong, bail out
+            }
             if (Win32::API::Type::is_known($type)) {
                 if (Win32::API::Type::is_pointer($type)) {
                     DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
                         $type,
                         Win32::API::Type->packing($type),
-                        type_to_num('P');
-                    push(@in_params, type_to_num('P'));
+                        $class->type_to_num('P');
+                    push(@in_params, $class->type_to_num('P'));
                 }
                 else {
                     DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
                         $type,
                         Win32::API::Type->packing($type),
-                        type_to_num(Win32::API::Type->packing($type));
-                    push(@in_params, type_to_num(Win32::API::Type->packing($type)));
+                        $class->type_to_num(Win32::API::Type->packing($type, undef, 1));
+                    push(@in_params, $class->type_to_num(Win32::API::Type->packing($type, undef, 1)));
                 }
             }
             elsif (Win32::API::Struct::is_known($type)) {
                 DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
-                    $type, 'S', type_to_num('S');
-                push(@in_params, type_to_num('S'));
+                    $type, 'T', Win32::API::More->type_to_num('T');
+                push(@in_params, Win32::API::More->type_to_num('T'));
             }
             else {
                 warn
                     "Win32::API::parse_prototype: WARNING unknown parameter type '$type'";
-                push(@in_params, type_to_num('I'));
+                push(@in_params, $class->type_to_num('I'));
             }
             push(@in_types, $type);
 
@@ -317,35 +464,38 @@ sub parse_prototype {
                 DEBUG "parse_prototype: OUT='%s' PACKING='%s' API_TYPE=%d\n",
                     $ret,
                     Win32::API::Type->packing($ret),
-                    type_to_num('P');
-                return ($proc, \@in_params, \@in_types, type_to_num('P'),
-                    calltype_to_num($callconvention));
+                    $class->type_to_num('P');
+                return ($proc, \@in_params, \@in_types, $class->type_to_num('P', 1),
+                    $ret, calltype_to_num($callconvention));
             }
             else {
                 DEBUG "parse_prototype: OUT='%s' PACKING='%s' API_TYPE=%d\n",
                     $ret,
                     Win32::API::Type->packing($ret),
-                    type_to_num(Win32::API::Type->packing($ret));
+                    $class->type_to_num(Win32::API::Type->packing($ret, undef, 1), 1);
                 return (
                     $proc, \@in_params, \@in_types,
-                    type_to_num(Win32::API::Type->packing($ret)),
-                    calltype_to_num($callconvention)
+                    $class->type_to_num(Win32::API::Type->packing($ret, undef, 1), 1),
+                    $ret, calltype_to_num($callconvention)
                 );
             }
         }
         else {
             warn
                 "Win32::API::parse_prototype: WARNING unknown output parameter type '$ret'";
-            return ($proc, \@in_params, \@in_types, type_to_num('I'),
-                calltype_to_num($callconvention));
+            return ($proc, \@in_params, \@in_types, $class->type_to_num('I', 1),
+                $ret, calltype_to_num($callconvention));
         }
 
     }
     else {
+        BADPROTO:
         warn "Win32::API::parse_prototype: bad prototype '$proto'";
         return undef;
     }
 }
+
+
 
 1;
 
@@ -364,23 +514,39 @@ Win32::API - Perl Win32 API Import Facility
   #### Method 1: with prototype
 
   use Win32::API;
-  $function = Win32::API->new(
-      'mydll, 'int sum_integers(int a, int b)',
+  $function = Win32::API::More->new(
+      'mydll', 'int sum_integers(int a, int b)',
   );
   $return = $function->Call(3, 2);
   
-  #### Method 2: with parameter list
+  #### Method 2: with prototype and your function pointer
   
   use Win32::API;
-  $function = Win32::API->new(
+  $function = Win32::API::More->new(
+      undef, 38123456, 'int name_ignored(int a, int b)',
+  );
+  $return = $function->Call(3, 2);
+
+  #### Method 3: with parameter list 
+  
+  use Win32::API;
+  $function = Win32::API::More->new(
       'mydll', 'sum_integers', 'II', 'I',
   );
   $return = $function->Call(3, 2);
   
-  #### Method 3: with Import
+  #### Method 4: with parameter list and your function pointer
+  
+  use Win32::API;
+  $function = Win32::API::More->new(
+      undef, 38123456, 'name_ignored', 'II', 'I',
+  );
+  $return = $function->Call(3, 2);
+  
+  #### Method 5: with Import
  
   use Win32::API;
-  Win32::API->Import(
+  Win32::API::More->Import(
       'mydll', 'int sum_integers(int a, int b)',
   );  
   $return = sum_integers(3, 2);
@@ -395,7 +561,8 @@ Win32::API - Perl Win32 API Import Facility
 =head1 ABSTRACT
 
 With this module you can import and call arbitrary functions
-from Win32's Dynamic Link Libraries (DLL), without having
+from Win32's Dynamic Link Libraries (DLL) or arbitrary functions for
+which you have a pointer (MS COM, etc), without having
 to write an XS extension. Note, however, that this module 
 can't do everything. In fact, parameters input and output is
 limited to simpler cases.
@@ -411,8 +578,12 @@ A short example of how you can use this module (it just gets the PID of
 the current process, eg. same as Perl's internal C<$$>):
 
     use Win32::API;
-    Win32::API->Import("kernel32", "int GetCurrentProcessId()");
+    Win32::API::More->Import("kernel32", "int GetCurrentProcessId()");
     $PID = GetCurrentProcessId();
+
+Starting with 0.69. Win32::API initiated objects are deprecated due to numerous
+bugs and improvements, use Win32::API::More now. The use statement remains
+as C<use Win32::API;>.
 
 The possibilities are nearly infinite (but not all are good :-).
 Enjoy it.
@@ -424,23 +595,23 @@ To use this module put the following line at the beginning of your script:
     use Win32::API;
 
 You can now use the C<new()> function of the Win32::API module to create a
-new Win32::API object (see L<IMPORTING A FUNCTION>) and then invoke the 
+new Win32::API::More object (see L<IMPORTING A FUNCTION>) and then invoke the 
 C<Call()> method on this object to perform a call to the imported API
 (see L<CALLING AN IMPORTED FUNCTION>).
 
-Starting from version 0.40, you can also avoid creating a Win32::API object
+Starting from version 0.40, you can also avoid creating a Win32::API::More object
 and instead automatically define a Perl sub with the same name of the API
 function you're importing. The details of the API definitions are the same,
 just the call is different:
 
-    my $GetCurrentProcessId = Win32::API->new(
+    my $GetCurrentProcessId = Win32::API::More->new(
         "kernel32", "int GetCurrentProcessId()"
     );
     my $PID = $GetCurrentProcessId->Call();
 
     #### vs.
 
-    Win32::API->Import("kernel32", "int GetCurrentProcessId()");
+    Win32::API::More->Import("kernel32", "int GetCurrentProcessId()");
     $PID = GetCurrentProcessId();
 
 Note that C<Import> returns 1 on success and 0 on failure (in which case you
@@ -449,8 +620,9 @@ can check the content of C<$^E>).
 =head2 IMPORTING A FUNCTION
 
 You can import a function from a 32 bit Dynamic Link Library (DLL) file 
-with the C<new()> function. This will create a Perl object that contains the
-reference to that function, which you can later C<Call()>.
+with the C<new()> function or, starting in 0.69, supply your own
+function pointer. This will create a Perl object that contains
+the reference to that function, which you can later C<Call()>.
 
 What you need to know is the prototype of the function you're going to import
 (eg. the definition of the function expressed in C syntax).
@@ -461,17 +633,28 @@ one uses Win32::API's internal representation for parameters.
 
 =head2 IMPORTING A FUNCTION BY PROTOTYPE
 
-You need to pass 2 parameters:
+You need to pass 2 or 3 parameters:
 
 =over 4
 
 =item 1.
 
-The name of the library from which you want to import the function.
+The name of the library from which you want to import the function. If the
+name is undef, you are requesting a object created from a function pointer,
+and must supply item 2.
 
 =item 2.
 
-The C prototype of the function.
+This parameter is optional, most people should skip it, skip does not mean
+supplying undef. Supply a function pointer in the format of number 1234, not
+string "\x01\x02\x03\x04". Undef will be returned if the pointer is not
+readable, GetLastError will be ERROR_NOACCESS.
+
+=item 3.
+
+The C prototype of the function. If you are using a function pointer, the name
+of the function should be something "friendly" to you and no attempt is made
+to retrive such a name from any DLL's export table.
 
 =back
 
@@ -482,9 +665,15 @@ automatically turned into a C C<NULL> value.
 See L<Win32::API::Type> for a list of the known parameter types and
 L<Win32::API::Struct> for information on how to define a structure.
 
+If a prototype type is exactly C<signed char> or C<unsigned char> for an 
+"in" parameter or the return parameter, and for "in" parameters only
+C<signed char *> or C<unsigned char *> the parameters will be treated as a
+number, C<0x01>, not C<"\x01">. "UCHAR" is not "unsigned char". Change the
+C prototype if you want numeric handling for your chars.
+
 =head2 IMPORTING A FUNCTION WITH A PARAMETER LIST
 
-You need to pass 4 parameters:
+You need to pass at minimum 4 parameters.
 
 =over 4
 
@@ -492,15 +681,23 @@ You need to pass 4 parameters:
 The name of the library from which you want to import the function.
 
 =item 2.
-The name of the function (as exported by the library).
+This parameter is optional, most people should skip it, skip does not mean
+supplying undef. Supply a function pointer in the format of number C<1234>,
+not string C<"\x01\x02\x03\x04">. Undef will be returned if the pointer is not
+readable, GetLastError will be ERROR_NOACCESS.
 
 =item 3.
-The number and types of the arguments the function expects as input.
+The name of the function (as exported by the library) or for function pointers
+a name that is "friendly" to you. No attempt is made to retrive such a
+name from any DLL's export table in the 2nd case.
 
 =item 4.
-The type of the value returned by the function.
+The number and types of the arguments the function expects as input.
 
 =item 5.
+The type of the value returned by the function.
+
+=item 6.
 And optionally you can specify the calling convention, this defaults to
 '__stdcall', alternatively you can specify '_cdecl'.
 
@@ -545,11 +742,16 @@ a couple of directories, including:
 So, you don't have to write F<C:\windows\system\kernel32.dll>; 
 only F<kernel32> is enough:
 
-    $GetTempPath = new Win32::API('kernel32', ...
+    $GetTempPath = new Win32::API::More('kernel32', ...
 
 =item B<2.>
 
-Now for the second parameter: the name of the function.
+Since this function is from a DLL, skip the 2nd parameter. Skip does not
+mean supplying undef.
+
+=item B<3.>
+
+Now for the real second parameter: the name of the function.
 It must be written exactly as it is exported 
 by the library (case is significant here). 
 If you are using Windows 95 or NT 4.0, you can use the B<Quick View> 
@@ -560,7 +762,11 @@ somewhere "32 bit word machine"; as a rule of thumb,
 when you see that all the exported functions are in upper case,
 the DLL is a 16 bit one and you can't use it. 
 If their capitalization looks correct, then it's probably a 32 bit
-DLL.
+DLL. If you have Platform SDK or Visual Studio, you can use the Dumpbin
+tool. Call it as "dumpbin /exports name_of_dll.dll" on the command line.
+If you have Mingw GCC, use objdump as
+"objdump -x name_of_dll.dll > dlldump.txt" and search for the word exports in
+the very long output.
 
 Also note that many Win32 APIs are exported twice, with the addition of
 a final B<A> or B<W> to their name, for - respectively - the ASCII 
@@ -570,11 +776,11 @@ an B<A> to the name and try again; if the extension is built on a
 Unicode system, then it will try with the B<W> instead.
 So our function name will be:
 
-    $GetTempPath = new Win32::API('kernel32', 'GetTempPath', ...
+    $GetTempPath = new Win32::API::More('kernel32', 'GetTempPath', ...
 
 In our case C<GetTempPath> is really loaded as C<GetTempPathA>.
 
-=item B<3.>
+=item B<4.>
 
 The third parameter, the input parameter list, specifies how many 
 arguments the function wants, and their types. It can be passed as
@@ -597,10 +803,16 @@ argument; allowed types are:
 =over 4
 
 =item C<I>: 
-value is an integer (int)
+value is an unsigned integer (unsigned int)
+
+=item C<i>: 
+value is an signed integer (signed int or int)
 
 =item C<N>: 
-value is a number (long)
+value is a unsigned pointer sized number (unsigned long)
+
+=item C<n>: 
+value is a signed pointer sized number (signed long or long)
 
 =item C<F>: 
 value is a floating point number (float)
@@ -608,13 +820,24 @@ value is a floating point number (float)
 =item C<D>: 
 value is a double precision number (double)
 
+=item C<S>: 
+value is a unsigned short (unsigned short)
+
+=item C<s>: 
+value is a signed short (signed short or short)
+
 =item C<C>: 
-value is a char (char)
+value is a char (char), pass as C<"a>", not C<97>, C<"abc"> will truncate to C<"a">
 
 =item C<P>: 
 value is a pointer (to a string, structure, etc...)
+padding out the buffer string is required, buffer overflow detection is
+performed. Pack and unpack the data yourself. If P is a return type, only
+null terminated strings or NULL pointer are supported. It is suggested to
+not use P as a return type and instead use N and read the memory yourself, and
+free the pointer if applicable.
 
-=item C<S>: 
+=item C<T>: 
 value is a Win32::API::Struct object (see below)
 
 =item C<K>:
@@ -632,10 +855,10 @@ string (C<LPSTR>):
 The fourth and final parameter is the type of the value returned by the 
 function. It can be one of the types seen above, plus another type named B<V> 
 (for C<void>), used for functions that do not return a value.
-In our example the value returned by GetTempPath() is a C<DWORD>, so 
-our return type will be B<N>:
+In our example the value returned by GetTempPath() is a C<DWORD>, which is a
+typedef for unsigned long, so our return type will be B<N>:
 
-    $GetTempPath = new Win32::API('kernel32', 'GetTempPath', 'NP', 'N');
+    $GetTempPath = new Win32::API::More('kernel32', 'GetTempPath', 'NP', 'N');
 
 Now the line is complete, and the GetTempPath() API is ready to be used
 in Perl. Before calling it, you should test that $GetTempPath is 
@@ -644,7 +867,7 @@ loaded; in this case, C<$!> will be set to the error message reported
 by Windows.
 Our definition, with error checking added, should then look like this:
 
-    $GetTempPath = new Win32::API('kernel32', 'GetTempPath', 'NP', 'N');
+    $GetTempPath = new Win32::API::More('kernel32', 'GetTempPath', 'NP', 'N');
     if(not defined $GetTempPath) {
         die "Can't import API GetTempPath: $!\n";
     }
@@ -668,10 +891,9 @@ Perl will C<croak> an error message and C<die>.
 The two parameters needed here are the length of the buffer
 that will hold the returned temporary path, and a pointer to the 
 buffer itself.
-For numerical parameters, you can use either a constant expression
-or a variable, while B<for pointers you must use a variable name> (no 
-Perl references, just a plain variable name).
-Also note that B<memory must be allocated before calling the function>,
+For numerical parameters except for char, you can use either a constant expression
+or a variable, it will be numified similar to the expression C<($var+0)>.
+For pointers, also note that B<memory must be allocated before calling the function>,
 just like in C.
 For example, to pass a buffer of 80 characters to GetTempPath(),
 it must be initialized before with:
@@ -679,14 +901,14 @@ it must be initialized before with:
     $lpBuffer = " " x 80;
 
 This allocates a string of 80 characters. If you don't do so, you'll
-probably get C<Runtime exception> errors, and generally nothing will 
-work. The call should therefore include:
+probably get a fatal buffer overflow error starting in 0.69.
+The call should therefore include:
 
     $lpBuffer = " " x 80;
     $GetTempPath->Call(80, $lpBuffer);
 
 And the result will be stored in the $lpBuffer variable.
-Note that you don't need to pass a reference to the variable
+Note that you never need to pass a reference to the variable
 (eg. you B<don't need> C<\$lpBuffer>), even if its value will be set 
 by the function. 
 
@@ -762,17 +984,97 @@ you can still use the low-level approach to use structures:
 
 you have to pack() the required elements in a variable:
 
-    $lpPoint = pack('LL', 0, 0); # store two LONGs
+    $lpPoint = pack('ll', 0, 0); # store two LONGs
 
 =item 2.
 
 to access the values stored in a structure, unpack() it as required:
 
-    ($x, $y) = unpack('LL', $lpPoint); # get the actual values
+    ($x, $y) = unpack(';;', $lpPoint); # get the actual values
 
 =back
 
 The rest is left as an exercise to the reader...
+
+=head2 EXPORTED FUNCTIONS
+
+=head3 ReadMemory
+
+    $copy_of_memblock = ReadMemory($SourcePtr, $length);
+
+Reads the source pointer for C<$length> number of bytes. Returns a copy of
+the memory block in a scalar. No readability checking is done on C<$SourcePtr>.
+C<$SourcePtr>'s format is 123456, not C<"\x01\x02\x03\x04">.
+
+=head3 WriteMemory
+
+    WriteMemory($DestPtr, $sourceScalar, $length);
+
+Copies the string contents of the C<$sourceScalar> scalar to C<$DestPtr> for
+C<$length> bytes. $length must be less than or equal to the length of
+C<$sourceScalar>, otherwise the function croaks. No readability checking is
+done on C<$DestPtr>. C<$DestPtr>'s format is 123456, not
+C<"\x01\x02\x03\x04">. Returns nothing.
+
+=head3 MoveMemory
+
+    MoveMemory($destPtr, $sourcePtr, $length);
+
+Copies a block of memory from one location to another. The source and
+destination blocks may overlap. All pointers are in the format of 123456,
+not C<"\x01\x02\x03\x04">.  No readability checking is done. Returns nothing.
+
+=head3 IsBadReadPtr
+
+    if(IsBadReadPtr($ptr, $length)) {die "bad ptr";}
+
+Probes a memory block for C<$length> bytes for readability. Returns true if
+access violation occurs, otherwise false is returned. This function is useful
+to avoid dereferencing pointers which will crash the perl process. This function
+has many limitations, including not detecting uninitialized memory, not
+detecting freed memory, and not detecting giberrish. It can not tell whether a
+function pointer is valid x86 machine code. Ideally, you should never use it,
+or remove it once your code is stable. C<$ptr> is in the format of 123456,
+not C<"\x01\x02\x03\x04">. See MS's documentation for alot more
+on this function of the same name.
+
+
+=head1 HISTORY
+
+=over 4
+
+=item return value signedness
+
+Prior to 0.69, for numeric integer types, the return scalar was always signed.
+Unsigned-ness was ignored.
+
+=item shorts
+
+Prior to 0.69, shorts were not supported. 'S' meant a sturct. To fix this
+Win32::API::More class was created for 0.69. 'S'/'s' now means short, per pack's
+letters. Struct has been moved to letter 'T'. Win32::API will continue to exist
+for legacy code.
+
+=item float return types
+
+Prior to 0.69, if a function had a return type of float, it was silently
+not called.
+
+=item buffer overflow protection
+
+Introduced in 0.69. If disabling is required, which is highly
+B<not recommended>, set an enviromental variable called
+WIN32_API_SORRY_I_WAS_AN_IDIOT to 1.
+
+=item automatic un/pack
+
+Starting with 0.69, when using Win32::API::More, there is automatic un/packing
+of pointers to numbers-ish things for in parameters when using the C
+prototype interface.
+
+=back
+
+See the C<Changes> file for more details.
 
 =head1 AUTHOR
 

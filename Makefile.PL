@@ -94,14 +94,19 @@ EOM1
     }
     #end-of old 64bit strawberryperl hack
      
-    return <<'EOM';
+     #-Zi is MS ASM only
+    return ($is_msvc_compiler?'
+ASFLAGS =  -Zi
+
+
+':'').'
 .asm$(OBJ_EXT):
 	ml64 $(ASFLAGS) -c $<
 
 .s$(OBJ_EXT):
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
 
-EOM
+'
 }
 
 sub WriteMakefile1 {  #Written by Alexandr Ciornii, version 0.21. Added by eumm-upgrade.

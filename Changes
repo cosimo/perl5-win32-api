@@ -1,5 +1,48 @@
 History of Win32::API perl extension.
 
+2012-??-??  Win32::API v0.69    bulk88
+   - Fixed RT #12057, dll leak if func not found
+     (https://rt.cpan.org/Ticket/Display.html?id=12057)
+   - Fixed RT #77048, shorts and short typedefs crashed since 'S'
+     was mapped wrong to structs, fix in Win32::API::More, struct now 'T'
+     in ::More, 'S'/'s' now dies on Win32::API if not Win32::APU::Sturct objs,
+     not crashes
+     (https://rt.cpan.org/Ticket/Display.html?id=77048)
+   - Fixed RT #77055, returned numbers are always signed, unsigneds
+     fixed in Win32::API::More
+     (https://rt.cpan.org/Ticket/Display.html?id=77055)
+   - Fixed RT #77182, "int* var" works, "int *var" unparsable,
+     fixed in core and ::More
+     (https://rt.cpan.org/Ticket/Display.html?id=77182)
+   - Fixed/Added RT #39810, in Win32::API::More for C proto created objs,
+     pointer to numbers are automatically packed and unpacked, now 1234 or
+     0x04D2 not "\xD2\x04\x00\x00", feature was implemented but broken
+     previously
+   - Fixed, on x64 float "in" params were broken, in 0.68, 4 byte floats were
+     converted to 8 byte doubles of the same (approx) numeric 
+     value when being prepared for XMM register loading, a C func 
+     that takes floats will read 4 bytes from an XMM register, not 8
+   - Fixed, on x64, for msvc builds, the callstack was lost during
+     Call_x64_real
+   - for a func with char * as return type, NULL caused crash, and perl
+     memleak if it didn't crash on 32bit, char * as a return type's handing
+     is still very flawed, signed/unsigned doesn't work, float * doesn't work,
+     if the char * is dynamically allocated by its source, it is leaked
+   - for a func with char as return type, undef was always returned, fixed
+   - void ** and something ** don't parse, now errors out cleanly on a **
+   - stability improvements to Win32::API::Callback, -Od, -O1, -O2 and
+     Incremental Linkings/ILT now ok on MSVC 2003
+   - on 32 bits, funcs with float return type were silently never called, fixed
+   - if a buffer overflow for pointers is detected, a die is thrown, unless env
+     var "WIN32_API_SORRY_I_WAS_AN_IDIOT" is set
+   - Added, adding unsigned or signed prefixes to C prototype for char
+     family (in only, out not implemented) cause numeric treatment for the
+     scalar parameter, not string
+     treatment, previously unsigned/signed were unparsable
+   - Added Win32::API objs from non-DLL function pointers
+     use as "$function = new Win32::API::More(undef, 123456, 'GetHandle',
+            'P', 'I');", 123456 is the function pointer
+
 2012-04-10  Win32::API v0.68    Cosimo
 
    - Temporarily skip RT#53914 related Callback test that's crashing

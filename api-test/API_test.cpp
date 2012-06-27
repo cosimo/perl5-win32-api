@@ -30,8 +30,60 @@ BOOL APIENTRY DllMain( HANDLE hModule,
 // This is an example of an exported variable
 API_TEST_API int nAPI_test=0;
 
+API_TEST_API ULONG __stdcall highbit_unsigned() {
+	return 0x80005000;
+}
+
 API_TEST_API int __stdcall sum_integers(int a, int b) {
 	return a + b;
+}
+
+API_TEST_API short __stdcall sum_shorts(short a, short b) {
+	return a + b;
+}
+
+API_TEST_API short __stdcall sum_shorts_ref(short a, short b, short*c) {
+    if(!IsBadReadPtr(c, sizeof(short))){
+        *c = a + b;
+        return -32768;
+    }
+    else {
+        return 0;
+    }
+}
+
+API_TEST_API char __stdcall sum_char_ref(char a, char b, char *c) {
+    if(!IsBadReadPtr(c, sizeof(char))){
+        *c = a + b;
+        return -128;
+    }
+    else {
+        return 0;
+    }
+}
+
+API_TEST_API BOOL __stdcall str_cmp(char *string) {
+    if(memcmp("Just another perl hacker", string,
+              sizeof("Just another perl hacker")) == 0){
+        return TRUE;
+    }
+    else{
+        return FALSE;
+    }
+}
+
+API_TEST_API BOOL __stdcall wstr_cmp(WCHAR * string) {
+    if(memcmp(L"Just another perl hacker", string,
+               sizeof(L"Just another perl hacker")) == 0){
+        return TRUE;
+    }
+    else{
+        return FALSE;
+    }
+}
+
+API_TEST_API void __stdcall buffer_overflow(char *string) {
+    memcpy(string, "JAPHJAPH", sizeof("JAPHJAPH")-1);
 }
 
 API_TEST_API int __stdcall sum_integers_ref(int a, int b, int *c) {
@@ -55,6 +107,12 @@ API_TEST_API float __stdcall sum_floats(float a, float b) {
 API_TEST_API int __stdcall sum_floats_ref(float a, float b, float *c) {
 	*c = a + b;
 	return 1;
+}
+
+API_TEST_API float * __stdcall ret_float_ptr(){
+    static float ret_float_var;
+    ret_float_var = 7.5;
+    return &ret_float_var;
 }
 
 API_TEST_API int __stdcall has_char(char *string, char ch) {
@@ -135,6 +193,51 @@ API_TEST_API int __stdcall do_callback(callback_func function, int value) {
 	printf("do_callback: returning %ld\n", r); 
 	return r;
 }
+
+API_TEST_API int __stdcall do_callback_5_param(callback_func_5_param function) {
+    four_char_struct fourCvar = {'J','A','P','H'};
+	int r = function('P', 0x12345678ABCDEF12, &fourCvar, 2.5, 3.5);
+	printf("do_callback_5_param: returning %ld\n", r); 
+	return r;
+}
+
+API_TEST_API int __stdcall do_callback_5_param_cdec(callback_func_5_param_cdec function) {
+    four_char_struct fourCvar = {'J','A','P','H'};
+	int r ;
+    r = function('P', 0x12345678ABCDEF12, &fourCvar, 2.5, 3.5);
+	printf("do_callback_5_param_cdec: returning %ld\n", r); 
+	return r;
+}
+
+API_TEST_API double __stdcall do_callback_void_d(callback_func_void_d function) {
+	double r;
+    r = function();
+	printf("do_callback_void_d: returning %10.10lf\n", r); 
+	return r;
+}
+
+API_TEST_API float __stdcall do_callback_void_f(callback_func_void_f function) {
+	float r;
+    r = function();
+	printf("do_callback_void_f: returning %10.10f\n", r); 
+	return r;
+}
+
+API_TEST_API BOOL __stdcall GetHandle(LPHANDLE pHandle) {
+	if(!IsBadReadPtr(pHandle, sizeof(*pHandle))){
+        *pHandle =  (HANDLE)4000;
+        return TRUE;
+    }
+    else return FALSE;
+}
+API_TEST_API void * __stdcall GetGetHandle() {
+    return GetHandle;
+}
+API_TEST_API BOOL __stdcall FreeHandle(HANDLE Handle) {
+    if(Handle == (HANDLE)4000) return TRUE;
+    else return FALSE;
+}
+
 
 /* cdecl functions */
 API_TEST_API int __cdecl c_sum_integers(int a, int b) {

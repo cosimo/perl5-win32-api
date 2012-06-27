@@ -12,7 +12,7 @@ package Win32::API::Type;
 #
 #######################################################################
 
-$VERSION = '0.62';
+$VERSION = '0.63';
 
 use Carp;
 use Config;
@@ -32,6 +32,7 @@ sub DEBUG {
     }
 }
 
+sub pointer_pack_type ();
 %Known    = ();
 %PackSize = ();
 %Modifier = ();
@@ -122,8 +123,11 @@ sub is_known {
     }
 }
 
-sub pointer_pack_type {
-    return $Config{ptrsize} == 8 ? 'Q' : 'L';
+#const optimize
+BEGIN {
+    eval ' sub pointer_pack_type () { "'
+    .($Config{ptrsize} == 8 ? 'Q' : 'L').
+    '" }';
 }
 
 sub sizeof {
@@ -143,7 +147,7 @@ sub sizeof {
         }
     }
 }
-
+# $packing_letter = packing( [$class = 'Win32::API::Type' ,] $type [, $pass_numeric])
 sub packing {
 
     # DEBUG "(PM)Type::packing: called by ". join("::", (caller(1))[0,3]). "\n";
@@ -156,6 +160,7 @@ sub packing {
     }
     my $type = ($self eq 'Win32::API::Type') ? shift : $self;
     my $name = shift;
+    my $pass_numeric = shift;
 
     # DEBUG "(PM)Type::packing: got '$type', '$name'\n";
     my ($modifier, $size, $packing);
@@ -183,7 +188,7 @@ sub packing {
         }
         else {
             $packing = $Known{$type};
-            if ($is_pointer and $packing eq 'c') {
+            if ($is_pointer and ($packing eq 'c' or $packing eq 'S')) {
                 $packing = "p";
             }
 
@@ -193,6 +198,9 @@ sub packing {
 
 # DEBUG "(PM)Type::packing: applying modifier '$modifier' -> '$Modifier{$modifier}->{$type}'\n";
             $packing = $Modifier{$modifier}->{$type};
+            if(!$pass_numeric) { #for older num unaware calls
+                substr($packing, 0, length("num"), '');
+            }
         }
         return $packing;
     }
@@ -222,33 +230,30 @@ sub is_pointer {
 }
 
 sub Pack {
-    my ($type, $arg) = @_;
+    my $type = $_[1];
 
     my $pack_type = packing($type);
-
-    if ($pack_type eq 'p') {
-        $pack_type = 'Z*';
+    #print "Pack: type $type pack_type $pack_type\n";
+    if ($pack_type eq 'p') { #char or wide char pointer
+        return;
     }
-
-    $arg = pack($pack_type, $arg);
-
-    return $arg;
+    $_[2] = pack($pack_type, $_[2]);
+    return;
 }
 
 sub Unpack {
-    my ($type, $arg) = @_;
+    my $type = $_[1];
 
     my $pack_type = packing($type);
 
     if ($pack_type eq 'p') {
         DEBUG "(PM)Type::Unpack: got packing 'p': is a pointer\n";
-        $pack_type = 'Z*';
+        return ();
     }
 
-    DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$arg'\n";
-    $arg = unpack($pack_type, $arg);
-    DEBUG "(PM)Type::Unpack: returning '" . ($arg || '') . "'\n";
-    return $arg;
+    DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$_[2]'\n";
+    $_[2] = unpack($pack_type, $_[2]);
+    DEBUG "(PM)Type::Unpack: returning '" . ($_[2] || '') . "'\n";
 }
 
 1;
@@ -306,6 +311,32 @@ This module should recognize all the types defined in the
 Win32 Platform SDK header files. 
 Please see the source for this module, in the C<__DATA__> section,
 for the full list.
+
+
+=head2 NOTES ON SELECT TYPES
+
+=item LPVOID
+
+Due to poor design, currently LPVOID is a char *, a string, not a number.
+It should really be a number. It is suggested to replace LPVOID in your
+C prototypes passed to Win32::API with UINT_PTR which is a pointer
+sized number.
+
+=item SOMETYPE **
+
+Currently ** types do not parse.
+
+=item void **
+
+Replace void ** in your C prototype that you pass to Win32::API::More with
+LPHANDLE.
+
+=item unsigned char
+
+=item signed char
+
+These 2 types by name force numeric handling. C<97> not C<"a">. C<UCHAR> is
+not a C<unsigned char> for numeric handling purposess.
 
 =head1 AUTHOR
 
@@ -410,6 +441,7 @@ long                    l
 float                   f
 double                  d
 char                    c
+short                   s
 
 #CRITICAL_SECTION   24 -- a structure
 #LUID                   ?   8 -- a structure
@@ -433,7 +465,8 @@ S   2
 p   _P
 
 [MODIFIER]
-unsigned    int=I long=L short=S char=C
+unsigned    int=numI long=numL short=numS char=numC
+signed      int=numi long=numl short=nums char=numc
 
 [POINTER]
 INT_PTR                 INT
@@ -485,3 +518,4 @@ PVOID                   VOID
 PWCHAR                  WCHAR
 PWORD                   WORD
 PWSTR                   WCHAR
+char*                   CHAR

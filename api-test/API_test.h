@@ -23,18 +23,38 @@ typedef struct _simple_struct {
 	DWORD_PTR d;
 } simple_struct, LPsimple_struct;
 
+typedef struct {
+    char a;
+    char b;
+    char c;
+    char d;
+}
+four_char_struct;
+
 // typedef int callback_func(int);
 
 typedef int (__stdcall * callback_func)(int);
 
+typedef double (__stdcall * callback_func_void_d)();
+typedef float  (__stdcall * callback_func_void_f)();
+typedef int    (__stdcall * callback_func_5_param)
+(char, unsigned __int64, four_char_struct *, float, double);
+typedef int    (__cdecl   * callback_func_5_param_cdec)
+(char, unsigned __int64, four_char_struct *, float, double);
+
 
 extern API_TEST_API int nAPI_test;
 
+API_TEST_API ULONG  __stdcall highbit_unsigned();
 API_TEST_API int    __stdcall sum_integers(int a, int b);
+API_TEST_API short  __stdcall sum_shorts(short a, short b);
+API_TEST_API short  __stdcall sum_shorts_ref(short a, short b, short *c);
 API_TEST_API double __stdcall sum_doubles(double a, double b);
 API_TEST_API float  __stdcall sum_floats(float a, float b);
 API_TEST_API int    __stdcall has_char(char *string, char ch);
 API_TEST_API char * __stdcall find_char(char *string, char ch);
 API_TEST_API void   __stdcall dump_struct(simple_struct *x);
 API_TEST_API int    __stdcall mangle_simple_struct(simple_struct *x);
-
+API_TEST_API BOOL   __stdcall GetHandle(LPHANDLE pHandle);
+API_TEST_API BOOL   __stdcall FreeHandle(HANDLE Handle);
+API_TEST_API int    __cdecl   c_sum_integers(int a, int b);

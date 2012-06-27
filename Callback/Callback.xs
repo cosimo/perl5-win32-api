@@ -17,12 +17,26 @@
 
 #include "EXTERN.h"
 #include "perl.h"
+
+//undo perl messing with stdio
+//perl's stdio emulation layer is not OS thread safe
+#define NO_XSLOCKS
 #include "XSUB.h"
 #define CROAK croak
 
+
+#ifndef mPUSHs
+#  define mPUSHs(s)                      PUSHs(sv_2mortal(s))
+#endif
+
+#ifndef mXPUSHs
+#  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
+#endif
+
+
 #include "../API.h"
 
-#pragma optimize("", off)
+
 
 /*
  * some Perl macros for backward compatibility
@@ -60,7 +74,6 @@ int PerformCallback(SV* self, int nparams, APIPARAM* params);
 
 SV* fakesv;
 int fakeint;
-char *fakepointer;
 
 int RelocateCode(unsigned char* cursor, unsigned int displacement) {
 	int skip;
@@ -272,6 +285,8 @@ int CallbackMakeStruct(SV* self, int nparam, char *addr) {
 	// return structobj;
 }
 
+//turn off "global optimizations", -Od -O1 and -O2 tested ok
+#pragma optimize("g", off)
 int CALLBACK CallbackTemplate() {
 	SV* myself = (SV*) 0xC0DE0001; 	// checkpoint_SELFPOS
 	int nparams = 0xC0DE0002; 		// checkpoint_NPARAMS
@@ -285,7 +300,20 @@ int CALLBACK CallbackTemplate() {
 //	sv_dump(myself);
 //	if(SvROK(myself)) sv_dump(SvRV(myself));
 #endif
-
+#ifdef aTHX
+    {
+        dTHX;
+        if(aTHX == NULL) {
+//perl overrode CRT's fprintf, undo that since the error message has to be
+//printed with zero perl involvement
+            fprintf(stderr, "Win32::API::Callback::CallbackTemplate: no perl interp "
+                   "in thread id %u, callback can not run\n", GetCurrentThreadId());
+            r = 0; //dont return uninitialized value
+            checkpoint = 0xC0DE0050;
+            goto END;
+        }
+    }
+#endif
 	params = (APIPARAM*) safemalloc(  nparams * sizeof(APIPARAM) );
 	checkpoint = 0xC0DE0010;		// checkpoint_PUSHI
 	i = 0xC0DE0003;					// checkpoint_IPOS
@@ -335,8 +363,13 @@ int CALLBACK CallbackTemplate() {
 #ifdef WIN32_API_DEBUG
 	printf("(C)CallbackTemplate: RETURNING\n");
 #endif
+    END:
+    checkpoint = 0xC0DE0060;
 	return r;
 }
+//restore back to cmd line defaults
+#pragma optimize( "", on )
+
 
 int PerformCallback(SV* self, int nparams, APIPARAM* params) {
 	SV* mycode;
@@ -385,17 +418,93 @@ int PerformCallback(SV* self, int nparams, APIPARAM* params) {
 	return r;
 }
 
+unsigned char * FixupAsmSection(unsigned char * cursor, unsigned int section_PUSH, unsigned int j,
+                            unsigned int displacement, unsigned char ebpcounter
+#ifdef WIN32_API_DEBUG
+            , char * SvType
+#endif
+            ){
+    unsigned int i, r;
+#ifdef WIN32_API_DEBUG
+	printf("(C)FixupAsmSection: section_PUSH         is: 0x%08X\n", section_PUSH);
+#endif
+    for(i=0; i < section_PUSH; i++) {
+        // 8B 15 18 75 3A 00 mov         edx,dword ptr [_fakeint (3A7518h)] 
+        if(*(cursor+0) == 0x8B
+        //below is a disp32 source
+        //look at ModR/M Byte table in Intel x86 manual, then this makes sense
+        && (((*(cursor+1) & 0x0F) == 0x05 || (*(cursor+1) & 0x0F) == 0x0D) && (*(cursor+1) & 0xF0) < 0x40)
+        && *((int*)(cursor+2)) == (int) &fakeint
+        ) {
+#ifdef WIN32_API_DEBUG
+            printf("(C)CallbackCreate:     FOUND THE %s at 0x%x\n", cursor, SvType);
+            printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
+#endif
+            *(cursor+0) = 0x8B;
+            *(cursor+1) = *(cursor+1) + 0x40; //0x40 is from disp32 to disp 8 ebp
+            *(cursor+2) = ebpcounter;
+            *(cursor+3) = 0x90;		// push ecx
+            *(cursor+4) = 0x90;		// push esi
+            *(cursor+5) = 0x90;		// pop esi
+            cursor += 5; 
+            i += 4;
+        }
+        //-Od puts A1 18 85 3A 00          mov     eax, ds:_fakeint
+        //opcode A1 is a special case, not a table
+        else if(*(cursor+0) == 0xA1
+        && *((int*)(cursor+1)) == (int) &fakeint){
+#ifdef WIN32_API_DEBUG
+            printf("(C)CallbackCreate:     FOUND THE %s at 0x%x\n", cursor, SvType);
+            printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
+#endif
+            *(cursor+0) = 0x8B;
+            *(cursor+1) = 0x45;
+            *(cursor+2) = ebpcounter;
+            *(cursor+3) = 0x90;
+            *(cursor+4) = 0x90;
+            cursor += 4; 
+            i += 3;
+        }
+        else
+        if(*(cursor+0) == 0xC7
+        && *(cursor+1) == 0x45
+        && (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
+        && *((int*)(cursor+3)) == 0xC0DE0003
+        ) {
+#ifdef WIN32_API_DEBUG
+            printf("(C)CallbackCreate:     FOUND NPARAM   at 0x%x\n", cursor);
+            printf("(C)CallbackCreate:     writing         = 0x%08X\n", j);
+#endif
+            *((int*)(cursor+3)) = j;
+#ifdef WIN32_API_DEBUG
+            printf("(C)CallbackCreate:     NPARAM now is   = 0x%08X\n", *((int*)(cursor+3)));
+#endif
+            cursor += 6;
+            i += 5;
+        } else {
+            r = RelocateCode(cursor, displacement);
+            cursor += r;
+            if(r > 1) i += (r-1);
+        }
+
+    }
+    return cursor;
+}
+
 unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* callback) {
 
 	unsigned char * code;
 	unsigned char * cursor;
 	unsigned int i, j, r, toalloc, displacement;
 	unsigned char ebpcounter = 8;
-	unsigned char * source = (unsigned char *) (void *) CallbackTemplate;
+	unsigned char * source;
 	BOOL done = FALSE;
 	unsigned int distance = 0;
 	BOOL added_INIT_STRUCT = FALSE;
 	int N_structs = 0;
+    unsigned char * myCallbackTemplate = (unsigned char *)CallbackTemplate;
+    unsigned char * myPerformCallback = (unsigned char *)PerformCallback;
+    unsigned char epilog_back_up;
 
 	unsigned int
 		checkpoint_PUSHI = 0,
@@ -403,7 +512,10 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 		checkpoint_PUSHP = 0,
 		checkpoint_PUSHS = 0,
 		checkpoint_END = 0,
-		checkpoint_DONE = 0;
+		checkpoint_DONE = 0,
+        checkpoint_GOTO_END = 0,
+        checkpoint_END_LABEL = 0
+        ;
 
 	unsigned int
 		section_START,
@@ -411,10 +523,21 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 		section_PUSHL,
 		section_PUSHP,
 		section_PUSHS,
-		section_END;
-
+		section_END,
+        section_END_END_LABEL;
+    //this block deals with VC's ILT jump table
+    if(*myCallbackTemplate == 0xE9){
+//E9 is opcode for JMP rel32, +5 is next instruction +1 is rel32 num
+        myCallbackTemplate  = myCallbackTemplate+5+(*(DWORD_PTR *)(myCallbackTemplate+1));
+    }
+    source = myCallbackTemplate;
 	cursor = source;
 
+    //this block deals with VC's ILT jump table
+    if(*myPerformCallback == 0xE9){
+//E9 is opcode for JMP rel32, +5 is next instruction +1 is rel32 num
+        myPerformCallback  = myPerformCallback+5+(*(DWORD_PTR *)(myPerformCallback+1));
+    }
 	while(!done) {
 
 		if(*(cursor+0) == 0x10
@@ -461,6 +584,34 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 			checkpoint_PUSHS = distance - 3;
 		}
 
+		if(*(cursor+0) == 0x50
+		&& *(cursor+1) == 0x00
+		&& *(cursor+2) == 0xDE
+		&& *(cursor+3) == 0xC0
+		) {
+            if(*(cursor+4) == 0xE9){//E9 = jmp rel32
+#ifdef WIN32_API_DEBUG
+			printf("(C)CallbackCreate.Study: checkpoint_GOTO_END=%d\n", distance);
+#endif
+                checkpoint_GOTO_END = distance + 4;
+            }
+            else{
+                croak("unknown opcode %.2X after 0xC0DE0050 checkpoint");
+            }
+
+		}
+
+		if(*(cursor+0) == 0x60
+		&& *(cursor+1) == 0x00
+		&& *(cursor+2) == 0xDE
+		&& *(cursor+3) == 0xC0
+		) {
+#ifdef WIN32_API_DEBUG
+			printf("(C)CallbackCreate.Study: checkpoint_END_LABEL=%d\n", distance);
+#endif
+			checkpoint_END_LABEL = distance + 4;
+		}
+
 		if(*(cursor+0) == 0x99
 		&& *(cursor+1) == 0x99
 		&& *(cursor+2) == 0xDE
@@ -479,24 +630,45 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 		}
 #endif
 	
-		
-		
-
 		if(*(cursor+0) == 0xC9	// leave
-		&& *(cursor+1) == 0xC3	// ret
+            && *(cursor+1) == 0xC3	// ret
 		) {
 #ifdef WIN32_API_DEBUG
-			printf("(C)CallbackCreate.Study: checkpoint_DONE=%d\n", distance);
+			printf("(C)CallbackCreate.Study: leave ret checkpoint_DONE=%d\n", distance);
 #endif
-			checkpoint_DONE = distance + 2;
+			epilog_back_up = 2;
+            checkpoint_DONE = distance + 2;
 			done = TRUE;
 		}
 
+        if(*(cursor+0) == 0x8B
+            && *(cursor+1) == 0xE5 //mov esp,ebp
+            && *(cursor+2) == 0x5D //pop ebp
+            && *(cursor+3) == 0xC3 //ret
+		) {
+#ifdef WIN32_API_DEBUG
+			printf("(C)CallbackCreate.Study: mov pop ret checkpoint_DONE=%d\n", distance);
+#endif
+			epilog_back_up = 4;
+			checkpoint_DONE = distance + 4;
+			done = TRUE;
+		}
+// this can't possibly work, we can't write in the stdcall stack unwind amount
+// the dyn func will be broken if we go down this path
+
+//        // this test only works if the compiler does not reorder the functions in the output.
+//		if((unsigned char *) myCallbackTemplate < (unsigned char *) myPerformCallback &&
+//            cursor >= (unsigned char *) myPerformCallback) {
+//			checkpoint_DONE = distance;
+//		 	done = TRUE;
+//		}
         // this test only works if the compiler does not reorder the functions in the output.
-		if((unsigned char *) CallbackTemplate < (unsigned char *) PerformCallback &&
-            cursor >= (unsigned char *) PerformCallback) {
-			checkpoint_DONE = distance;
-		 	done = TRUE;
+		if((unsigned char *) myCallbackTemplate < (unsigned char *) myPerformCallback &&
+            cursor >= (unsigned char *) myPerformCallback) {
+            //havent reached the malloc yet, this is safe, no malloc in
+            //XS_Win32__API__Callback_CallbackCreate
+            croak("Win32::API::Callback::CallbackCreate: "
+                  "Compiler not supported (couldn't find end of CallbackTemplate)");
 		}
 		// TODO: add fallback (eg. if cursor >= CallbackCreate then done)
 
@@ -510,7 +682,13 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 	section_PUSHP = checkpoint_PUSHS	- checkpoint_PUSHP;
 	section_PUSHS = checkpoint_END 	- checkpoint_PUSHS;
 	section_END   = checkpoint_DONE	- checkpoint_END;
+    section_END_END_LABEL = checkpoint_END_LABEL - checkpoint_END;
 
+#ifdef WIN32_API_DEBUG
+	printf("(C)CallbackCreate: section_PUSHS         is: 0x%08X\n", section_PUSHS);
+	printf("(C)CallbackCreate: section_PUSHI         is: 0x%08X\n", section_PUSHI);
+	printf("(C)CallbackCreate: section_PUSHP         is: 0x%08X\n", section_PUSHP);
+#endif
 	toalloc  = section_START;
 	toalloc += section_END;
 
@@ -543,9 +721,8 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 
 #ifdef WIN32_API_DEBUG
 	printf("(C)CallbackCreate: fakeint          is at: 0x%08X\n", &fakeint);
-	printf("(C)CallbackCreate: fakepointer      is at: 0x%08X\n", &fakepointer);
 	printf("(C)CallbackCreate: fakesv           is at: 0x%08X\n", &fakesv);
-	printf("(C)CallbackCreate: CallbackTemplate is at: 0x%08X\n", CallbackTemplate);
+	printf("(C)CallbackCreate: CallbackTemplate is at: 0x%08X\n", myCallbackTemplate);
 	printf("(C)CallbackCreate: allocating %d bytes\n", toalloc);
 #endif
 	code = (unsigned char *) malloc(toalloc);
@@ -629,47 +806,11 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 			memcpy( (void *) cursor, source + checkpoint_PUSHS, section_PUSHS );
 			displacement = cursor - (source + checkpoint_PUSHS);
 
-			for(i=0; i < section_PUSHS; i++) {
-
-				if(*(cursor+0) == 0x8B
-				&& *(cursor+1) == 0x15
-				&& *((int*)(cursor+2)) == (int) &fakeint
-				) {
+            cursor = FixupAsmSection(cursor, section_PUSHS, j, displacement, ebpcounter
 #ifdef WIN32_API_DEBUG
-					printf("(C)CallbackCreate:     FOUND THE SVPV at 0x%x\n", cursor);
-					printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
+                    ,"SVPV"
 #endif
-					*(cursor+0) = 0x8B;
-					*(cursor+1) = 0x55;
-					*(cursor+2) = ebpcounter;
-					*(cursor+3) = 0x90;		// nop
-					*(cursor+4) = 0x90;		// nop
-					*(cursor+5) = 0x90;		// nop
-					cursor += 5;
-					i += 4;
-				} else
-				if(*(cursor+0) == 0xC7
-				&& *(cursor+1) == 0x45
-				&& (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
-				&& *((int*)(cursor+3)) == 0xC0DE0003
-				) {
-#ifdef WIN32_API_DEBUG
-					printf("(C)CallbackCreate:     FOUND NPARAM   at 0x%x\n", cursor);
-					printf("(C)CallbackCreate:     writing         = 0x%08X\n", j);
-#endif
-					*((int*)(cursor+3)) = j;
-#ifdef WIN32_API_DEBUG
-					printf("(C)CallbackCreate:     NPARAM now is   = 0x%08X\n", *((int*)(cursor+3)));
-#endif
-					cursor += 6;
-					i += 5;
-				} else {
-					r = RelocateCode(cursor, displacement);
-					cursor += r;
-					if(r > 1) i += (r-1);
-				}
-
-			}
+                    );
 		}
 
 		if(params[j].t == T_NUMBER) {
@@ -679,47 +820,11 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 			memcpy( (void *) cursor, source + checkpoint_PUSHI, section_PUSHI );
 			displacement = cursor - (source + checkpoint_PUSHI);
 
-			for(i=0; i < section_PUSHI; i++) {
-
-				if(*(cursor+0) == 0x8B
-				&& *(cursor+1) == 0x15
-				&& *((int*)(cursor+2)) == (int) &fakeint
-				) {
+            cursor = FixupAsmSection(cursor, section_PUSHI, j, displacement, ebpcounter
 #ifdef WIN32_API_DEBUG
-					printf("(C)CallbackCreate:     FOUND THE SVIV at 0x%x\n", cursor);
-					printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
+                    ,"SVIV"
 #endif
-					*(cursor+0) = 0x8B;
-					*(cursor+1) = 0x55;
-					*(cursor+2) = ebpcounter;
-					*(cursor+3) = 0x90;		// push ecx
-					*(cursor+4) = 0x90;		// push esi
-					*(cursor+5) = 0x90;		// pop esi
-					cursor += 5;
-					i += 4;
-				} else
-				if(*(cursor+0) == 0xC7
-				&& *(cursor+1) == 0x45
-				&& (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
-				&& *((int*)(cursor+3)) == 0xC0DE0003
-				) {
-#ifdef WIN32_API_DEBUG
-					printf("(C)CallbackCreate:     FOUND NPARAM   at 0x%x\n", cursor);
-					printf("(C)CallbackCreate:     writing         = 0x%08X\n", j);
-#endif
-					*((int*)(cursor+3)) = j;
-#ifdef WIN32_API_DEBUG
-					printf("(C)CallbackCreate:     NPARAM now is   = 0x%08X\n", *((int*)(cursor+3)));
-#endif
-					cursor += 6;
-					i += 5;
-				} else {
-					r = RelocateCode(cursor, displacement);
-					cursor += r;
-					if(r > 1) i += (r-1);
-				}
-
-			}
+                    );
 		}
 
 
@@ -730,47 +835,11 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 			memcpy( (void *) cursor, source + checkpoint_PUSHP, section_PUSHP );
 			displacement = cursor - (source + checkpoint_PUSHP);
 
-			for(i=0; i < section_PUSHP; i++) {
-
-				if(*(cursor+0) == 0x8B
-				&& *(cursor+1) == 0x15
-				&& *((int*)(cursor+2)) == (int) &fakeint
-				) {
+            cursor = FixupAsmSection(cursor, section_PUSHP, j, displacement, ebpcounter
 #ifdef WIN32_API_DEBUG
-					printf("(C)CallbackCreate:     FOUND THE SVPV at 0x%x\n", cursor);
-					printf("(C)CallbackCreate:     writing EBP+%02Xh\n", ebpcounter);
+                    ,"SVPV"
 #endif
-					*(cursor+0) = 0x8B;
-					*(cursor+1) = 0x55;
-					*(cursor+2) = ebpcounter;
-					*(cursor+3) = 0x90;		// nop
-					*(cursor+4) = 0x90;		// nop
-					*(cursor+5) = 0x90;		// nop
-					cursor += 5;
-					i += 4;
-				} else
-				if(*(cursor+0) == 0xC7
-				&& *(cursor+1) == 0x45
-				&& (*(cursor+2) == 0xFC || *(cursor+2) == 0xEC)
-				&& *((int*)(cursor+3)) == 0xC0DE0003
-				) {
-#ifdef WIN32_API_DEBUG
-					printf("(C)CallbackCreate:     FOUND NPARAM   at 0x%x\n", cursor);
-					printf("(C)CallbackCreate:     writing         = 0x%08X\n", j);
-#endif
-					*((int*)(cursor+3)) = j;
-#ifdef WIN32_API_DEBUG
-					printf("(C)CallbackCreate:     NPARAM now is   = 0x%08X\n", *((int*)(cursor+3)));
-#endif
-					cursor += 6;
-					i += 5;
-				} else {
-					r = RelocateCode(cursor, displacement);
-					cursor += r;
-					if(r > 1) i += (r-1);
-				}
-
-			}
+                    );
 		}
 
 		ebpcounter += 4;
@@ -781,6 +850,11 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 #endif
 	memcpy( (void *) cursor, source + checkpoint_END, section_END );
 
+//fixup the goto END; now that the END section is in place, +1 skip E9
+    *(int *)(code+checkpoint_GOTO_END+1) //rel 32 operand
+    = (cursor + section_END_END_LABEL) //abs ptr jmp target, after 0xC0DE0060 mov checkpoint
+    - (code+checkpoint_GOTO_END+1+4); //next instruction after the JMP rel32
+    
 	displacement = cursor - (source + checkpoint_END);
 
 	for(i=0; i < section_END; i++) {
@@ -793,8 +867,9 @@ unsigned char * CallbackCreate(int nparams, APIPARAM *params, SV* self, SV* call
 	printf("(C)CallbackCreate: adjusting callback epilogue...\n");
 #endif
 
-	// #### back up two bytes (leave/ret)
-	cursor -= 2;
+	// #### back up the cursor to two bytes for (leave/ret)
+    // or 4 bytes for mov/pop/ret
+	cursor -= epilog_back_up;
 
 	// #### insert the callback epilogue
 	*(cursor+0) = 0x8B; // mov esp,ebp
@@ -858,7 +933,7 @@ CODE:
 #endif
     EXTEND(SP, 1);
     if(nin >= 0) {
-        params = (APIPARAM *) safemalloc((nin+1) * sizeof(APIPARAM));
+        params = (APIPARAM *) _alloca((nin+1) * sizeof(APIPARAM));
         for(i = 0; i <= nin; i++) {
             in_type = av_fetch(inlist, i, 0);
             params[i].t = SvIV(*in_type);
@@ -868,9 +943,6 @@ CODE:
 	RETVAL = (unsigned int) CallbackCreate(nin+1, params, self, sub);
 #ifdef WIN32_API_DEBUG
 	printf("(XS)CallbackCreate: got RETVAL=0x%08x\n", RETVAL);
-#endif
-	if(nin > 0) safefree(params);
-#ifdef WIN32_API_DEBUG
 	printf("(XS)CallbackCreate: returning to caller\n");
 #endif
 OUTPUT:
@@ -906,5 +978,3 @@ CODE:
 	obj = (HV*) SvRV(self);
 	obj_code = hv_fetch(obj, "code", 4, FALSE);
 	if(obj_code != NULL) free((unsigned char *) SvIV(*obj_code));
-
-
