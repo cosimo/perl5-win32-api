@@ -31,6 +31,82 @@ typedef struct {
 }
 four_char_struct;
 
+typedef struct {
+    int one;
+    int two;
+    int three;
+    int four;
+    int five; //should be some padding right here
+    double six;
+}
+SIX_MEMS; //MEMS=members, not memory
+
+typedef enum _WLAN_CONNECTION_MODE {
+    wlan_connection_mode_profile = 0,
+    wlan_connection_mode_temporary_profile,
+    wlan_connection_mode_discovery_secure,
+    wlan_connection_mode_discovery_unsecure,
+    wlan_connection_mode_auto,
+    wlan_connection_mode_invalid
+} WLAN_CONNECTION_MODE, *PWLAN_CONNECTION_MODE;
+
+#define DOT11_SSID_MAX_LENGTH   32      // 32 bytes
+typedef struct _DOT11_SSID {
+    ULONG uSSIDLength;
+    UCHAR ucSSID[DOT11_SSID_MAX_LENGTH];
+} DOT11_SSID, * PDOT11_SSID;
+
+typedef struct _NDIS_OBJECT_HEADER
+{
+    UCHAR   Type;
+    UCHAR   Revision;
+    USHORT  Size;
+} NDIS_OBJECT_HEADER, *PNDIS_OBJECT_HEADER;
+
+// These are needed for wlanapi.h for pre-vista targets
+#ifdef __midl
+    typedef struct _DOT11_MAC_ADDRESS {
+        UCHAR ucDot11MacAddress[6];
+    } DOT11_MAC_ADDRESS, * PDOT11_MAC_ADDRESS;
+#else
+    typedef UCHAR DOT11_MAC_ADDRESS[6];
+    typedef DOT11_MAC_ADDRESS * PDOT11_MAC_ADDRESS;
+#endif
+
+// A list of DOT11_MAC_ADDRESS
+typedef struct DOT11_BSSID_LIST {
+    #define DOT11_BSSID_LIST_REVISION_1  1
+    NDIS_OBJECT_HEADER Header;
+    ULONG uNumOfEntries;
+    ULONG uTotalNumOfEntries;
+#ifdef __midl
+    [unique, size_is(uTotalNumOfEntries)] DOT11_MAC_ADDRESS BSSIDs[*];
+#else
+    DOT11_MAC_ADDRESS BSSIDs[1];
+#endif
+} DOT11_BSSID_LIST, * PDOT11_BSSID_LIST;
+
+typedef enum _DOT11_BSS_TYPE {
+    dot11_BSS_type_infrastructure = 1,
+    dot11_BSS_type_independent = 2,
+    dot11_BSS_type_any = 3
+} DOT11_BSS_TYPE, * PDOT11_BSS_TYPE;
+
+typedef struct _WLAN_CONNECTION_PARAMETERS {
+    WLAN_CONNECTION_MODE wlanConnectionMode;
+#ifdef __midl
+    [string] LPCWSTR strProfile;
+#else
+    LPCWSTR strProfile;
+#endif
+    PDOT11_SSID pDot11Ssid;
+    PDOT11_BSSID_LIST pDesiredBssidList;
+    DOT11_BSS_TYPE dot11BssType;
+    DWORD dwFlags;
+} WLAN_CONNECTION_PARAMETERS, *PWLAN_CONNECTION_PARAMETERS;
+
+#define WLAN_CONNECTION_HIDDEN_NETWORK      0x00000001
+
 // typedef int callback_func(int);
 
 typedef int (__stdcall * callback_func)(int);

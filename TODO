@@ -51,4 +51,29 @@ bulk88's comments
 18. If someone asks for MSVC C++ name demangling and supplies a patch, add it.
     No reason other it being extremely extremely difficult that C++ can't be
     supported.
-
+19. On x86, add a stack pointer checker similar to runtime checks by visual
+    studio, requires asm code, will catch stdcall funcs called with wrong
+    prototype, or very broken cdecl funcs written in asm, maybe setjmp/longjmp
+    is of use for this idea
+20. XP and newer has "Manifests" and "Activation Contexts", maybe some of that
+    API will have to be exposed one day in Win32::API, some DLLs such as late
+    2000s/2010s MS CRTs explode with error messages if they are loaded into a
+    process that isn't manifest compliant.
+21. Enums aren't supported by Win32::API::Struct
+22. convert SEH exceptions (access vio and friends) into Perl exceptions? GCC
+    SEH is a problem, SEH is completly different between Win32/Win64, SEH is
+    completly different between GCC and VC, so a total of 3 different
+    implementations required, GCC 64, GCC 32, and VC
+23. Whats the calling convetion on WinCE or WOA? Will Perl ever run again/on
+    those 2 platforms?
+24. Win32::API::Struct type name system is messy, struct foo * doesn't work,
+    struct foo doesn't work, pass by copy structs don't work
+25. always UTF8 vs always bytes vs always perl scalar "internal format"
+    semantics aren't defined, I've never seen a force bytes or force utf8
+    in Win32::API, the current behaviour of Win32::API needs to be documented
+    on what actually is passed to the C funcs, and maybe a discussion what
+    should the behaviour should be (feeding UTF8 to Win32 'A' functions never
+    does what is intended)
+26. C types aren't sanitized for whitespace in many places, non matches or
+    other security type bugs can come up by exploiting the lack of type name
+    sanitization

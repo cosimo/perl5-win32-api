@@ -20,17 +20,18 @@ typedef unsigned long long_ptr;
 #define T_NUMBER			1
 #define T_POINTER			2
 #define T_INTEGER			3
-#define T_FLOAT				4
-#define T_DOUBLE			5
-#define T_CHAR				6
-#define T_SHORT				7
+#define T_SHORT				4
 
 //T_QUAD is a 8 byte string,
 //use T_VOID or T_NUMBER for a 8 byte IV if 64 bit perl
 //T_QUAD is also used in ifdefs around the C code implementing T_QUAD
 #ifndef _WIN64
-    #define T_QUAD          8
+    #define T_QUAD          5
 #endif
+#define T_CHAR				6
+
+#define T_FLOAT 			7
+#define T_DOUBLE			8
 #define T_STRUCTURE			51
 
 #define T_POINTERPOINTER	22
@@ -50,11 +51,11 @@ typedef short  ApiShort(void);
 typedef __int64 ApiQuad(void);
 #endif
 
-//This is a packing padding nightmare, union or reorder, side effects unknown
 typedef struct {
-	int t;
+union {
 	LPBYTE b;
 	char c;
+    short s;
 	char *p;
 	long_ptr l; // 4 bytes on 32bit; 8 bytes on 64bbit; not sure if it is correct
 	float f;
@@ -62,6 +63,8 @@ typedef struct {
 #ifdef T_QUAD
     __int64 q;
 #endif
+};
+	unsigned char t; //1 bytes, union is 8 bytes, put last to avoid padding
 } APIPARAM;
 
 typedef struct {
@@ -93,3 +96,11 @@ typedef struct {
 #ifndef mXPUSHs
 #  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
 #endif
+
+//all callbacks in Call() or helpers for Call() must static assert against this
+//this is the ONE and only stack extend done in Call() and its helpers
+//for callbacks, this eliminates half a dozen EXTENDs and replaced them
+//with static asserts
+#define CALL_PL_ST_EXTEND 3
+
+#define PREP_SV_SET(sv) if(SvTHINKFIRST((sv))) sv_force_normal_flags((sv), SV_COW_DROP_PV)

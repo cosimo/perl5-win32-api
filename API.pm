@@ -19,7 +19,7 @@ require Exporter;      # to export the constants to the main:: space
 require DynaLoader;    # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
 @EXPORT_OK = qw( ReadMemory IsBadReadPtr MoveMemory
-WriteMemory ); # symbols to export on request
+WriteMemory SafeReadWideCString ); # symbols to export on request
 
 use vars qw( $DEBUG $sentinal );
 use Scalar::Util qw( looks_like_number );
@@ -262,12 +262,12 @@ sub type_to_num {
     elsif ($type eq 'f'
         or $type eq 'F')
     {
-        $num = 4;
+        $num = 7;
     }
     elsif ($type eq 'D'
         or $type eq 'd')
     {
-        $num = 5;
+        $num = 8;
     }
     elsif ($type eq 'c'
         or $type eq 'C')
@@ -276,14 +276,16 @@ sub type_to_num {
     }
     elsif (IVSIZE == 4 and $type eq 'q' || $type eq 'Q')
     {
-        $num = 8;
+        $num = 5;
+    }
+    elsif($type eq '>'){
+        die "Win32::API does not support pass by copy structs as function arguments";
     }
     else {
         $num = 0;
     }#not valid return types of the C func
     unless (defined $out) {
-        if (   $type eq 's'
-            or $type eq 'S')
+        if ($type eq 's' or $type eq 'S' or $type eq 't' or $type eq 'T')
         {
             $num = 51;
         }
@@ -349,12 +351,12 @@ sub type_to_num {
     elsif ($type eq 'f'
         or $type eq 'F')
     {
-        $num = 4;
+        $num = 7;
     }
     elsif ($type eq 'D'
         or $type eq 'd')
     {
-        $num = 5;
+        $num = 8;
     }
     elsif ($type eq 'c'
         or $type eq 'C')
@@ -366,19 +368,22 @@ sub type_to_num {
     }
     elsif (IVSIZE == 4 and $type eq 'q' || $type eq 'Q')
     {
-        $num = 8;
+        $num = 5;
         if(defined $out && $type eq 'Q'){
             $num |= 0x80;
         }
     }
-    elsif ($type eq 's') #7 is only used for out params
+    elsif ($type eq 's') #4 is only used for out params
     {
-        $num = 7;        
+        $num = 4;        
     }
     elsif ($type eq 'S')
     {
-        $num = 7 | 0x80;
-    }    
+        $num = 4 | 0x80;
+    }
+    elsif($type eq '>'){
+        die "Win32::API does not support pass by copy structs as function arguments";
+    }
     else {
         $num = 0;
     } #not valid return types of the C func
@@ -438,18 +443,19 @@ sub parse_prototype {
                 no warnings 'uninitialized';
                 if($type eq '') {goto BADPROTO;} #something very wrong, bail out
             }
-            if (Win32::API::Type::is_known($type)) {
+            my $packing = Win32::API::Type::packing($type);
+            if (defined $packing && $packing ne '>') {
                 if (Win32::API::Type::is_pointer($type)) {
                     DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
                         $type,
-                        Win32::API::Type->packing($type),
+                        $packing,
                         $class->type_to_num('P');
                     push(@in_params, $class->type_to_num('P'));
                 }
                 else {
                     DEBUG "(PM)parse_prototype: IN='%s' PACKING='%s' API_TYPE=%d\n",
                         $type,
-                        Win32::API::Type->packing($type),
+                        $packing,
                         $class->type_to_num(Win32::API::Type->packing($type, undef, 1));
                     push(@in_params, $class->type_to_num(Win32::API::Type->packing($type, undef, 1)));
                 }
@@ -862,7 +868,11 @@ padding out the buffer string is required, buffer overflow detection is
 performed. Pack and unpack the data yourself. If P is a return type, only
 null terminated strings or NULL pointer are supported. It is suggested to
 not use P as a return type and instead use N and read the memory yourself, and
-free the pointer if applicable.
+free the pointer if applicable. This pointer is effectivly undefined after the
+C function returns control to Perl. The C function may not hold onto it after
+the C function returns control. There are exceptions where the pointer will
+remain valid after the C function returns control, but tread at your own risk,
+and at your knowledge of Perl interpretor's C internals.
 
 =item C<T>: 
 value is a Win32::API::Struct object (see below)
@@ -1013,9 +1023,15 @@ them as parameters to Win32::API functions. A short example follows:
 
 Note that this works only when the function wants a 
 B<pointer to a structure>: as you can see, our structure is named 
-'POINT', but the API used 'LPPOINT'. 'LP' is automatically added at 
-the beginning of the structure name when feeding it to a Win32::API
-call.
+'POINT', but the API used 'LPPOINT'. Some herustics are done to vaildate the
+argument's type vs the parameter's type if the function has a C prototype
+definition (not letter definition). First, if the parameter type starts with the
+LP prefix, the LP prefix is stripped, then compared to the argument's type.
+If that fails, the Win32::API::Type database (see L<Win32::API::Type\typedef>)
+will be used to convert the parameter type to the base type. If that fails,
+the parameter type will be stripped of a trailing whitespace then a '*', and
+then checked against the base type. L<Dies|perlfunc/die> if the parameter and
+argument types do not match after 3 attempts.
 
 For more information, see also L<Win32::API::Struct>.
 
@@ -1082,6 +1098,21 @@ or remove it once your code is stable. C<$ptr> is in the format of 123456,
 not C<"\x01\x02\x03\x04">. See MS's documentation for alot more
 on this function of the same name.
 
+=head3 SafeReadWideCString
+
+    $source = Encode::encode("UTF-16LE","Just another perl h\x{00E2}cker\x00");
+    $string = SafeReadWideCString(unpack('J',pack('p', $source)));
+    die "impossible" if $source ne "Just another perl h\x{00E2}cker";
+
+Safely (SEH aware) reads a utf-16 wide null terminated string (the first and
+only parameter), into a scalar. Returns undef, if an access violation happens
+or null pointer (same thing). The string pointer is in the format of 123456,
+not C<"\x01\x02\x03\x04">. The returned scalar will be UTF8 marked if the string
+can not be represented in the system's ANSI codepage. Conversion is done with
+WideCharToMultiByte. Returns a 0 length scalar string if WideCharToMultiByte fails.
+This function was created because L<pack's|perlfunc/pack> p letter won't read UTF16
+and L</ReadMemory> and L</IsBadReadPtr> require an explicit length.
+
 =head2 METHODS
 
 =head3 Call
@@ -1101,7 +1132,7 @@ does not exist if your Perl natively supports Quads (64 bit Perl for example).
 Takes 1 optional parameter, which is a true or false value to use or don't use
 Math::Int64, returns the new setting, which is a true or false value. If called
 without any parameters, returns current setting, which is a true or false value,
-without setting the option. As discussed in L<q>, if your not using Math::Int64
+without setting the option. As discussed in L</q>, if your not using Math::Int64
 you must supply/will receive 8 byte scalar strings for quads.
 
 =head1 HISTORY
@@ -1156,6 +1187,10 @@ Untested.
 =item E<nbsp> ithreads/fork/cloning
 
 Untested.
+
+=item E<nbsp> C functions getting utf8 scalars vs byte scalars
+
+Untested and undefined.
 
 =back
 

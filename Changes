@@ -1,5 +1,34 @@
 History of Win32::API perl extension.
 
+2012-??-??  Win32::API v0.??    bulk88
+   - Added, typedef() in ::Struct now aborts and warns when encoutering an
+     unknown type rather than creating a garbage struct definition
+     (http://perlmonks.org/?node_id=978468)
+   - Added, new() in ::Struct now aborts and warns when encoutering an 
+     unknown type, rather than silent failure and a 0 byte long struct buffer
+     being passed to the C func
+   - Fixed/Added, pointers to other ::Struct types now supported in ::Struct
+   - Optimized, trim down 32 bit asm code and Call() in ::API, untested 64 bit
+     IV on 32 bit support in ::API
+   - Optimized APIPARAM struct
+   - Fixed, in Call() some of the callbacks trashed the 1st parameter on the PL
+     stack, which cause no symptoms since it was the ::API object which was read
+     from the PL stack much earlier in Call()
+   - Fixed some no symptoms problems with using a stale local SP in Call()
+     after a callback, which in a million to once chance might have been
+     reallocated during the callback
+   - Added 'void' as a type, it is an alias for VOID, which is a 'c'/char
+     maybe this needs to be revisted one day because a void function does
+     not return a char, but returns garbage on 32 and 64
+   - Added, for C proto API objects, struct type is checked against supplied
+     struct object, dies on failure
+   - Fixed, bug was can not create an alias to char * from ::Type::typedef,
+     the alias is to char instead of char, C function gets a extended char
+     instead of pointer
+   - Changed, Carp is used in more placed in ::Struct
+   - Added, SafeReadWideCString function
+   - Fixed, a length checking bug in WriteMemory
+
 2012-??-??  Win32::API v0.70    bulk88
    - Added, Callback now works on x64
    - Added, Quads on API and Callback for 32 bit perl, they are

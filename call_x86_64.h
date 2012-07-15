@@ -82,7 +82,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 					stack[i - available_registers].i = (size_t) params[i].p;
 					break;
 				case T_CHAR:
-					stack[i - available_registers].i = params[i].c;
+					stack[i - available_registers].i = params[i].l;
 					break;
 				case T_FLOAT:
 					stack[i - available_registers].f = params[i].f;

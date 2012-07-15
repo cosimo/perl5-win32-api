@@ -53,7 +53,9 @@ WriteMakefile1(
     'PREREQ_PM' => { 'Win32' => 0 , 'Scalar::Util' => 0},
     # One day, I'd like to restore the dynamic API_test.dll
     #'clean' => {FILES => 'API_test.dll API_test_dll/Release/*'},
-
+    
+    XSOPT  => ' -nolinenumbers ',
+    
     (
         $is_64bit_build
 	    ? ( $is_msvc_compiler

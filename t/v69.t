@@ -12,7 +12,7 @@ use File::Spec;
 use Test::More;
 use Encode;
 
-plan tests => 34;
+plan tests => 36;
 use vars qw($function $function2 $result $test_dll $input $ptr);
 
 use_ok('Win32::API', qw( ReadMemory IsBadReadPtr MoveMemory WriteMemory));
@@ -79,6 +79,9 @@ $result = '0';
 is($function->Call("2", "3", $result), pack('c', -128), 'sum_char_ref() returns the expected character value');
 is($result, 5, 'sum_char_ref() correctly modifies its ref argument');
 
+#test zero/sign extend logic
+$function = new Win32::API::More($test_dll, 'int __stdcall sum_uchar_ret_int(UCHAR a, UCHAR b)');
+is($function->Call("\xFD", "\x32"), 303, 'sum_uchar_ret_int() returns the expected numeric value');
 
 #test signed chars
 $function = new Win32::API::More($test_dll, 'signed char __stdcall sum_char_ref(signed char a, signed char b, signed char*c)');
@@ -153,7 +156,6 @@ $function2 = new Win32::API::More( 'kernel32.dll' , 'HANDLE  GetProcessHeap()');
 $ptr = $function->Call($function2->Call(), 0, length($input));
 MoveMemory($ptr, unpack('J', pack('p', $input)), length($input));
 
-$input = "";
 $result = ReadMemory($ptr, length($input));
 is($result,$input,'MoveMemory() and ReadMemory() work');
 
@@ -161,6 +163,8 @@ WriteMemory($ptr, "\x00" x length($input), length($input));
 $result = ReadMemory($ptr, length($input));
 is($result,"\x00" x length($input),'WriteMemory() works');
 
+eval {WriteMemory($ptr, "\x00" x length($input), length($input)+1);};
+ok(index($@, '$length > length($source)') != -1, "WriteMemory() length check works");
 
 $function = new Win32::API::More( 'kernel32.dll' ,
     'BOOL HeapFree( HANDLE hHeap, DWORD dwFlags, UINT_PTR lpMem)'

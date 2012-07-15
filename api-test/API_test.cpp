@@ -41,6 +41,9 @@ API_TEST_API int __stdcall sum_integers(int a, int b) {
 API_TEST_API short __stdcall sum_shorts(short a, short b) {
 	return a + b;
 }
+API_TEST_API int __stdcall sum_uchar_ret_int(unsigned char a, unsigned char b) {
+	return a + b;
+}
 
 API_TEST_API short __stdcall sum_shorts_ref(short a, short b, short*c) {
     if(!IsBadReadPtr(c, sizeof(short))){
@@ -283,4 +286,72 @@ API_TEST_API void * __stdcall Take41Params(
 /* cdecl functions */
 API_TEST_API int __cdecl c_sum_integers(int a, int b) {
 	return a + b;
+}
+
+API_TEST_API DWORD WINAPI 
+WlanConnect(
+    unsigned __int64 quad,
+    HANDLE hClientHandle,
+    CONST GUID *pInterfaceGuid, 
+    CONST PWLAN_CONNECTION_PARAMETERS pConnectionParameters,
+    PVOID pReserved
+){
+//{04030201-0605-0807-0910-111213141516}
+static const GUID wlanguid  = 
+{ 0x04030201, 0x0605, 0x0807, { 0x09, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16 } };
+    if(quad != 0x8000000050000000
+       ||hClientHandle != (HANDLE)0x12344321
+       ||!IsEqualGUID(*&(wlanguid), *pInterfaceGuid)
+       || pConnectionParameters->wlanConnectionMode != wlan_connection_mode_profile
+       || memcmp(pConnectionParameters->strProfile,
+                 L"TheProfileName", sizeof(L"TheProfileName")) != 0
+       || pConnectionParameters->pDot11Ssid->uSSIDLength != sizeof("TheSSID")-1
+       || memcmp(&(pConnectionParameters->pDot11Ssid->ucSSID), "TheSSID" ,sizeof("TheSSID")-1) != 0
+       || pConnectionParameters->pDesiredBssidList != NULL
+       || pConnectionParameters->dot11BssType != dot11_BSS_type_any
+       || pConnectionParameters->dwFlags != WLAN_CONNECTION_HIDDEN_NETWORK
+       || pReserved != (PVOID)0xF080F080
+       ){
+        DebugBreak();
+    }
+    else{
+        return ERROR_SUCCESS;
+    }
+}
+
+API_TEST_API BOOL __stdcall Take6MemsStruct( SIX_MEMS str){
+    if(str.one == 1
+       && str.two == 2
+       && str.three == 3
+       && str.four == 4
+       && str.five == 5
+       && str.six == 6.0)
+        return TRUE;
+    else
+        return FALSE;
+}
+typedef struct {
+    PWLAN_CONNECTION_PARAMETERS params;
+} WLANPARAMCONTAINER;
+
+static const DOT11_SSID Dot11SsidVar = {
+    sizeof("TheFilledSSID")-1,
+    "TheFilledSSID"
+};
+
+static const WLAN_CONNECTION_PARAMETERS s_Wlan_params = {
+    wlan_connection_mode_profile,
+    L"FilledTheProfileName",
+    (DOT11_SSID *)&Dot11SsidVar,
+    NULL,
+    dot11_BSS_type_any,
+    1
+};
+API_TEST_API void __stdcall GetConParams(BOOL Fill, WLANPARAMCONTAINER * param){
+    if(Fill){
+        param->params = (WLAN_CONNECTION_PARAMETERS *)&s_Wlan_params;
+    }
+    else{
+        param->params = NULL;
+    }
 }

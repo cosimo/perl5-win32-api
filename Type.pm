@@ -103,10 +103,40 @@ sub new {
 sub typedef {
     my $class = shift;
     my ($name, $type) = @_;
+    $type =~ m/^\s*(.*?)\s*$/;
+    $type =~ m/^(.+?)\s*(\*)$/;
+    $type = $1;
+    $type .= $2 if defined $2;
+    $name =~ m/^\s*(.*?)\s*$/;
+    $name =~ m/^(.+?)\s*(\*)$/;
+    $name = $1;
+    $name .= $2 if defined $2;
     my $packing = packing($type, $name);
+    if(! defined $packing){
+        warn "Win32::API::Type::typedef: WARNING unknown type '$_[1]'";
+        return undef;
+    }
+    #Win32::API::Struct logic
+    #limitation, this won't alias a new struct type to an existing struct type
+    #this only creates new struct type pointer types to an existing struct type
+    if($packing eq '>'){
+        if(is_pointer($type)){
+        $packing = 'T';
+        $type =~ s/\s*\*$//; #chop off '   *'
+        $Win32::API::Struct::Pointer{$name} = $type;
+        }
+        else{
+        warn "Win32::API::Type::typedef: aliasing struct \"".$_[0]
+        ."\" to struct \"".$_[1]."\" not supported";
+        return undef;            
+        }
+    }
     DEBUG "(PM)Type::typedef: packing='$packing'\n";
-    my $size = sizeof($type);
-    $Known{$name} = $packing;
+    if($packing eq 'p'){
+        $Pointer{$name} = $Pointer{$type};
+    }else{
+        $Known{$name} = $packing;
+    }
     return 1;
 }
 
@@ -177,7 +207,7 @@ sub packing {
         # DEBUG "(PM)packing: got modifier '$modifier', type '$type'\n";
     }
 
-    $type =~ s/\*$//;
+    $type =~ s/\s*\*$//; #kill whitespace "CHAR " isn't "CHAR"
 
     if (exists $Known{$type}) {
         if (defined $name and $name =~ s/\[(.*)\]$//) {
@@ -321,6 +351,15 @@ need to 'use' it explicitly. These are the methods of this package:
 This method defines a new type named C<NAME>. This actually just 
 creates an alias for the already-defined type C<TYPE>, which you
 can use as a parameter in a Win32::API call.
+
+When C<TYPE> contains a Win32::API::Struct type declared with
+L<Win32::API::Struct/typedef> with " *" postfixed to C<TYPE> parameter,
+C<NAME> will be a alias for the pointer version of the struct type. Creating
+an alias for a struct type is not supported, you have to call
+L<Win32::API::Struct/typedef> again. Passing a struct type as C<TYPE>
+without the " *" postfix is not supported.
+
+L<Warns|perlfunc/warn> and returns undef if C<TYPE> is unknown, else returns true.
 
 =item C<sizeof TYPE>
 
@@ -471,7 +510,11 @@ float                   f
 double                  d
 char                    c
 short                   s
+void                    c
+__int64                 q
 
+#VOID is a 'c'? huh?
+#making void be a 'c' too, ~bulk88
 #CRITICAL_SECTION   24 -- a structure
 #LUID                   ?   8 -- a structure
 #VOID   0
@@ -492,6 +535,8 @@ Q   8
 s   2
 S   2
 p   _P
+T   _P
+t   _P
 
 [MODIFIER]
 unsigned    int=numI long=numL short=numS char=numC

@@ -305,13 +305,13 @@ BOOT:
     SV * PtrHolder = get_sv("Win32::API::Callback::Stage2FuncPtrPkd", 1);
 #ifdef _WIN64
     void * p = (void *)Stage2CallbackX64;
+    HV *stash;
 #else
     void * p = (void *)PerlCallback;
 #endif
-    HV *stash;
     sv_setpvn(PtrHolder, (char *)&p, sizeof(void *)); //gen a packed value
-    stash = gv_stashpv("Win32::API::Callback", TRUE);
 #ifdef _WIN64
+    stash = gv_stashpv("Win32::API::Callback", TRUE);
     newCONSTSUB(stash, "CONTEXT_XMM0", newSViv(offsetof(struct  _CONTEXT, Xmm0)));
     newCONSTSUB(stash, "CONTEXT_RAX", newSViv(offsetof(struct  _CONTEXT, Rax)));
 #endif

@@ -11,6 +11,7 @@ EXPORTS
   sum_shorts
   sum_shorts_ref
   sum_char_ref
+  sum_uchar_ret_int
   sum_quads_ref
   str_cmp
   wstr_cmp
@@ -30,3 +31,6 @@ EXPORTS
   FreeHandle
   Take41Params
   c_sum_integers
+  WlanConnect
+  Take6MemsStruct
+  GetConParams  

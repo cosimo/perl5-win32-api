@@ -4,3 +4,17 @@ LPCSTR      T_PV
 LPCWSTR     T_PV
 long_ptr    T_PTR
 
+INPUT
+
+T_IV
+	{SV * TmpIVSV = $arg;
+    $var = ($type)SvIV(TmpIVSV);};
+T_PV
+	{SV * TmpPVSV = $arg;
+    $var = ($type)SvPV_nolen(TmpPVSV);};
+T_PTR
+	{SV * TmpPtrSV = $arg;
+    $var = INT2PTR($type,SvIV(TmpPtrSV));};
+T_UV
+	{SV * TmpUVSV = $arg;
+    $var = ($type)SvUV(TmpUVSV);};
