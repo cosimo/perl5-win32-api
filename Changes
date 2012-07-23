@@ -1,5 +1,11 @@
 History of Win32::API perl extension.
 
+2012-07-23  Win32::API v0.69    ELIN
+
+   - update for the structure array and the array of 2bytes or more.
+
+   - $VERSION string fix.
+
 2012-04-10  Win32::API v0.68    Cosimo
 
    - Temporarily skip RT#53914 related Callback test that's crashing
