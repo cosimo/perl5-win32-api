@@ -28,8 +28,11 @@ History of Win32::API perl extension.
    - Changed, Carp is used in more placed in ::Struct
    - Added, SafeReadWideCString function
    - Fixed, a length checking bug in WriteMemory
+   - creating an API object, with ::Callback or ::Struct as return type
+     now fatally errors in new() instead of silent failure and being a void
+   - removed CRT initialization code on MSVC
 
-2012-??-??  Win32::API v0.70    bulk88
+2012 never CPAN released  Win32::API v0.70    bulk88
    - Added, Callback now works on x64
    - Added, Quads on API and Callback for 32 bit perl, they are
      8 byte strings or Math::Int64 objs on 32 bit perl 
@@ -38,7 +41,7 @@ History of Win32::API perl extension.
    - Fixed RT #55660 and #77677, nonvolatile registers were corrupted on x64,
      especially if more than 4 parameters
 
-2012-??-??  Win32::API v0.69    bulk88
+2012 never CPAN released  Win32::API v0.69    bulk88
    - Fixed RT #12057, dll leak if func not found
      (https://rt.cpan.org/Ticket/Display.html?id=12057)
    - Fixed RT #77048, shorts and short typedefs crashed since 'S'

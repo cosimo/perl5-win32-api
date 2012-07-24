@@ -579,8 +579,9 @@ of types and member names, just like in C. In fact, most of the
 times you can cut the C definition for a structure and paste it
 verbatim to your script, enclosing it in a C<qw()> block. The 
 function takes care of removing the semicolon after the member
-name. Win32::API::Struct does B<NOT> support Enums. C<NAME> must not end in
-C<*>, typedef creates structs, not struct pointers. See L<Win32::API::Type/"typedef">
+name. Win32::API::Struct does B<NOT> support Enums, Unions, or Bitfields.
+C<NAME> must not end in C<*>, typedef creates structs, not struct pointers.
+See L<Win32::API::Type/"typedef">
 on howto create a struct pointer type. Returns true on success, and undef on error.
 On error it L<warns|perlfunc/warn> with the specific reason.
 

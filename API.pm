@@ -284,7 +284,12 @@ sub type_to_num {
     else {
         $num = 0;
     }#not valid return types of the C func
-    unless (defined $out) {
+    if(defined $out) {#b/B remains private/undocumented
+        die "Win32::API invalid return type, structs and ".
+        "callbacks as return types not supported"
+            if($type =~ m/^s|S|t|T|b|B|k|K$/);
+    }
+    else {#in type
         if ($type eq 's' or $type eq 'S' or $type eq 't' or $type eq 'T')
         {
             $num = 51;
@@ -387,7 +392,12 @@ sub type_to_num {
     else {
         $num = 0;
     } #not valid return types of the C func
-    unless (defined $out) {
+    if(defined $out) {#b/B remains private/undocumented
+        die "Win32::API invalid return type, structs and ".
+        "callbacks as return types not supported"
+            if($type =~ m/^t|T|b|B|k|K$/);
+    }
+    else {#in type
         if (   $type eq 't'
             or $type eq 'T')
         {
@@ -875,10 +885,11 @@ remain valid after the C function returns control, but tread at your own risk,
 and at your knowledge of Perl interpretor's C internals.
 
 =item C<T>: 
-value is a Win32::API::Struct object (see below)
+value is a Win32::API::Struct object, in parameter only, pass by reference
+(pointer) only, pass by copy not implemented, see other sections for more
 
 =item C<K>:
-value is a Win32::API::Callback object (see L<Win32::API::Callback>)
+value is a Win32::API::Callback object, in parameter only, (see L<Win32::API::Callback>)
 
 =back
 
@@ -1022,12 +1033,13 @@ them as parameters to Win32::API functions. A short example follows:
     print "The cursor is at: $pt->{x}, $pt->{y}\n";
 
 Note that this works only when the function wants a 
-B<pointer to a structure>: as you can see, our structure is named 
-'POINT', but the API used 'LPPOINT'. Some herustics are done to vaildate the
-argument's type vs the parameter's type if the function has a C prototype
-definition (not letter definition). First, if the parameter type starts with the
-LP prefix, the LP prefix is stripped, then compared to the argument's type.
-If that fails, the Win32::API::Type database (see L<Win32::API::Type\typedef>)
+B<pointer to a structure>, not a "pass by copy" structure. As you can see, our
+structure is named 'POINT', but the API used 'LPPOINT'. Some herustics are
+done to vaildate the argument's type vs the parameter's type if the function
+has a C prototype definition (not letter definition). First, if the parameter
+type starts with the LP prefix, the LP prefix is stripped, then compared to
+the argument's type. If that fails, the Win32::API::Type database
+(see L<Win32::API::Type\typedef>)
 will be used to convert the parameter type to the base type. If that fails,
 the parameter type will be stripped of a trailing whitespace then a '*', and
 then checked against the base type. L<Dies|perlfunc/die> if the parameter and
@@ -1197,6 +1209,12 @@ Untested and undefined.
 =head1 SEE ALSO
 
 L<Math::Int64>
+
+L<Win32::API::Struct>
+
+L<Win32::API::Type>
+
+L<Win32::API::Callback>
 
 L<http://homepage.ntlworld.com/jonathan.deboynepollard/FGA/function-calling-conventions.html>
 

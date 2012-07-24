@@ -26,7 +26,7 @@ bulk88's comments
 7.  create standalone DLLs that start a perl interps in the process and have
     Callback's function pointers in the DLL export table?
 8.  stop using unpackstring in Callback, start using unpackstring in API?
-9. Register user supplied callbacks for type packing/unpacking, probably
+9.  Register user supplied callbacks for type packing/unpacking, probably
     it should inspect caller() to make sure one packages/module's type callbacks
     dont collide with the type callbacks of another
 10. Void ** doesn't parse.
@@ -59,7 +59,7 @@ bulk88's comments
     API will have to be exposed one day in Win32::API, some DLLs such as late
     2000s/2010s MS CRTs explode with error messages if they are loaded into a
     process that isn't manifest compliant.
-21. Enums aren't supported by Win32::API::Struct
+21. Enums, unions and bitfields aren't supported by Win32::API::Struct
 22. convert SEH exceptions (access vio and friends) into Perl exceptions? GCC
     SEH is a problem, SEH is completly different between Win32/Win64, SEH is
     completly different between GCC and VC, so a total of 3 different
@@ -77,3 +77,6 @@ bulk88's comments
 26. C types aren't sanitized for whitespace in many places, non matches or
     other security type bugs can come up by exploiting the lack of type name
     sanitization
+27. Use DeviceIOControl to copy a APIPARAM array to a NT Driver that comes with
+    Win32::API. NT Driver will run the kernel mode function and return the
+    results in a APIPARAM. NT Driver is Perl License just like ::API.

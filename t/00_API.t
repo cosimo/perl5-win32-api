@@ -11,7 +11,7 @@ use strict;
 use File::Spec;
 use Test::More;
 use Encode;
-plan tests => 47;
+plan tests => 48;
 use vars qw($function $result $input $test_dll $ptr);
 
 use_ok('Win32::API');
@@ -155,7 +155,15 @@ $result = 0;
 is($function->Call(2, 3, $result), 1, 'sum_integers_ref() returns the expected value');
 is(unpack('C', $result), 5, 'sum_integers_ref() correctly modifies its ref argument');
 
+#as of 0.71, creating an obj with callback or struct return type dies
+eval{
 $function = new Win32::API($test_dll, 'short  __stdcall sum_shorts_ref(short a, short b, short *c)');
+};
+ok(index($@, 'Win32::API invalid return type, structs and callbacks') != -1,
+   'short as return type croak because they are structs on old API');
+   
+#changed to int, short really, b/c 0.71 type check
+$function = new Win32::API($test_dll, 'int  __stdcall sum_shorts_ref(short a, short b, short *c)');
 ok(defined($function), 'sum_shorts_ref() function defined');
 
 #diag("$function->{procname} \$^E=", $^E);

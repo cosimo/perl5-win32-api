@@ -11,7 +11,7 @@ use File::Spec;
 use Test::More;
 use Encode;
 
-plan tests => 8;
+plan tests => 13;
 use vars qw($function $result $return $test_dll );
 
 
@@ -50,3 +50,29 @@ is($string, "Just another perl h\x{00E2}cker", "SafeReadWideCString Wide");
 $string = SafeReadWideCString(0);
 ok(! defined $string, "SafeReadWideCString null pointer");
 }
+
+eval {
+    $function = new Win32::API($test_dll, 'GetHandle', 'N', 'S', '__stdcall');
+};
+ok(index($@, 'Win32::API invalid return type, structs and callbacks') != -1,
+   "Struct 'S' invalid return type");
+eval {
+    $function = new Win32::API($test_dll, 'GetHandle', 'N', 'T', '__stdcall');
+};
+ok(index($@, 'Win32::API invalid return type, structs and callbacks') != -1,
+   "Struct 'T' invalid return type");
+eval {
+    $function = new Win32::API($test_dll, 'GetHandle', 'N', 'K', '__stdcall');
+};
+ok(index($@, 'Win32::API invalid return type, structs and callbacks') != -1,
+   "Callback invalid return type");
+eval {
+    $function = new Win32::API::More($test_dll, 'GetHandle', 'N', 'T', '__stdcall');
+};
+ok(index($@, 'Win32::API invalid return type, structs and callbacks') != -1,
+   "::More Struct 'T' invalid return type");
+eval {
+    $function = new Win32::API::More($test_dll, 'GetHandle', 'N', 'K', '__stdcall');
+};
+ok(index($@, 'Win32::API invalid return type, structs and callbacks') != -1,
+   "::More Callback invalid return type");

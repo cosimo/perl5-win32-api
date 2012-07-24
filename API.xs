@@ -51,6 +51,29 @@
 #error "Don't know what architecture I'm on."
 #endif
 
+/*get rid of CRT startup code on MSVC, we use exactly 3 CRT functions
+memcpy, memmov, and wcslen, neither require any specific initialization other than
+loading the CRT DLL (SSE probing on modern CRTs is done when CRT DLL is loaded
+not when a random DLL subscribes to the the CRT), Mingw has more startup code
+than MSVC does, so I (bulk88) will leave Mingw's CRT startup code in*/
+#ifdef _MSC_VER
+BOOL WINAPI _DllMainCRTStartup(
+    HINSTANCE hinstDLL,
+    DWORD fdwReason,
+    LPVOID lpReserved )
+{
+    switch( fdwReason ) 
+    { 
+        case DLL_PROCESS_ATTACH:
+            if(!DisableThreadLibraryCalls(hinstDLL)) return FALSE;
+            break;
+        case DLL_PROCESS_DETACH:
+            break;
+    }
+    return TRUE;
+}
+#endif
+
 const static struct {
     char Unpack [sizeof("Win32::API::Type::Unpack")];
     char Pack [sizeof("Win32::API::Type::Pack")];
