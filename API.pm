@@ -121,15 +121,24 @@ sub new {
     }
     else {
         $self->{in} = [];
+        my $self_in = $self->{in}; #avoid hash derefing
         if (ref($in) eq 'ARRAY') {
             foreach (@$in) {
-                push(@{$self->{in}}, $class->type_to_num($_));
+                push(@{$self_in}, $class->type_to_num($_));
             }
         }
         else {
             my @in = split '', $in;
             foreach (@in) {
-                push(@{$self->{in}}, $class->type_to_num($_));
+                push(@{$self_in}, $class->type_to_num($_));
+            }
+        }#'V' must be one and ONLY letter for "in"
+        foreach(@{$self_in}){
+            if($_ == 0){ 
+                if(@{$self_in} != 1){
+                    Win32::API::FreeLibrary($hdll) if $freedll;
+                    die "Win32::API 'V' for in prototype must be the only parameter";
+                } else {undef(@{$self_in});} #empty arr, as if in param was ""
             }
         }
         $self->{out}   = $class->type_to_num($out, 1);
@@ -282,7 +291,7 @@ sub type_to_num {
         die "Win32::API does not support pass by copy structs as function arguments";
     }
     else {
-        $num = 0;
+        $num = 0; #'V' takes this branch, which is T_VOID in C
     }#not valid return types of the C func
     if(defined $out) {#b/B remains private/undocumented
         die "Win32::API invalid return type, structs and ".
@@ -390,7 +399,7 @@ sub type_to_num {
         die "Win32::API does not support pass by copy structs as function arguments";
     }
     else {
-        $num = 0;
+        $num = 0; #'V' takes this branch, which is T_VOID in C
     } #not valid return types of the C func
     if(defined $out) {#b/B remains private/undocumented
         die "Win32::API invalid return type, structs and ".
@@ -726,7 +735,9 @@ The type of the value returned by the function.
 
 =item 6.
 And optionally you can specify the calling convention, this defaults to
-'__stdcall', alternatively you can specify '_cdecl'.
+'__stdcall', alternatively you can specify '_cdecl' or '__cdecl' (API > v0.68).
+False is __stdcall. Vararg functions are always cdecl. MS DLLs are typically
+stdcall. Non-MS DLLs are typically cdecl.
 
 =back
 
@@ -891,6 +902,10 @@ value is a Win32::API::Struct object, in parameter only, pass by reference
 =item C<K>:
 value is a Win32::API::Callback object, in parameter only, (see L<Win32::API::Callback>)
 
+=item C<V>:
+no value, no parameters, stands for C<void>, may not be combined with any other
+letters, equivelent to a "" 
+
 =back
 
 For beginners, just skip this paragraph.
@@ -917,7 +932,7 @@ string (C<LPSTR>):
 
 =item B<4.>
 
-The fourth and final parameter is the type of the value returned by the 
+The fourth is the type of the value returned by the 
 function. It can be one of the types seen above, plus another type named B<V> 
 (for C<void>), used for functions that do not return a value.
 In our example the value returned by GetTempPath() is a C<DWORD>, which is a

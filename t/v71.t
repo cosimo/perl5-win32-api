@@ -11,7 +11,7 @@ use File::Spec;
 use Test::More;
 use Encode;
 
-plan tests => 13;
+plan tests => 19;
 use vars qw($function $result $return $test_dll );
 
 
@@ -76,3 +76,21 @@ eval {
 };
 ok(index($@, 'Win32::API invalid return type, structs and callbacks') != -1,
    "::More Callback invalid return type");
+
+{
+    $function = Win32::API->new('kernel32.dll', 'GetCurrentThreadId', 'V', 'N');
+    ok($function->Call(), "GetCurrentThreadId with 'V' in proto works");
+    $function = Win32::API->new('kernel32.dll', 'GetCurrentThreadId', ['V'], 'N');
+    ok($function->Call(), "GetCurrentThreadId with array 'V' in proto works");
+eval{
+    $function = Win32::API->new('kernel32.dll', 'GetCurrentThreadId', ['V', 'N'], 'N');
+};
+    ok(index($@, "Win32::API 'V' for in prototype must be the only parameter") != -1,
+    "in V proto param + other param fails");
+    $function = Win32::API->new('kernel32.dll', 'GetCurrentThreadId', '', 'N');
+    ok($function->Call(), "GetCurrentThreadId with '' in proto works");
+    $function = Win32::API->new('kernel32.dll', 'GetCurrentThreadId', '', '');
+    ok(! defined $function->Call(), "GetCurrentThreadId with '' out proto works");
+    $function = Win32::API->new('kernel32.dll', 'GetCurrentThreadId', '', 'V');
+    ok(! defined $function->Call(), "GetCurrentThreadId with '' out proto works");
+}

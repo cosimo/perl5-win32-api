@@ -15,8 +15,9 @@ package Win32::API::Type;
 $VERSION = '0.64';
 
 use Carp;
+BEGIN{
 use Config;
-
+}
 require Exporter;      # to export the constants to the main:: space
 require DynaLoader;    # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
