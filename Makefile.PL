@@ -23,15 +23,21 @@ WriteMakefile1(
             repository => 'https://github.com/cosimo/perl5-win32-api',
         },
         keywords => ['win32','api','dll','libraries'],
+        recommends => {'Math::Int64' => 0}
     },
     BUILD_REQUIRES => {
-        'Test::More' => 0,
-        'Math::Int64' => 0
+        'Test::More'    => 0,
+        'Math::Int64'   => 0,
+        'File::Spec'    => 0,
+        'Win32'         => 0,
+        'Win32API::File'=> 0,
+        'IPC::Open3'    => 0,
+        'Encode'        => 0
     },
 
     'NAME'	=> 'Win32::API',
 
-    'AUTHOR'        	=> 'Aldo Calpini <dada@perl.it>, Cosimo Streppone <cosimo@cpan.org>',
+    'AUTHOR'        	=> 'Aldo Calpini <dada@perl.it>, Cosimo Streppone <cosimo@cpan.org>, Daniel Dragan <bulkdd@cpan.org>',
     'ABSTRACT'      	=> 'Perl Win32 API Import Facility',
 
     'PM' => {
@@ -50,7 +56,7 @@ WriteMakefile1(
     },
 
     # Win32 is a prerequisite, at least for our tests
-    'PREREQ_PM' => { 'Win32' => 0 , 'Scalar::Util' => 0},
+    'PREREQ_PM' => { 'Scalar::Util' => 0},
     # One day, I'd like to restore the dynamic API_test.dll
     #'clean' => {FILES => 'API_test.dll API_test_dll/Release/*'},
     

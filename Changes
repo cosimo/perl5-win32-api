@@ -1,6 +1,6 @@
 History of Win32::API perl extension.
 
-2012-??-??  Win32::API v0.??    bulk88
+2012-08-16  Win32::API v0.70_02    bulk88
    - Added, typedef() in ::Struct now aborts and warns when encoutering an
      unknown type rather than creating a garbage struct definition
      (http://perlmonks.org/?node_id=978468)
@@ -23,7 +23,7 @@ History of Win32::API perl extension.
    - Added, for C proto API objects, struct type is checked against supplied
      struct object, dies on failure
    - Fixed, bug was can not create an alias to char * from ::Type::typedef,
-     the alias is to char instead of char, C function gets a extended char
+     the alias is to char instead of char *, C function gets a extended char
      instead of pointer
    - Changed, Carp is used in more placed in ::Struct
    - Added, SafeReadWideCString function
@@ -31,6 +31,11 @@ History of Win32::API perl extension.
    - creating an API object, with ::Callback or ::Struct as return type
      now fatally errors in new() instead of silent failure and being a void
    - removed CRT initialization code on MSVC
+   - 'V' now works for "in" letter protos, it is equivelent to ""
+   - add strict, warnings, and pod testing globally
+
+2012-08-16  Win32::API v0.70_01    bulk88
+   - broken CPAN package, useless
 
 2012 never CPAN released  Win32::API v0.70    bulk88
    - Added, Callback now works on x64

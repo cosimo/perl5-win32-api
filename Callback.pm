@@ -6,14 +6,18 @@
 # Win32::API::Callback - Perl Win32 API Import Facility
 #
 # Author: Aldo Calpini <dada@perl.it>
-# Author: Daniel Dragan <bulk88@hotmail.com>
+# Author: Daniel Dragan <bulkdd@cpan.org>
 # Maintainer: Cosimo Streppone <cosimo@cpan.org>
 #
 #######################################################################
 
 package Win32::API::Callback;
+use strict;
+use warnings;
+use vars qw( $VERSION @ISA $Stage2FuncPtrPkd );
 
-$VERSION = '0.70';
+$VERSION = '0.70_02';
+
 
 require Exporter;      # to export the constants to the main:: space
 require DynaLoader;    # to dynuhlode the module.
@@ -527,6 +531,7 @@ See L<Win32::API/UseMI64>.
 =head1 AUTHOR
 
 Aldo Calpini ( I<dada@perl.it> ).
+Daniel Dragan ( I<bulkdd@cpan.org> ).
 
 =head1 MAINTAINER
 

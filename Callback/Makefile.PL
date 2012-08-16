@@ -6,7 +6,7 @@ use ExtUtils::MakeMaker qw/ WriteMakefile/;
     WriteMakefile(
         'NAME'	=> 'Win32::API::Callback',
         ($] < 5.005 ? () : (
-                'AUTHOR'        	=> 'Aldo Calpini <dada@perl.it>',
+                'AUTHOR'        	=> 'Aldo Calpini <dada@perl.it> Daniel Dragan <bulkdd@cpan.org>',
                 'ABSTRACT'      	=> 'Perl Win32 API Import Facility',
         )),
         'VERSION_FROM' => '../API.pm',

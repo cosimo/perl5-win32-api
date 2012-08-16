@@ -6,8 +6,10 @@
 #
 
 package Win32::API::Struct;
-
-$VERSION = '0.62';
+use strict;
+use warnings;
+use vars qw( $VERSION @ISA );
+$VERSION = '0.62_02';
 
 use Carp;
 use Win32::API::Type;
@@ -101,7 +103,7 @@ sub recognize {
 
 sub new {
     my $class = shift;
-    my ($type, $name);
+    my ($type, $name, $packing);
     my $self = {typedef => [],};
     if ($#_ == 0) {
         if (is_known($_[0])) {
@@ -444,7 +446,7 @@ sub Dump {
     my $self   = shift;
     my $prefix = shift;
     foreach my $member (@{$self->{typedef}}) {
-        ($name, $packing, $type) = @$member;
+        my ($name, $packing, $type) = @$member;
         if (ref($self->{$name})) {
             $self->{$name}->Dump($name);
         }

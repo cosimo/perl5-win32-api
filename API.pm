@@ -14,14 +14,16 @@
 #######################################################################
 
 package Win32::API;
-
+use strict;
+use warnings;
 require Exporter;      # to export the constants to the main:: space
 require DynaLoader;    # to dynuhlode the module.
+use vars qw( $DEBUG $sentinal @ISA @EXPORT_OK %Imported $VERSION );
+
 @ISA = qw( Exporter DynaLoader );
 @EXPORT_OK = qw( ReadMemory IsBadReadPtr MoveMemory
 WriteMemory SafeReadWideCString ); # symbols to export on request
 
-use vars qw( $DEBUG $sentinal );
 use Scalar::Util qw( looks_like_number );
 
 $DEBUG = 0;
@@ -47,7 +49,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.70';
+$VERSION = '0.70_02';
 
 #### some package-global hash to
 #### keep track of the imported
@@ -320,6 +322,7 @@ sub type_to_num {
 
 package Win32::API::More;
 
+use vars qw( @ISA );
 @ISA = qw ( Win32::API );
 sub type_to_num {
     die "wrong class" if shift ne "Win32::API::More";
@@ -856,7 +859,9 @@ value is a signed pointer sized number (signed long or long)
 value is a unsigned 64 bit integer number (unsigned long long, unsigned __int64)
 See next item for details.
 
-=item C<q>: 
+=item C<q>:
+This function is experimental and subject to change.
+
 value is a signed 64 bit integer number (long long, __int64)
 If your perl has 'Q'/'q' quads support for L<perlfunc/pack> then Win32::API's 'q'
 is a normal perl numeric scalar. All 64 bit Perls have quad support. Almost no
@@ -1127,6 +1132,8 @@ on this function of the same name.
 
 =head3 SafeReadWideCString
 
+This function is experimental and subject to change.
+
     $source = Encode::encode("UTF-16LE","Just another perl h\x{00E2}cker\x00");
     $string = SafeReadWideCString(unpack('J',pack('p', $source)));
     die "impossible" if $source ne "Just another perl h\x{00E2}cker";
@@ -1140,6 +1147,16 @@ WideCharToMultiByte. Returns a 0 length scalar string if WideCharToMultiByte fai
 This function was created because L<pack's|perlfunc/pack> p letter won't read UTF16
 and L</ReadMemory> and L</IsBadReadPtr> require an explicit length.
 
+=head2 CONSTRUCTORS
+
+=head3 new
+
+See L</DESCRIPTION>.
+
+=head3 Import
+
+See L</DESCRIPTION>.
+
 =head2 METHODS
 
 =head3 Call
@@ -1147,6 +1164,8 @@ and L</ReadMemory> and L</IsBadReadPtr> require an explicit length.
 The main method of a Win32::API object. Documented elsewhere in this document.
 
 =head3 UseMI64
+
+This function is experimental and subject to change.
 
     $bool = $APIObj->UseMI64();
     $t_or_f_of_newbool = $APIObj->UseMI64($newbool);
@@ -1240,6 +1259,10 @@ Aldo Calpini ( I<dada@perl.it> ).
 =head1 MAINTAINER
 
 Cosimo Streppone ( I<cosimo@cpan.org> )
+
+=head1 MAJOR CONTRIBUTOR
+
+Daniel Dragan ( I<bulkdd@cpan.org> )
 
 =head1 LICENSE
 

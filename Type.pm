@@ -12,7 +12,11 @@ package Win32::API::Type;
 #
 #######################################################################
 
-$VERSION = '0.64';
+use strict;
+use warnings;
+use vars qw( %Known %PackSize %Modifier %Pointer $VERSION @ISA );
+
+$VERSION = '0.64_02';
 
 use Carp;
 BEGIN{
@@ -21,8 +25,6 @@ use Config;
 require Exporter;      # to export the constants to the main:: space
 require DynaLoader;    # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
-
-use vars qw( %Known %PackSize %Modifier %Pointer );
 
 sub DEBUG {
     if ($Win32::API::DEBUG) {
@@ -384,6 +386,8 @@ for the full list.
 
 =head2 NOTES ON SELECT TYPES
 
+=over 4
+
 =item LPVOID
 
 Due to poor design, currently LPVOID is a char *, a string, not a number.
@@ -406,6 +410,8 @@ LPHANDLE.
 
 These 2 types by name force numeric handling. C<97> not C<"a">. C<UCHAR> is
 not a C<unsigned char> for numeric handling purposess.
+
+=back
 
 =head1 AUTHOR
 
