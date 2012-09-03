@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use vars qw( $VERSION @ISA $Stage2FuncPtrPkd );
 
-$VERSION = '0.70_02';
+$VERSION = '0.71';
 
 
 require Exporter;      # to export the constants to the main:: space
@@ -198,7 +198,7 @@ if(! ISX64 ) {
           || $typeletter eq 'i' || $typeletter eq 'I'){
         $_[2] = pack('J', $return);
     }elsif($typeletter eq 'q' || $typeletter eq 'Q'){
-        if($self->{'UseMI64'}){ #un/signed meaningless
+        if($self->{'UseMI64'} || ref($return)){ #un/signed meaningless
             $_[2] = Math::Int64::int64_to_native($return);
         }
         else{
@@ -320,7 +320,7 @@ sub MakeCB{
 
 
     #begin x64 part
-    #these packs dont constant fold :-(
+    #these packs dont constant fold in < 5.17 :-(
     #they are here for readability
     :(''.pack('C', 0b01000000 #REX base
             | 0b00001000 #REX.W
@@ -332,6 +332,16 @@ sub MakeCB{
     ).pack('C', 0xB8) #mov to rax register
     .$Stage2FuncPtrPkd
     ."\xFF\xE0");#       jmp     rax
+#making a full function in Perl in x64 was removed because RtlAddFunctionTable
+#has no effect on VS 2008 debugger, it is a bug in VS 2008, in WinDbg the C callstack
+#is correct with RtlAddFunctionTable, and broken without RtlAddFunctionTable
+#in VS 2008, the C callstack was always broken since WinDbg and VS 2008 both
+#*only* use Unwind Tables on x64 to calculate C callstacks, they do not, I think,
+#use 32 bit style EBP/RBP walking, x64 VC almost never uses BP addressing anyway.
+#The easiest fix was to not have dynamic machine code in the callstack at all,
+#which is what I did. Having good C callstacks in a debugger with ::API and
+#::Callback are a good goal.
+#
 ##--- c:\documents and settings\administrator\desktop\w32api\callback\callback.c -
 #    $code .= "\x4C\x8B\xDC";#         mov         r11,rsp
 #    $code .= "\x49\x89\x4B\x08";#      mov         qword ptr [r11+8],rcx 
@@ -480,7 +490,10 @@ that causes all quads to be accepted as, and returned as L<Math::Int64>
 objects. 4 to 8 byte long pass by copy/return type C aggregate types
 are very rare in Windows, but they are supported as "in" and return
 types by using 'q'/'Q' on 32 and 64 bits. Converting between the C aggregate
-and its representation as a quad is upto the reader.
+and its representation as a quad is upto the reader. For "out" in
+Win32::API::Callback (not "in"), if the argument is a reference, it will
+automatically be treated as a Math::Int64 object without having to
+previously call this function.
 
 =item C<F>: 
 value is a floating point number (float)
@@ -520,7 +533,8 @@ parameter will somehow indiciate how many additional stack parameters you are
 receiving. The Ns in @_ will eventually become garbage, technically they are
 the return address, saved registers, and C stack allocated variables of the
 caller. They are effectivly garbage for your vararg callback. All vararg
-callbacks on 32 bits must supply a calling convention, and it must be '__cdecl'.
+callbacks on 32 bits must supply a calling convention, and it must be '__cdecl'
+or 'WINAPIV'.
 
 =head2 METHODS
 

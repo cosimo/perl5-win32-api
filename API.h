@@ -8,6 +8,8 @@
     #
  */
 
+#include "ppport.h"
+
 // #define WIN32_API_DEBUG
 
 #ifdef _WIN64
@@ -104,3 +106,9 @@ typedef struct {
 #define CALL_PL_ST_EXTEND 3
 
 #define PREP_SV_SET(sv) if(SvTHINKFIRST((sv))) sv_force_normal_flags((sv), SV_COW_DROP_PV)
+
+#define W32AC_T HV
+#define W32ACIATP_T HV
+/*no idea why this is defined to 0 but we need this as a label*/
+#undef ERROR
+

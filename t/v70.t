@@ -79,13 +79,16 @@ ok(defined($function), 'sum_quads_ref() function defined');
 my $pass = 1;
 $return = $function->UseMI64();
 $pass = $pass && ! $return;
-$pass = $pass && $function->UseMI64(1);
+$return = $function->UseMI64(1);
+$pass = $pass && ! $return;
 $return = $function->UseMI64();
 $pass = $pass && $return;
-$pass = $pass && ! $function->UseMI64(0);
+$return = $function->UseMI64(0);
+$pass = $pass && $return;
 $return = $function->UseMI64();
 $pass = $pass && ! $return;
-$pass = $pass && $function->UseMI64(1);
+$return = $function->UseMI64(1);
+$pass = $pass && ! $return;
 ok($pass, "UseMI64 works correctly");
 
 $result = 0; #cant be undef

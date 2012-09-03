@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use vars qw( %Known %PackSize %Modifier %Pointer $VERSION @ISA );
 
-$VERSION = '0.64_02';
+$VERSION = '0.65';
 
 use Carp;
 BEGIN{
@@ -272,7 +272,7 @@ sub Pack {
         return;
     }
     elsif(IVSIZE() == 4 && ($pack_type eq 'q' || $pack_type eq 'Q')){
-        if($_[0]->{'UseMI64'}){ #un/signed meaningless
+        if($_[0]->{'UseMI64'} || ref($_[2])){ #un/signed meaningless
             $_[2] = Math::Int64::int64_to_native($_[2]);
         }
         else{
@@ -300,13 +300,13 @@ sub Unpack {
     elsif(IVSIZE() == 4){
         #todo debugging output
         if($pack_type eq 'q'){
-            if($_[0]->{'UseMI64'}){
+            if($_[0]->{'UseMI64'} || ref($_[2])){
             $_[2] = Math::Int64::native_to_int64($_[2]);
             DEBUG "(PM)Type::Unpack: returning signed Math::Int64 '".$_[2]."'\n";
             }
             return;
         }elsif($pack_type eq 'Q'){
-            if($_[0]->{'UseMI64'}){
+            if($_[0]->{'UseMI64'} || ref($_[2])){
             $_[2] = Math::Int64::native_to_uint64($_[2]);
             DEBUG "(PM)Type::Unpack: returning unsigned Math::Int64 '".$_[2]."'\n";
             }
@@ -487,6 +487,7 @@ LONG64                  q
 LONGLONG                q
 LPARAM                  _P
 LRESULT                 _P
+NTSTATUS                l
 REGSAM                  L
 SC_HANDLE               _P
 SC_LOCK                 _P

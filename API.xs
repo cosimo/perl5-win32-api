@@ -51,6 +51,8 @@
 #error "Don't know what architecture I'm on."
 #endif
 
+#define MODNAME "Win32::API"
+
 /*get rid of CRT startup code on MSVC, we use exactly 3 CRT functions
 memcpy, memmov, and wcslen, neither require any specific initialization other than
 loading the CRT DLL (SSE probing on modern CRTs is done when CRT DLL is loaded
@@ -105,6 +107,65 @@ STATIC SV * getTarg(pTHX) {
     return TARG;
 }
 
+/* Convert wide character string to mortal SV.  Use UTF8 encoding
+ * if the string cannot be represented in the system codepage.
+ * If wlen isn't -1 (calculate length), wlen must include the null wchar
+ * in its count of wchars, and null wchar must be last wchar
+ */
+STATIC void w32sv_setwstr(pTHX_ SV * sv, WCHAR *wstr, __int3264 wlenparam) {
+    char * dest;
+    BOOL use_default = FALSE;
+    BOOL * use_default_ptr = &use_default;    
+    UINT CodePage;
+    DWORD dwFlags;
+    int len;
+    /* note 0xFFFFFFFFFFFFFFFF and 0xFFFFFFFF truncate to the same here on x64*/
+    int wlen = (int) wlenparam; 
+    WCHAR * tempwstr = NULL;
+    
+    /*can't pass -1 to WCTMB because of sv pv to wstr comparison and copy */
+    if(wlen == -1) {
+        wlen = (int)wcslen(wstr)+1;
+    }
+    /*a Win32 API might claiming to create null terminated, length counted, string
+    but infact is creating non terminated, length counted, strings, catch it*/
+    if(wstr[wlen-1] != L'\0') Perl_croak(aTHX_ "(XS) " MODNAME "::w32sv_setwstr panic: %s", "wide string is not null terminated\n");
+#ifdef _WIN64     /* WCTMB only takes 32 bits ints*/
+    if(wlenparam > (__int3264) INT_MAX && wlenparam != 0xFFFFFFFF) Perl_croak(aTHX_ "(XS) " MODNAME "::w32sv_setwstr panic: %s", "string overflow\n");
+#endif
+    if(((WCHAR *)SvPVX(sv)) == wstr) {//WCTMB bufs cant overlap
+        //dont trip MEM_WRAP_CHECK macro that is a pointless runtime assert
+        Newx(*(char**)&tempwstr, (wlen*sizeof(WCHAR)), char);
+        wstr = memcpy(tempwstr, wstr, wlen * sizeof(WCHAR));
+    }
+    CodePage = CP_ACP;
+    dwFlags = WC_NO_BEST_FIT_CHARS;
+    
+    retry:
+    len = WideCharToMultiByte(CodePage, dwFlags, wstr, wlen, NULL, 0, NULL, NULL);
+    dest = sv_grow(sv, (STRLEN)len); /*access vio on macro*/
+    len = WideCharToMultiByte(CodePage, dwFlags, wstr, wlen, dest, len, NULL, use_default_ptr);
+    if (use_default) {
+        SvUTF8_on(sv);
+        use_default = FALSE;
+        use_default_ptr = NULL;
+        /*this branch will never be taken again*/
+        CodePage = CP_UTF8;
+        dwFlags = 0;
+        goto retry;
+    }
+    /* Shouldn't really ever fail since we ask for the required length first, but who knows... */
+    if (len) {
+        SvPOK_on(sv);
+        SvCUR_set(sv, len-1);
+    }
+    else {
+        SvOK_off(sv);
+    }
+    if(tempwstr) Safefree(tempwstr);
+}
+
+
 MODULE = Win32::API   PACKAGE = Win32::API
 
 PROTOTYPES: DISABLE
@@ -158,6 +219,7 @@ UseMI64(...)
 PREINIT:
     SV * flag;
     HV * self;
+    SV * old_flag;
 PPCODE:
     if (items < 1 || items > 2)
        croak_xs_usage(cv,  "self [, FlagBool]");
@@ -166,15 +228,16 @@ PPCODE:
         Perl_croak(aTHX_ "%s: %s is not a hash reference",
 			"Win32::API::UseMI64",
 			"self");
+    //dont create one if doesn't exist
+    old_flag = hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
+    if(old_flag) old_flag = *(SV **)old_flag;
+    PUSHs(boolSV(sv_true(old_flag))); //old_flag might be NULL, ST(0) now gone
+    
     if(items == 2){
         flag = boolSV(sv_true(ST(1)));
         hv_store(self, "UseMI64", sizeof("UseMI64")-1, flag, 0);
     }
-    else{ //dont create one if doesn't exist
-        flag = (SV *)hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
-        if(flag) flag = *(SV **)flag;
-    }
-    PUSHs(boolSV(sv_true(flag))); //flag might be NULL
+    
 
 #endif
 
@@ -403,6 +466,39 @@ PPCODE:
     SvSETMAGIC(targ);
     return;
 
+#this is not public API, let us create a proper OOP
+#HMODULE class before exposing DLL Handles to the user, see TODO
+
+void
+GetModuleFileName(module)
+    HMODULE module
+PREINIT:
+    SV * targ = getTarg(aTHX);
+    DWORD nSize = MAX_PATH;
+    WCHAR * lpFilename = (WCHAR *)_alloca(MAX_PATH * sizeof(WCHAR) /*MAXPATH*/);
+    DWORD retSize;
+PPCODE:
+    retry:
+    retSize = GetModuleFileNameW(module, lpFilename, nSize);
+    if(retSize){
+        if(retSize == nSize){
+    /*TLDR, a 65 KB path is highly unlikely, but still safe, and alloca is fine
+        
+    note, the original alloca alloc isn't freeded, so don't eat away at the C stack
+    too aggressively, if something goes impossibly wrong with GetModuleFileNameW, a stack
+    overflow will occur, on normal EXE's C stack is usually reserved for 1 MB,
+    max unicode path possible is 32K characters, so 65 KB, we permanently alloced
+    alot of pages, probably not, since Perl_peep/Perl_scalarvoid and friends
+    are very recursive and like to blow alot of stack during BEGIN/compiling
+    so at Perl Code runtime there actually are a couple pages free of C stack.*/
+            lpFilename = (WCHAR *)_alloca((nSize += 256) * sizeof(WCHAR));
+            goto retry;
+        }
+        w32sv_setwstr(aTHX_ targ, lpFilename, retSize+1);
+    }
+    /*else return undef, targ is already undef*/
+    PUSHs(targ);
+
 
 # all callbacks in Call() that use Call()'s SP (not a dSP SP)
 # must call SPAGAIN after the ENTER, incase of a earlier callback
@@ -511,14 +607,14 @@ PPCODE:
 #ifdef T_QUAD
             case T_QUAD:{
                 __int64 * pI64;
-                if(UseMI64){
+                if(UseMI64 || SvROK(pl_stack_param)){
                     SPAGAIN;
                     PUSHMARK(SP);
                     STATIC_ASSERT(CALL_PL_ST_EXTEND >= 1);
                     PUSHs(pl_stack_param); //currently mortal, came from caller
                     PUTBACK;
 #if defined(DEBUGGING) || ! defined (NDEBUG)
-                    PUSHs(NULL);//poison the stack the PUSH above only overwrites
+                    PUSHs(NULL);//poison the stack the PUSH above only overwrites->
                     PUSHs(NULL);//the api obj
                     PUSHs(NULL);
                     PUSHs(NULL);

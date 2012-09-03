@@ -34,3 +34,5 @@ EXPORTS
   WlanConnect
   Take6MemsStruct
   GetConParams  
+  MyQueryPerformanceCounter
+  GetTestDllHModule

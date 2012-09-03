@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include "API_test.h"
 
+HMODULE g_hModule = NULL;
 BOOL APIENTRY DllMain( HANDLE hModule, 
                        DWORD  ul_reason_for_call, 
                        LPVOID lpReserved
@@ -18,6 +19,7 @@ BOOL APIENTRY DllMain( HANDLE hModule,
     switch (ul_reason_for_call)
 	{
 		case DLL_PROCESS_ATTACH:
+            g_hModule = (HMODULE)hModule;
 		case DLL_THREAD_ATTACH:
 		case DLL_THREAD_DETACH:
 		case DLL_PROCESS_DETACH:
@@ -354,4 +356,11 @@ API_TEST_API void __stdcall GetConParams(BOOL Fill, WLANPARAMCONTAINER * param){
     else{
         param->params = NULL;
     }
+}
+API_TEST_API BOOL __stdcall MyQueryPerformanceCounter(LARGE_INTEGER *lpPerformanceCount){
+    return QueryPerformanceCounter(lpPerformanceCount);
+}
+
+API_TEST_API HMODULE __stdcall GetTestDllHModule(void){
+    return g_hModule;
 }

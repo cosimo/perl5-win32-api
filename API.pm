@@ -49,7 +49,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.70_02';
+$VERSION = '0.71';
 
 #### some package-global hash to
 #### keep track of the imported
@@ -226,10 +226,11 @@ sub DESTROY {
 sub calltype_to_num {
     my $type = shift;
 
-    if (!$type || $type eq "__stdcall") {
+    if (!$type || $type eq "__stdcall" || $type eq "WINAPI" || $type eq "NTAPI"
+        || $type eq "CALLBACK"  ) {
         return 0;
     }
-    elsif ($type eq "_cdecl" || $type eq "__cdecl") {
+    elsif ($type eq "_cdecl" || $type eq "__cdecl" || $type eq "WINAPIV") {
         return 1;
     }
     else {
@@ -534,7 +535,26 @@ sub parse_prototype {
     }
 }
 
-
+#
+# XXX hack, see the proper implementation in TODO
+# The point here is dont let fork children free the parent's DLLs.
+# CLONE runs on ::API and ::More, thats bad and causes a DLL leak, make sure
+# CLONE dups the DLL handles only once per CLONE
+# GetModuleHandleEx was not used since that is a WinXP and newer function, not Win2K.
+# GetModuleFileName was used to get full DLL pathname incase SxS/multiple DLLs
+# with same file name exist in the process. Even if the dll was loaded as a
+# relative path initially, later SxS can load a DLL with a different full path
+# yet same file name, and then LoadLibrary'ing the original relative path
+# might increase the refcount on the wrong DLL or return a different HMODULE
+sub CLONE { 
+    return if $_[0] ne "Win32::API";
+    
+    foreach( keys %Libraries){
+        if($Libraries{$_} != Win32::API::LoadLibrary(Win32::API::GetModuleFileName($Libraries{$_}))){
+            die "Win32::API::CLONE unable to clone DLL \"$Libraries{$_}\" Unicode Problem??";
+        }
+    }
+}
 
 1;
 
@@ -738,7 +758,8 @@ The type of the value returned by the function.
 
 =item 6.
 And optionally you can specify the calling convention, this defaults to
-'__stdcall', alternatively you can specify '_cdecl' or '__cdecl' (API > v0.68).
+'__stdcall', alternatively you can specify '_cdecl' or '__cdecl' (API > v0.68)
+or (API > v0.70_02) 'WINAPI', 'NTAPI', 'CALLBACK' (__stdcall), 'WINAPIV' (__cdecl) .
 False is __stdcall. Vararg functions are always cdecl. MS DLLs are typically
 stdcall. Non-MS DLLs are typically cdecl.
 
@@ -860,8 +881,6 @@ value is a unsigned 64 bit integer number (unsigned long long, unsigned __int64)
 See next item for details.
 
 =item C<q>:
-This function is experimental and subject to change.
-
 value is a signed 64 bit integer number (long long, __int64)
 If your perl has 'Q'/'q' quads support for L<perlfunc/pack> then Win32::API's 'q'
 is a normal perl numeric scalar. All 64 bit Perls have quad support. Almost no
@@ -870,8 +889,12 @@ Win32::API's 'q'/'Q' letter is a packed 8 byte string. So C<0x8000000050000000>
 from a perl with native Quad support would be written as
 C<"\x00\x00\x00\x50\x00\x00\x00\x80"> on a 32 bit Perl without Quad support.
 To improve the use of 64 bit integers with Win32::API on a 32 bit Perl without
-Quad support, there is a per Win32::API object setting called L</UseMI64>
+Quad support, there is a per Win32::API::* object setting called L</UseMI64>
 that causes all quads to be accepted as, and returned as L<Math::Int64> objects.
+For "in" params in Win32::API and Win32::API::More and "out" in
+Win32::API::Callback only, if the argument is a reference, it will automatically
+be treated as a Math::Int64 object without having to previously call
+L</UseMI64>.
 
 =item C<F>: 
 value is a floating point number (float)
@@ -1132,8 +1155,6 @@ on this function of the same name.
 
 =head3 SafeReadWideCString
 
-This function is experimental and subject to change.
-
     $source = Encode::encode("UTF-16LE","Just another perl h\x{00E2}cker\x00");
     $string = SafeReadWideCString(unpack('J',pack('p', $source)));
     die "impossible" if $source ne "Just another perl h\x{00E2}cker";
@@ -1165,8 +1186,6 @@ The main method of a Win32::API object. Documented elsewhere in this document.
 
 =head3 UseMI64
 
-This function is experimental and subject to change.
-
     $bool = $APIObj->UseMI64();
     $t_or_f_of_newbool = $APIObj->UseMI64($newbool);
 
@@ -1176,14 +1195,29 @@ before calling UseMI64. Win32::API does not C<use> Math::Int64 for you.
 Works on Win32::API and Win32::API::Callback objects. This method
 does not exist if your Perl natively supports Quads (64 bit Perl for example).
 Takes 1 optional parameter, which is a true or false value to use or don't use
-Math::Int64, returns the new setting, which is a true or false value. If called
+Math::Int64, returns the old setting, which is a true or false value. If called
 without any parameters, returns current setting, which is a true or false value,
 without setting the option. As discussed in L</q>, if your not using Math::Int64
-you must supply/will receive 8 byte scalar strings for quads.
+you must supply/will receive 8 byte scalar strings for quads. For "in" params
+in Win32::API and Win32::API::More and "out" in Win32::API::Callback only,
+if the argument is a reference, it will automatically be treated as a
+Math::Int64 object without having to previously call this function.
 
 =head1 HISTORY
 
 =over 4
+
+=item UseMI64 API change
+
+Starting in 0.71, UseMI64 on a set returns old value, not previously
+new value.
+
+=item fork safe
+
+Starting in 0.71, a Win32::API object can go through a fork and work
+correctly in the child and parent psuedo-processes. Previously when either
+psuedo-processes exited, the DLL would be unloaded and the other
+psuedo-processes would crash if a Call() was done on the object.
 
 =item return value signedness
 
@@ -1226,11 +1260,15 @@ See the C<Changes> file for more details, many of which not mentioned here.
 
 =over 4
 
+=item E<nbsp> Unicode DLL paths
+
+Untested.
+
 =item E<nbsp> 32 bit perls with native quads
 
 Untested.
 
-=item E<nbsp> ithreads/fork/cloning
+=item E<nbsp> ithreads
 
 Untested.
 

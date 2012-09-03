@@ -45,7 +45,8 @@ WriteMakefile1(
         'Type.pm'     => '$(INST_LIBDIR)/API/Type.pm',
         'Struct.pm'   => '$(INST_LIBDIR)/API/Struct.pm',
         'Test.pm'     => '$(INST_LIBDIR)/API/Test.pm',
-        'Callback.pm' => '$(INST_LIBDIR)/API/Callback.pm'
+        'Callback.pm' => '$(INST_LIBDIR)/API/Callback.pm',
+        'IATPatch.pod'=> '$(INST_LIBDIR)/API/Callback/IATPatch.pod'
 	},
 
     'VERSION_FROM' => 'API.pm',

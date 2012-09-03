@@ -1,5 +1,18 @@
 History of Win32::API perl extension.
 
+2012-09-03  Win32::API v0.71    bulk88
+   - API Change, UseMI64 changed to always return old value, not old on no
+     setting and new on setting
+   - Added, "in" for ::API and "out" for ::Callback are automatically
+     treated as Math::Int64 objects if they are refs, a call to UseMI64 is
+     recommended but not mandatory now
+   - Half Fixed, on a fork, the child interp free the parent's Win32::API DLL
+     HMODULE causing access violation, though a problem with unicode path names
+     containing characters not in the local CP probably exists
+   - Added, support for forking to Win32::API/Win32::API::More, not ::Callback
+   - Added, support for WINAPI, NTAPI, CALLBACK, WINAPIV calling conventions
+   - Added, Win32::API::Callback::IATPatch
+
 2012-08-16  Win32::API v0.70_02    bulk88
    - Added, typedef() in ::Struct now aborts and warns when encoutering an
      unknown type rather than creating a garbage struct definition
@@ -28,11 +41,11 @@ History of Win32::API perl extension.
    - Changed, Carp is used in more placed in ::Struct
    - Added, SafeReadWideCString function
    - Fixed, a length checking bug in WriteMemory
-   - creating an API object, with ::Callback or ::Struct as return type
+   - Fixed, creating an API object, with ::Callback or ::Struct as return type
      now fatally errors in new() instead of silent failure and being a void
-   - removed CRT initialization code on MSVC
-   - 'V' now works for "in" letter protos, it is equivelent to ""
-   - add strict, warnings, and pod testing globally
+   - Optimized, removed CRT initialization code on MSVC
+   - Added, 'V' now works for "in" letter protos, it is equivelent to ""
+   - Added, strict, warnings, and pod testing globally
 
 2012-08-16  Win32::API v0.70_01    bulk88
    - broken CPAN package, useless

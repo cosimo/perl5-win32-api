@@ -9,7 +9,7 @@ use strict;
 use Config;
 use Test::More;
 use Math::Int64 qw( int64 hex_to_uint64 uint64_to_hex);
-plan tests => 19;
+plan tests => 21;
 use vars qw(
     $function
     $result
@@ -90,7 +90,7 @@ $result = $function->Call($callback);
 is($result, 70000, "do_callback_5_param was successful");
 
 SKIP: {
-    skip('only 32 bit Perl uses Math::Int64', 3) if PTR_SIZE != 4;
+    skip('only 32 bit Perl uses Math::Int64', 5) if PTR_SIZE != 4;
     $callback = Win32::API::Callback->new(
         sub {
             #print Dumper(\@_);
@@ -135,7 +135,13 @@ SKIP: {
     is($result,
        hex_to_uint64("0x8000200030004000")
        , "do_callback_void_q with Math::Int64 was successful");
-
+    #test that UseMI64 is not required for "out" params in Callback
+    $callback->UseMI64(0);#use automatic MI64 "out" recoginition added in v0.71
+    $result = $function->Call($callback);
+    print uint64_to_hex($result)." ".uint64_to_hex(hex_to_uint64("0x8000200030004000"))."\n";
+    is($result,
+       hex_to_uint64("0x8000200030004000")
+       , "do_callback_void_q with Math::Int64 was successful");
 
 }#end of skip
 

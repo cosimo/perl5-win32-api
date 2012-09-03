@@ -10,8 +10,9 @@ use strict;
 use File::Spec;
 use Test::More;
 use Encode;
+use Math::Int64 ('hex_to_int64');
 
-plan tests => 19;
+plan tests => 23;
 use vars qw($function $result $return $test_dll );
 
 
@@ -93,4 +94,31 @@ eval{
     ok(! defined $function->Call(), "GetCurrentThreadId with '' out proto works");
     $function = Win32::API->new('kernel32.dll', 'GetCurrentThreadId', '', 'V');
     ok(! defined $function->Call(), "GetCurrentThreadId with '' out proto works");
+}
+
+SKIP: {
+    skip('Quads are native on this computer', 4) if 
+        length(pack('J',0)) == 8;
+    #test that UseMI64 is not required for non Callback "in" params
+    $function = new Win32::API::More($test_dll, 'LONG64 __stdcall sum_quads_ref(LONG64 a, LONG64 b, LONG64 * c)');
+    $result = 0; #cant be undef
+    diag("under 8 byte warnings are intended");
+    eval {
+        $return = $function->Call(hex_to_int64("0x0200000000000000"),
+                   1, $result); #note, 1 isn't an int64 obj, and will produce garbage
+    };
+    ok(index($@, 'Win32::API::Call: parameter 2 must be a packed 8 bytes long string')
+       != -1, "in UseMI64 off mode, numeric scalar '1' turns to bad 1 char string");
+    #note, 10,000,000 isn't an int64 obj, but passes length check when converted to string
+    #nothing can be done to protect against this usage mistake
+    $return = $function->Call(hex_to_int64("0x0200000000000000"), 10000000, $result);
+    is($return, $result, "garbage return and garbage pointer fill the same");
+    ok($return && $return != hex_to_int64("0x0200000000000001"),
+       "in UseMI64 off mode, 8 digit numeric scalar defeats 8 byte length check but produces garbage output");
+    $result = 0;
+    $return = $function->Call(hex_to_int64("0x0200000000000000"),
+                   hex_to_int64("0x1"), $result); #note, 1 isn't an int64 obj, and will produce garbage
+    ok($return eq "\x01\x00\x00\x00\x00\x00\x00\x02"
+       && $result eq "\x01\x00\x00\x00\x00\x00\x00\x02",
+       "pointer to quad is equal to returned quad without UseMI64");
 }

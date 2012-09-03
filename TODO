@@ -20,7 +20,7 @@ bulk88's comments
 3.  Callback.xs needs to be eliminated, its too small to put in its own DLL
 4.  Use Win32's LoadLibrary and FreeLibrary instead of our own to save DLL
     space?
-5.  APIPARAM needs to be a union
+5.  *DONE* APIPARAM needs to be a union
 6.  create 1 time use intra-process DLLs with Callback's function pointers in
     the DLL export table?
 7.  create standalone DLLs that start a perl interps in the process and have
@@ -80,3 +80,6 @@ bulk88's comments
 27. Use DeviceIOControl to copy a APIPARAM array to a NT Driver that comes with
     Win32::API. NT Driver will run the kernel mode function and return the
     results in a APIPARAM. NT Driver is Perl License just like ::API.
+28. Implement a proper OOP class for HMODULEs that is fork ok, similar to
+    implementation of Win32::API::Callback::HeapBlock, current fork fix for
+    DLLs is a hack.
