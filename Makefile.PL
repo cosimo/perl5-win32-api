@@ -13,26 +13,31 @@ use Config;
 my $is_64bit_build = ($Config{ptrsize} == 8);
 my $is_msvc_compiler = ($Config{cc} =~ /cl/);
 
-# Don't build the Callback module by default
-# on 64 bit architectures, since it's known to fail
-my $build_callback = $is_64bit_build ? 0 : 1;
 
 use ExtUtils::MakeMaker;
 WriteMakefile1(
+    PL_FILES => {},
     LICENSE => 'perl',
     META_MERGE => {
         resources => {
             repository => 'https://github.com/cosimo/perl5-win32-api',
         },
         keywords => ['win32','api','dll','libraries'],
+        recommends => {'Math::Int64' => 0}
     },
     BUILD_REQUIRES => {
-        'Test::More' => 0,
+        'Test::More'    => 0,
+        'Math::Int64'   => 0,
+        'File::Spec'    => 0,
+        'Win32'         => 0,
+        'Win32API::File'=> 0,
+        'IPC::Open3'    => 0,
+        'Encode'        => 0
     },
 
     'NAME'	=> 'Win32::API',
 
-    'AUTHOR'        	=> 'Aldo Calpini <dada@perl.it>, Cosimo Streppone <cosimo@cpan.org>',
+    'AUTHOR'        	=> 'Aldo Calpini <dada@perl.it>, Cosimo Streppone <cosimo@cpan.org>, Daniel Dragan <bulkdd@cpan.org>',
     'ABSTRACT'      	=> 'Perl Win32 API Import Facility',
 
     'PM' => {
@@ -40,9 +45,8 @@ WriteMakefile1(
         'Type.pm'     => '$(INST_LIBDIR)/API/Type.pm',
         'Struct.pm'   => '$(INST_LIBDIR)/API/Struct.pm',
         'Test.pm'     => '$(INST_LIBDIR)/API/Test.pm',
-        $build_callback
-			? ('Callback.pm' => '$(INST_LIBDIR)/API/Callback.pm')
-			: (),
+        'Callback.pm' => '$(INST_LIBDIR)/API/Callback.pm',
+        'IATPatch.pod'=> '$(INST_LIBDIR)/API/Callback/IATPatch.pod'
 	},
 
     'VERSION_FROM' => 'API.pm',
@@ -53,11 +57,12 @@ WriteMakefile1(
     },
 
     # Win32 is a prerequisite, at least for our tests
-    'PREREQ_PM' => { 'Win32' => 0 },
-
+    'PREREQ_PM' => { 'Scalar::Util' => 0},
     # One day, I'd like to restore the dynamic API_test.dll
     #'clean' => {FILES => 'API_test.dll API_test_dll/Release/*'},
-
+    
+    XSOPT  => ' -nolinenumbers ',
+    
     (
         $is_64bit_build
 	    ? ( $is_msvc_compiler
@@ -94,14 +99,18 @@ EOM1
     }
     #end-of old 64bit strawberryperl hack
      
-    return <<'EOM';
+    return  ($is_msvc_compiler?'
+ASFLAGS =  -Zi
+
+':'')
+.'
 .asm$(OBJ_EXT):
 	ml64 $(ASFLAGS) -c $<
 
 .s$(OBJ_EXT):
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
 
-EOM
+';
 }
 
 sub WriteMakefile1 {  #Written by Alexandr Ciornii, version 0.21. Added by eumm-upgrade.

@@ -37,10 +37,10 @@ my $test_cases = {
         typedef => [],
         sizeof  => 0,
     },
-    empty_with_spaces => {
-        typedef => [qw(  \n   \n  )],
-        sizeof  => 0,
-    },
+    #empty_with_spaces => {
+    #    typedef => [qw(  \n   \n  )],
+    #    sizeof  => 0,
+    #},
     one_word => {
         typedef => [qw(DWORD dwSize;)],
         sizeof  => words(1),

@@ -32,7 +32,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 
 	if (required_stack)
 	{
-		stack = malloc(required_stack * sizeof(*stack));
+		stack = _alloca(required_stack * sizeof(*stack));
 		memset(stack, 0, required_stack * sizeof(*stack));
 	}
 
@@ -44,6 +44,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 			switch (params[i].t)
 			{
 				case T_NUMBER:
+                case T_CODE:
 				case T_INTEGER:
 				case T_CHAR:
 					int_registers[i] = params[i].l;
@@ -52,8 +53,13 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 				case T_STRUCTURE:
 					int_registers[i] = (size_t) params[i].p;
 					break;
-				case T_FLOAT:
-					float_registers[i] = params[i].f;
+				case T_FLOAT: //do not convert the float to a double,
+                    //put a float in the XMM reg, not a double made from a float
+                    //otherwise a func taking floats will see garbage because
+                    //XMM reg contains a double that is numerically
+                    //identical/similar to the original float but isn't
+                    //the original float bit-wise
+					float_registers[i] = *(double *)&(params[i].f);
 					break;
 				case T_DOUBLE:
 					float_registers[i] = params[i].d;
@@ -65,9 +71,10 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 			switch (params[i].t)
 			{
 				case T_NUMBER:
+                case T_CODE:
 					stack[i - available_registers].i = params[i].l;
 					break;
-				case T_INTEGER:
+				case T_INTEGER: //bug?
 					stack[i - available_registers].i = params[i].t;
 					break;
 				case T_POINTER:
@@ -75,7 +82,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 					stack[i - available_registers].i = (size_t) params[i].p;
 					break;
 				case T_CHAR:
-					stack[i - available_registers].i = params[i].c;
+					stack[i - available_registers].i = params[i].l;
 					break;
 				case T_FLOAT:
 					stack[i - available_registers].f = params[i].f;
@@ -92,17 +99,20 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 	switch (retval->t)
 	{
 		case T_NUMBER:
+		case T_NUMBER | T_FLAG_UNSIGNED:          
 		case T_INTEGER:
+        case T_INTEGER | T_FLAG_UNSIGNED:
+        case T_SHORT:
+        case T_SHORT | T_FLAG_UNSIGNED:
+        case T_CHAR:
+        case T_CHAR | T_FLAG_UNSIGNED:
 			retval->l = (long_ptr) iret; //xxx not sure how long (4/8 bytes) should T_INTEGER/T_INTEGER be on Win64
 			break;
 		case T_POINTER:
 			retval->p = (char *) iret;
 			break;
-		case T_CHAR:
-			retval->c = (char) iret;
-			break;
 		case T_FLOAT:
-			retval->f = (float) dret;
+			retval->f = *(float*)&dret; //do not cast, copy bits unchanged
 			break;
 		case T_DOUBLE:
 			retval->d = (double) dret;

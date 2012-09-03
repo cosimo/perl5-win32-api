@@ -38,9 +38,8 @@ use strict;
 use warnings;
 
 use Test::More;
-plan skip_all => 'Unclear why it fails';
 
-#plan tests => 8;
+plan tests => 6;
 
 use Win32::API;
 use Win32::API::Callback;
@@ -64,16 +63,37 @@ Win32::API->Import("user32", "EnumChildWindows",         "NKP", "I");
 
 my %_window_pids;
 my $max_str = 1024;
+my $pass_pid = 1;
+my $pass_hwnd = 1;
+my $enumended = 0;
+
+#keeps cpu usage/time reasonable during nmake test
+my $runlimit = 100;
+my $runcount = 0;
+#change to 1 to enable printing to console
+my $print = 0;
 
 my $window_enumerator = sub {
+    $runcount++;
+    if($runcount > $runlimit){
+        $enumended = 1; #set flag
+        return 0; #per EnumChildProc callback function docs, 0 stops the enum
+    }
+    die "0 returned but enumeration didn't stop" if $enumended;
+    
     my ($hwnd) = @_;
-
+    
+    $pass_hwnd = $pass_hwnd && $hwnd;
     # Get process ID associated with hwnd
-    my $pid_raw_value = "\x0" x Win32::API::Type->sizeof("LPDWORD");
-    GetWindowThreadProcessId($hwnd, $pid_raw_value);
+    my $pid_raw_value = "\x00" x length(pack('L',0));
+    if(!GetWindowThreadProcessId($hwnd, $pid_raw_value)){
+        die "GetWindowThreadProcessId failed, GLR=".Win32::GetLastError()."\n";
+    }
 
-    my $window_pid = Win32::API::Type::Unpack("LPDWORD", $pid_raw_value);
-    print "window_enumerator - hwnd=[$hwnd], PID=[$window_pid]\n";
+    #to original author/Jim Shaw,you used undocumented api,and I broke it~bulk88
+    my $window_pid = unpack('L', $pid_raw_value);
+    $pass_pid = $pass_pid && $window_pid;
+    print "window_enumerator - hwnd=[$hwnd], PID=[$window_pid]\n" if $print;
 
     if ($window_pid) {
         my $class_size   = Win32::API::Type->sizeof("CHAR*") * $max_str;
@@ -109,7 +129,8 @@ sub get_window_pids {
 }
 
 get_window_pids($callback_routine);
-print Dumper(\%_window_pids);
-
+print Dumper(\%_window_pids) if $print;
+ok($pass_pid, "no 0 PIDs found");
+ok($pass_hwnd, "no 0 HWNDs found");
 #
 # End of tests
