@@ -16,7 +16,7 @@ use Test::More;
 #     $Win32::API::DEBUG = 1;
 # }
 
-plan tests => 3;
+plan tests => 4;
 
 use_ok('Win32::API::Struct');
 
@@ -38,6 +38,8 @@ ok($pe32, 'ProcessEntry32 struct defined');
 
 my $size = $pe32->sizeof;
 is($size, 296, 'Size is calculated correctly');
-
+warn("\n\nUninit warnings are intentional\n\n");
+$pe32->Pack();
+is($pe32->{buffer}, "\x00" x 296, "uninitialized struct is all nulls");
 diag("Size is $size. Should be 296");
 

@@ -12,16 +12,19 @@ package Win32::API::Type;
 #
 #######################################################################
 
-$VERSION = '0.62';
+use strict;
+use warnings;
+use vars qw( %Known %PackSize %Modifier %Pointer $VERSION @ISA );
+
+$VERSION = '0.65';
 
 use Carp;
+BEGIN{
 use Config;
-
+}
 require Exporter;      # to export the constants to the main:: space
 require DynaLoader;    # to dynuhlode the module.
 @ISA = qw( Exporter DynaLoader );
-
-use vars qw( %Known %PackSize %Modifier %Pointer );
 
 sub DEBUG {
     if ($Win32::API::DEBUG) {
@@ -32,6 +35,7 @@ sub DEBUG {
     }
 }
 
+sub pointer_pack_type ();
 %Known    = ();
 %PackSize = ();
 %Modifier = ();
@@ -102,10 +106,40 @@ sub new {
 sub typedef {
     my $class = shift;
     my ($name, $type) = @_;
+    $type =~ m/^\s*(.*?)\s*$/;
+    $type =~ m/^(.+?)\s*(\*)$/;
+    $type = $1;
+    $type .= $2 if defined $2;
+    $name =~ m/^\s*(.*?)\s*$/;
+    $name =~ m/^(.+?)\s*(\*)$/;
+    $name = $1;
+    $name .= $2 if defined $2;
     my $packing = packing($type, $name);
+    if(! defined $packing){
+        warn "Win32::API::Type::typedef: WARNING unknown type '$_[1]'";
+        return undef;
+    }
+    #Win32::API::Struct logic
+    #limitation, this won't alias a new struct type to an existing struct type
+    #this only creates new struct type pointer types to an existing struct type
+    if($packing eq '>'){
+        if(is_pointer($type)){
+        $packing = 'T';
+        $type =~ s/\s*\*$//; #chop off '   *'
+        $Win32::API::Struct::Pointer{$name} = $type;
+        }
+        else{
+        warn "Win32::API::Type::typedef: aliasing struct \"".$_[0]
+        ."\" to struct \"".$_[1]."\" not supported";
+        return undef;            
+        }
+    }
     DEBUG "(PM)Type::typedef: packing='$packing'\n";
-    my $size = sizeof($type);
-    $Known{$name} = $packing;
+    if($packing eq 'p'){
+        $Pointer{$name} = $Pointer{$type};
+    }else{
+        $Known{$name} = $packing;
+    }
     return 1;
 }
 
@@ -122,8 +156,11 @@ sub is_known {
     }
 }
 
-sub pointer_pack_type {
-    return $Config{ptrsize} == 8 ? 'Q' : 'L';
+#const optimize
+BEGIN {
+    eval ' sub pointer_pack_type () { "'
+    .($Config{ptrsize} == 8 ? 'Q' : 'L').
+    '" }';
 }
 
 sub sizeof {
@@ -143,7 +180,7 @@ sub sizeof {
         }
     }
 }
-
+# $packing_letter = packing( [$class = 'Win32::API::Type' ,] $type [, $pass_numeric])
 sub packing {
 
     # DEBUG "(PM)Type::packing: called by ". join("::", (caller(1))[0,3]). "\n";
@@ -156,7 +193,8 @@ sub packing {
     }
     my $type = ($self eq 'Win32::API::Type') ? shift : $self;
     my $name = shift;
-
+    my $pass_numeric = shift;
+    
     # DEBUG "(PM)Type::packing: got '$type', '$name'\n";
     my ($modifier, $size, $packing);
     if (exists $Pointer{$type}) {
@@ -172,7 +210,7 @@ sub packing {
         # DEBUG "(PM)packing: got modifier '$modifier', type '$type'\n";
     }
 
-    $type =~ s/\*$//;
+    $type =~ s/\s*\*$//; #kill whitespace "CHAR " isn't "CHAR"
 
     if (exists $Known{$type}) {
         if (defined $name and $name =~ s/\[(.*)\]$//) {
@@ -183,7 +221,7 @@ sub packing {
         }
         else {
             $packing = $Known{$type};
-            if ($is_pointer and $packing eq 'c') {
+            if ($is_pointer and ($packing eq 'c' or $packing eq 'S')) {
                 $packing = "p";
             }
 
@@ -193,6 +231,9 @@ sub packing {
 
 # DEBUG "(PM)Type::packing: applying modifier '$modifier' -> '$Modifier{$modifier}->{$type}'\n";
             $packing = $Modifier{$modifier}->{$type};
+            if(!$pass_numeric) { #for older num unaware calls
+                substr($packing, 0, length("num"), '');
+            }
         }
         return $packing;
     }
@@ -222,33 +263,59 @@ sub is_pointer {
 }
 
 sub Pack {
-    my ($type, $arg) = @_;
+    my $type = $_[1];
 
     my $pack_type = packing($type);
-
-    if ($pack_type eq 'p') {
-        $pack_type = 'Z*';
+    #print "Pack: type $type pack_type $pack_type\n";
+    if ($pack_type eq 'p') { #char or wide char pointer
+        #$pack_type = 'Z*';
+        return;
     }
-
-    $arg = pack($pack_type, $arg);
-
-    return $arg;
+    elsif(IVSIZE() == 4 && ($pack_type eq 'q' || $pack_type eq 'Q')){
+        if($_[0]->{'UseMI64'} || ref($_[2])){ #un/signed meaningless
+            $_[2] = Math::Int64::int64_to_native($_[2]);
+        }
+        else{
+            if(length($_[2]) < 8){
+                warn("Win32::API::Call value for 64 bit integer is under 8 bytes long");
+                $_[2] = pack('a[8]', $_[2]);
+            }
+        }
+        return;
+    }
+    $_[2] = pack($pack_type, $_[2]);
+    return;
 }
 
 sub Unpack {
-    my ($type, $arg) = @_;
+    my $type = $_[1];
 
     my $pack_type = packing($type);
 
     if ($pack_type eq 'p') {
         DEBUG "(PM)Type::Unpack: got packing 'p': is a pointer\n";
-        $pack_type = 'Z*';
+        #$pack_type = 'Z*';
+        return;
     }
-
-    DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$arg'\n";
-    $arg = unpack($pack_type, $arg);
-    DEBUG "(PM)Type::Unpack: returning '" . ($arg || '') . "'\n";
-    return $arg;
+    elsif(IVSIZE() == 4){
+        #todo debugging output
+        if($pack_type eq 'q'){
+            if($_[0]->{'UseMI64'} || ref($_[2])){
+            $_[2] = Math::Int64::native_to_int64($_[2]);
+            DEBUG "(PM)Type::Unpack: returning signed Math::Int64 '".$_[2]."'\n";
+            }
+            return;
+        }elsif($pack_type eq 'Q'){
+            if($_[0]->{'UseMI64'} || ref($_[2])){
+            $_[2] = Math::Int64::native_to_uint64($_[2]);
+            DEBUG "(PM)Type::Unpack: returning unsigned Math::Int64 '".$_[2]."'\n";
+            }
+            return;
+        }
+    }
+    DEBUG "(PM)Type::Unpack: unpacking '$pack_type' '$_[2]'\n";
+    $_[2] = unpack($pack_type, $_[2]);
+    DEBUG "(PM)Type::Unpack: returning '" . ($_[2] || '') . "'\n";
 }
 
 1;
@@ -288,6 +355,15 @@ This method defines a new type named C<NAME>. This actually just
 creates an alias for the already-defined type C<TYPE>, which you
 can use as a parameter in a Win32::API call.
 
+When C<TYPE> contains a Win32::API::Struct type declared with
+L<Win32::API::Struct/typedef> with " *" postfixed to C<TYPE> parameter,
+C<NAME> will be a alias for the pointer version of the struct type. Creating
+an alias for a struct type is not supported, you have to call
+L<Win32::API::Struct/typedef> again. Passing a struct type as C<TYPE>
+without the " *" postfix is not supported.
+
+L<Warns|perlfunc/warn> and returns undef if C<TYPE> is unknown, else returns true.
+
 =item C<sizeof TYPE>
 
 This returns the size, in bytes, of C<TYPE>. Acts just like
@@ -306,6 +382,36 @@ This module should recognize all the types defined in the
 Win32 Platform SDK header files. 
 Please see the source for this module, in the C<__DATA__> section,
 for the full list.
+
+
+=head2 NOTES ON SELECT TYPES
+
+=over 4
+
+=item LPVOID
+
+Due to poor design, currently LPVOID is a char *, a string, not a number.
+It should really be a number. It is suggested to replace LPVOID in your
+C prototypes passed to Win32::API with UINT_PTR which is a pointer
+sized number.
+
+=item SOMETYPE **
+
+Currently ** types do not parse.
+
+=item void **
+
+Replace void ** in your C prototype that you pass to Win32::API::More with
+LPHANDLE.
+
+=item unsigned char
+
+=item signed char
+
+These 2 types by name force numeric handling. C<97> not C<"a">. C<UCHAR> is
+not a C<unsigned char> for numeric handling purposess.
+
+=back
 
 =head1 AUTHOR
 
@@ -381,6 +487,7 @@ LONG64                  q
 LONGLONG                q
 LPARAM                  _P
 LRESULT                 _P
+NTSTATUS                l
 REGSAM                  L
 SC_HANDLE               _P
 SC_LOCK                 _P
@@ -410,7 +517,12 @@ long                    l
 float                   f
 double                  d
 char                    c
+short                   s
+void                    c
+__int64                 q
 
+#VOID is a 'c'? huh?
+#making void be a 'c' too, ~bulk88
 #CRITICAL_SECTION   24 -- a structure
 #LUID                   ?   8 -- a structure
 #VOID   0
@@ -431,9 +543,12 @@ Q   8
 s   2
 S   2
 p   _P
+T   _P
+t   _P
 
 [MODIFIER]
-unsigned    int=I long=L short=S char=C
+unsigned    int=numI long=numL short=numS char=numC
+signed      int=numi long=numl short=nums char=numc
 
 [POINTER]
 INT_PTR                 INT
@@ -485,3 +600,4 @@ PVOID                   VOID
 PWCHAR                  WCHAR
 PWORD                   WORD
 PWSTR                   WCHAR
+char*                   CHAR

@@ -1,5 +1,107 @@
 History of Win32::API perl extension.
 
+2012-09-03  Win32::API v0.71    bulk88
+   - API Change, UseMI64 changed to always return old value, not old on no
+     setting and new on setting
+   - Added, "in" for ::API and "out" for ::Callback are automatically
+     treated as Math::Int64 objects if they are refs, a call to UseMI64 is
+     recommended but not mandatory now
+   - Half Fixed, on a fork, the child interp free the parent's Win32::API DLL
+     HMODULE causing access violation, though a problem with unicode path names
+     containing characters not in the local CP probably exists
+   - Added, support for forking to Win32::API/Win32::API::More, not ::Callback
+   - Added, support for WINAPI, NTAPI, CALLBACK, WINAPIV calling conventions
+   - Added, Win32::API::Callback::IATPatch
+
+2012-08-16  Win32::API v0.70_02    bulk88
+   - Added, typedef() in ::Struct now aborts and warns when encoutering an
+     unknown type rather than creating a garbage struct definition
+     (http://perlmonks.org/?node_id=978468)
+   - Added, new() in ::Struct now aborts and warns when encoutering an 
+     unknown type, rather than silent failure and a 0 byte long struct buffer
+     being passed to the C func
+   - Fixed/Added, pointers to other ::Struct types now supported in ::Struct
+   - Optimized, trim down 32 bit asm code and Call() in ::API, untested 64 bit
+     IV on 32 bit support in ::API
+   - Optimized APIPARAM struct
+   - Fixed, in Call() some of the callbacks trashed the 1st parameter on the PL
+     stack, which cause no symptoms since it was the ::API object which was read
+     from the PL stack much earlier in Call()
+   - Fixed some no symptoms problems with using a stale local SP in Call()
+     after a callback, which in a million to once chance might have been
+     reallocated during the callback
+   - Added 'void' as a type, it is an alias for VOID, which is a 'c'/char
+     maybe this needs to be revisted one day because a void function does
+     not return a char, but returns garbage on 32 and 64
+   - Added, for C proto API objects, struct type is checked against supplied
+     struct object, dies on failure
+   - Fixed, bug was can not create an alias to char * from ::Type::typedef,
+     the alias is to char instead of char *, C function gets a extended char
+     instead of pointer
+   - Changed, Carp is used in more placed in ::Struct
+   - Added, SafeReadWideCString function
+   - Fixed, a length checking bug in WriteMemory
+   - Fixed, creating an API object, with ::Callback or ::Struct as return type
+     now fatally errors in new() instead of silent failure and being a void
+   - Optimized, removed CRT initialization code on MSVC
+   - Added, 'V' now works for "in" letter protos, it is equivelent to ""
+   - Added, strict, warnings, and pod testing globally
+
+2012-08-16  Win32::API v0.70_01    bulk88
+   - broken CPAN package, useless
+
+2012 never CPAN released  Win32::API v0.70    bulk88
+   - Added, Callback now works on x64
+   - Added, Quads on API and Callback for 32 bit perl, they are
+     8 byte strings or Math::Int64 objs on 32 bit perl 
+   - Added, floats and doubles work in Callback
+   - Callback has been rewritten, much less C and machine code, more Perl
+   - Fixed RT #55660 and #77677, nonvolatile registers were corrupted on x64,
+     especially if more than 4 parameters
+
+2012 never CPAN released  Win32::API v0.69    bulk88
+   - Fixed RT #12057, dll leak if func not found
+     (https://rt.cpan.org/Ticket/Display.html?id=12057)
+   - Fixed RT #77048, shorts and short typedefs crashed since 'S'
+     was mapped wrong to structs, fix in Win32::API::More, struct now 'T'
+     in ::More, 'S'/'s' now dies on Win32::API if not Win32::APU::Sturct objs,
+     not crashes
+     (https://rt.cpan.org/Ticket/Display.html?id=77048)
+   - Fixed RT #77055, returned numbers are always signed, unsigneds
+     fixed in Win32::API::More
+     (https://rt.cpan.org/Ticket/Display.html?id=77055)
+   - Fixed RT #77182, "int* var" works, "int *var" unparsable,
+     fixed in core and ::More
+     (https://rt.cpan.org/Ticket/Display.html?id=77182)
+   - Fixed/Added RT #39810, in Win32::API::More for C proto created objs,
+     pointer to numbers are automatically packed and unpacked, now 1234 or
+     0x04D2 not "\xD2\x04\x00\x00", feature was implemented but broken
+     previously
+   - Fixed, on x64 float "in" params were broken, in 0.68, 4 byte floats were
+     converted to 8 byte doubles of the same (approx) numeric 
+     value when being prepared for XMM register loading, a C func 
+     that takes floats will read 4 bytes from an XMM register, not 8
+   - Fixed, on x64, for msvc builds, the callstack was lost during
+     Call_x64_real
+   - for a func with char * as return type, NULL caused crash, and perl
+     memleak if it didn't crash on 32bit, char * as a return type's handing
+     is still very flawed, signed/unsigned doesn't work, float * doesn't work,
+     if the char * is dynamically allocated by its source, it is leaked
+   - for a func with char as return type, undef was always returned, fixed
+   - void ** and something ** don't parse, now errors out cleanly on a **
+   - stability improvements to Win32::API::Callback, -Od, -O1, -O2 and
+     Incremental Linkings/ILT now ok on MSVC 2003
+   - on 32 bits, funcs with float return type were silently never called, fixed
+   - if a buffer overflow for pointers is detected, a die is thrown, unless env
+     var "WIN32_API_SORRY_I_WAS_AN_IDIOT" is set
+   - Added, adding unsigned or signed prefixes to C prototype for char
+     family (in only, out not implemented) cause numeric treatment for the
+     scalar parameter, not string
+     treatment, previously unsigned/signed were unparsable
+   - Added Win32::API objs from non-DLL function pointers
+     use as "$function = new Win32::API::More(undef, 123456, 'GetHandle',
+            'P', 'I');", 123456 is the function pointer
+
 2012-04-10  Win32::API v0.68    Cosimo
 
    - Temporarily skip RT#53914 related Callback test that's crashing

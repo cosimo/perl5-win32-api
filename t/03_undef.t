@@ -6,7 +6,7 @@
 
 use strict;
 use warnings;
-use Test::More skip_all => "Currently bombs out on 64 bit architectures";
+use Test::More;
 
 use IPC::Open3 qw(open3);
 use Win32::API qw();

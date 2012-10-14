@@ -1,20 +1,30 @@
 --- #YAML:1.0
-name:                Win32-API
-version:             0.65
-abstract:            Perl Win32 API Import Facility
-license:             perl
+name:               Win32-API
+version:            0.68
+abstract:           Perl Win32 API Import Facility
 author:
-    - Cosimo Streppone <cosimo@cpan.org>
-    - Aldo Calpini <dada@perl.it>
-generated_by:        ExtUtils::MakeMaker version 6.42
-distribution_type:   module
+    - Aldo Calpini <dada@perl.it>, Cosimo Streppone <cosimo@cpan.org>
+license:            perl
+distribution_type:  module
+configure_requires:
+    ExtUtils::MakeMaker:  0
+build_requires:
+    ExtUtils::MakeMaker:  0
+requires:
+    Test::More:  0
+    Win32:       0
+resources:
+    repository:  https://github.com/cosimo/perl5-win32-api
+no_index:
+    directory:
+        - t
+        - inc
+generated_by:       ExtUtils::MakeMaker version 6.55_02
+meta-spec:
+    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
+    version:  1.4
 keywords:
     - win32
     - api
     - dll
     - libraries
-requires:
-    Win32: 0
-meta-spec:
-    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
-    version: 1.3
