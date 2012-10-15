@@ -83,3 +83,4 @@ bulk88's comments
 28. Implement a proper OOP class for HMODULEs that is fork ok, similar to
     implementation of Win32::API::Callback::HeapBlock, current fork fix for
     DLLs is a hack.
+29. Add a perf.t test file using 2 calls to QueryPerformanceCounter

@@ -1,5 +1,8 @@
 History of Win32::API perl extension.
 
+2012-??-??  Win32::API v0.7?    bulk88
+   - Fixed, 2 tests in ::Callback failed on Perls without fork (from Steve Hay)
+
 2012-09-03  Win32::API v0.71    bulk88
    - API Change, UseMI64 changed to always return old value, not old on no
      setting and new on setting

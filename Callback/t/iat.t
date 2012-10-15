@@ -86,6 +86,10 @@ is($patch->GetOriginalFunctionPtr(),
    Win32::GetProcAddress(Win32::LoadLibrary("kernel32.dll"), 'QueryPerformanceCounter'),
    "GetOriginalFunctionPtr returns real QPC");
 
+my $can_fork = $Config{d_fork} || $Config{d_pseudofork} ||
+		(($^O eq 'MSWin32' || $^O eq 'NetWare') and
+		$Config{useithreads} and $Config{ccflags} =~ /-DPERL_IMPLICIT_SYS/);
+
 SKIP: {
     Win32::API::Type->typedef('PRTL_PROCESS_MODULES', 'char *');
     my $LdrQueryProcessModuleInformation =
@@ -93,8 +97,8 @@ SKIP: {
     "NTSTATUS NTAPI  LdrQueryProcessModuleInformation(".
     "PRTL_PROCESS_MODULES ModuleInformation,
     ULONG Size, PULONG ReturnedSize)");
-    skip("This Perl doesn't have ithreads and/or this Windows OS doesn't have "
-         ."LdrQueryProcessModuleInformation", 6) if ! $Config{'useithreads'}
+    skip("This Perl doesn't have fork and/or this Windows OS doesn't have "
+         ."LdrQueryProcessModuleInformation", 6) if ! $can_fork
     || ! $LdrQueryProcessModuleInformation; #Native API changed, thats ok
     is(GetAPITestDLLLoadCount($LdrQueryProcessModuleInformation), 1,
        "DLL load count is 1 before fork");
