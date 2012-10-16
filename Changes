@@ -1,6 +1,10 @@
 History of Win32::API perl extension.
 
-2012-09-03  Win32::API v0.71    bulk88
+2012-10-16  Win32::API v0.72    cosimo
+   - Improved Callback tests by properly detecting native or ithreads
+     fork capability. Thanks to Steve Hay for the patch.
+
+2012-10-15  Win32::API v0.71    bulk88
    - API Change, UseMI64 changed to always return old value, not old on no
      setting and new on setting
    - Added, "in" for ::API and "out" for ::Callback are automatically
