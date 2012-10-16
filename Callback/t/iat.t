@@ -88,14 +88,18 @@ is($patch->GetOriginalFunctionPtr(),
 
 SKIP: {
     Win32::API::Type->typedef('PRTL_PROCESS_MODULES', 'char *');
+
     my $LdrQueryProcessModuleInformation =
     Win32::API::More->new("ntdll.dll",
     "NTSTATUS NTAPI  LdrQueryProcessModuleInformation(".
     "PRTL_PROCESS_MODULES ModuleInformation,
     ULONG Size, PULONG ReturnedSize)");
-    skip("This Perl doesn't have ithreads and/or this Windows OS doesn't have "
-         ."LdrQueryProcessModuleInformation", 6) if ! $Config{'useithreads'}
-    || ! $LdrQueryProcessModuleInformation; #Native API changed, thats ok
+
+    skip("This Perl doesn't have fork and/or this Windows OS "
+        . " doesn't have LdrQueryProcessModuleInformation", 6)
+        if ! Win32::API::Test::can_fork()
+        || ! $LdrQueryProcessModuleInformation; #Native API changed, thats ok
+
     is(GetAPITestDLLLoadCount($LdrQueryProcessModuleInformation), 1,
        "DLL load count is 1 before fork");
     my ($child, $parent);

@@ -16,6 +16,16 @@ sub is_perl_64bit () {
     return;
 }
 
+sub can_fork () {
+    use Config;
+
+    my $native = $Config{d_fork} || $Config{d_pseudofork};
+    my $win32 = ($^O eq 'MSWin32' || $^O eq 'NetWare');
+    my $ithr = $Config{useithreads} and $Config{ccflags} =~ /-DPERL_IMPLICIT_SYS/;
+
+    return $native || ($win32 and $ithr);
+}
+
 sub compiler_name () {
     use Config;
     my $cc = $Config{ccname};
