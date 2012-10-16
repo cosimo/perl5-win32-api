@@ -1,0 +1,49 @@
+diff -ruN bulk88-perl5-win32-api-70da72a.orig/Callback/t/iat.t bulk88-perl5-win32-api-70da72a/Callback/t/iat.t
+--- bulk88-perl5-win32-api-70da72a.orig/Callback/t/iat.t	2012-09-03 01:32:52.000000000 +0100
++++ bulk88-perl5-win32-api-70da72a/Callback/t/iat.t	2012-09-14 09:09:54.494412500 +0100
+@@ -86,6 +86,10 @@
+    Win32::GetProcAddress(Win32::LoadLibrary("kernel32.dll"), 'QueryPerformanceCounter'),
+    "GetOriginalFunctionPtr returns real QPC");
+ 
++my $can_fork = $Config{d_fork} || $Config{d_pseudofork} ||
++		(($^O eq 'MSWin32' || $^O eq 'NetWare') and
++		$Config{useithreads} and $Config{ccflags} =~ /-DPERL_IMPLICIT_SYS/);
++
+ SKIP: {
+     Win32::API::Type->typedef('PRTL_PROCESS_MODULES', 'char *');
+     my $LdrQueryProcessModuleInformation =
+@@ -93,8 +97,8 @@
+     "NTSTATUS NTAPI  LdrQueryProcessModuleInformation(".
+     "PRTL_PROCESS_MODULES ModuleInformation,
+     ULONG Size, PULONG ReturnedSize)");
+-    skip("This Perl doesn't have ithreads and/or this Windows OS doesn't have "
+-         ."LdrQueryProcessModuleInformation", 6) if ! $Config{'useithreads'}
++    skip("This Perl doesn't have fork and/or this Windows OS doesn't have "
++         ."LdrQueryProcessModuleInformation", 6) if ! $can_fork
+     || ! $LdrQueryProcessModuleInformation; #Native API changed, thats ok
+     is(GetAPITestDLLLoadCount($LdrQueryProcessModuleInformation), 1,
+        "DLL load count is 1 before fork");
+@@ -213,4 +217,4 @@
+             return $_->{LoadCount};
+         }
+     }
+-}
+\ No newline at end of file
++}
+diff -ruN bulk88-perl5-win32-api-70da72a.orig/Callback/t/ithreads.t bulk88-perl5-win32-api-70da72a/Callback/t/ithreads.t
+--- bulk88-perl5-win32-api-70da72a.orig/Callback/t/ithreads.t	2012-09-03 01:32:52.000000000 +0100
++++ bulk88-perl5-win32-api-70da72a/Callback/t/ithreads.t	2012-09-14 09:10:33.786912500 +0100
+@@ -13,8 +13,12 @@
+ 
+ #HeapBlock class is not public API
+ 
++my $can_fork = $Config{d_fork} || $Config{d_pseudofork} ||
++		(($^O eq 'MSWin32' || $^O eq 'NetWare') and
++		$Config{useithreads} and $Config{ccflags} =~ /-DPERL_IMPLICIT_SYS/);
++
+ SKIP: {
+-    skip("This Perl doesn't have ithreads", 1) if ! $Config{'useithreads'};
++    skip("This Perl doesn't have fork", 1) if ! $can_fork;
+     #50 megs should be enough to force a VirtualAlloc and a VirtualFree
+     my $ptrobj = new Win32::API::Callback::HeapBlock 5000000;
+     my $pid = fork();
