@@ -101,6 +101,16 @@ sub find_test_dll {
     return (undef);
 }
 
+#const optimize
+BEGIN {
+    package main;
+    use Config;
+    eval ' sub PTR_LET () { "'
+    .($Config{ptrsize} == 8 ? 'Q' : 'L').
+    '" }';
+    package Win32::API::Test;
+}
+
 1;
 
 __END__

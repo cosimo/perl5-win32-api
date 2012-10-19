@@ -60,7 +60,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 			p.pParam = params[i].p;
 #ifdef WIN32_API_DEBUG
             if(params[i].t == T_POINTER)
-			printf("(XS)Win32::API::Call: parameter %d (P) is %s\n", i, p.pParam);
+			printf("(XS)Win32::API::Call: parameter %d (P) is 0x%X \"%s\"\n", i, p.lParam, p.pParam);
             else
             printf("(XS)Win32::API::Call: parameter %d (N) is %ld\n", i, p.lParam);
 #endif

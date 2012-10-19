@@ -58,7 +58,7 @@ BOOL WINAPI DllMain(
     switch( fdwReason ) 
     { 
         case DLL_PROCESS_ATTACH:
-            if(!DisableThreadLibraryCalls(hinstDLL)) return FALSE;
+            DISABLE_T_L_CALLS;
             execHeap = HeapCreate(HEAP_CREATE_ENABLE_EXECUTE
                               | HEAP_GENERATE_EXCEPTIONS, 0, 0);
             if(!execHeap) return FALSE;
@@ -490,8 +490,10 @@ PPCODE:
         SV * typeSV = *av_fetch(Types, iTypes, 0);
         char type = *SvPVX(typeSV);
 //both are never used on 64 bits
-#if IVSIZE == 4
+#ifdef T_QUAD
 #define MK_PARAM_OP_8B 0x1
+#endif
+#ifdef USEMI64
 #define MK_PARAM_OP_32BIT_QUAD 0x2
 #endif
         char op = 0;
@@ -517,28 +519,40 @@ PPCODE:
         case 'D':
             type = 'd';
         case 'd':
-#if IVSIZE == 4
+#if PTRSIZE == 4
                 op = MK_PARAM_OP_8B;
 #endif
             break;
         case 'N':
         case 'L':
-#if IVSIZE == 8
+#ifndef T_QUAD
         case 'Q':
 #endif
-            type = 'J';
+#if PTRSIZE == 4
+            type = 'L';
+#else
+            type = 'Q';
+#endif
             break;
         case 'n':
         case 'l':
-#if IVSIZE == 8
+#ifndef T_QUAD
         case 'q':
 #endif
-            type = 'j';
+#if PTRSIZE == 4
+            type = 'l';
+#else
+            type = 'q';
+#endif
             break;
-#if IVSIZE == 4
+#ifdef T_QUAD
         case 'q':
         case 'Q':
+#ifdef USEMI64
             op = MK_PARAM_OP_32BIT_QUAD | MK_PARAM_OP_8B;
+#else
+            op = MK_PARAM_OP_8B;
+#endif
             break;
 #endif
         case 'P': //p/P are not documented and not implemented as a Callback ->
@@ -551,9 +565,11 @@ PPCODE:
         }
         
         packedParamSV = sv_2mortal(av_shift(arr));
-#if IVSIZE == 4
+#ifdef T_QUAD
         if(op & MK_PARAM_OP_8B)
             sv_catsv_nomg(packedParamSV, sv_2mortal(av_shift(arr)));
+#endif
+#ifdef USEMI64
         if((op & MK_PARAM_OP_32BIT_QUAD) == 0){
 #endif
         packedParam = SvPVX(packedParamSV);
@@ -570,7 +586,7 @@ PPCODE:
         unpackstring(&type, &type+1, packedParam, packedParam+SvCUR(packedParamSV), 0);
         SPAGAIN;
         unpackedParamSV = POPs;
-#if IVSIZE == 4
+#ifdef USEMI64
         }
         else{//have MK_PARAM_OP_32BIT_QUAD
             SV ** tmpsv = hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
@@ -590,14 +606,16 @@ PPCODE:
                 unpackedParamSV = packedParamSV;
             }
         }
-#endif
+#endif //USEMI64
         SvREFCNT_inc_simple_NN(unpackedParamSV);//cancel the mortal
         HAVEUNPACKED: //used by 'p'/'P' for returning undef or a SVPV
         av_push(retarr, unpackedParamSV);
     }
-    mPUSHs(newRV_inc((SV*)retarr)); //cancel the mortal, no X needed, 2 in params
-#if IVSIZE == 4
+    mPUSHs(newRV_inc((SV*)retarr)); //cancel the mortal, no X needed bc 2 in params
+#ifdef T_QUAD
 #undef MK_PARAM_OP_8B
+#endif
+#ifdef USEMI64
 #undef MK_PARAM_OP_32BIT_QUAD
 #endif
 

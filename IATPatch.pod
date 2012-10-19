@@ -6,6 +6,7 @@ Win32::API::Callback::IATPatch - Hooking and Patching a DLL's Imported C Functio
 
   use Win32::API;
   use Win32::API::Callback;
+  die "Doesn't work on Cygwin" if $^O eq 'cygwin';
   # do not do a "use" or "require" on Win32::API::Callback::IATPatch
   # IATPatch comes with Win32::API::Callback
   my $LoadLibraryExA;
@@ -143,6 +144,17 @@ was called earlier. There are no error numbers associated with this method.
 This value can be directly used to create a function pointer based Win32::API
 object to call the original destination function from inside your Perl callback.
 See L<Win32::API::Callback::IATPatch/"SYNOPSIS"> for a usage example.
+
+=head1 BUGS AND LIMITATIONS
+
+=over 4
+
+=item E<nbsp>Cygwin not supported
+
+L<new()|Win32::API::Callback::IATPatch/"new"> always fatally errors on Cygwin
+with "IATPatch 3GB mode not supported"
+
+=back
 
 =head1 SEE ALSO
 

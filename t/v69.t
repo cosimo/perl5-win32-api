@@ -120,12 +120,12 @@ $pass = $pass && $hnd == 4000;
 ok($pass, 'GetHandle from func pointer using C prototype operates correctly');
 
 $function2 = new Win32::API::More(undef, $funcptr, 'GetHandle', 'P', 'I');
-$hnd = pack('J', 0);
+$hnd = pack(PTR_LET(), 0);
 $pass = 1;
 $pass = $pass && defined($function2);
 $result = $function2->Call($hnd);
 $pass = $pass && $result == 1;
-$pass = $pass && unpack('J', $hnd) == 4000;
+$pass = $pass && unpack(PTR_LET(), $hnd) == 4000;
 ok($pass, 'GetHandle from func pointer using letter interface operates correctly');
 
 $function2 = new Win32::API::More(undef, 2, 'GetHandle', 'P', 'I');
@@ -154,7 +154,7 @@ $function = new Win32::API::More( 'kernel32.dll' ,
     'UINT_PTR HeapAlloc(HANDLE hHeap, DWORD dwFlags, SIZE_T dwBytes)');
 $function2 = new Win32::API::More( 'kernel32.dll' , 'HANDLE  GetProcessHeap()');
 $ptr = $function->Call($function2->Call(), 0, length($input));
-MoveMemory($ptr, unpack('J', pack('p', $input)), length($input));
+MoveMemory($ptr, unpack(PTR_LET(), pack('p', $input)), length($input));
 
 $result = ReadMemory($ptr, length($input));
 is($result,$input,'MoveMemory() and ReadMemory() work');
@@ -172,7 +172,7 @@ $function = new Win32::API::More( 'kernel32.dll' ,
 
 ok($function->Call($function2->Call(), 0, $ptr), "HeapFree works");
 ok(IsBadReadPtr(1, 4), "1 is a bad pointer for IsBadReadPtr");
-ok(!IsBadReadPtr(unpack('J',pack('p', $input)), length($input)),
+ok(!IsBadReadPtr(unpack(PTR_LET(),pack('p', $input)), length($input)),
    "IsBadReadPtr returned false on a good pointer");
 
 $function2 = new Win32::API::More( 'kernel32.dll' , 'HANDLE  GetProcessHeap( void ** ptr )');

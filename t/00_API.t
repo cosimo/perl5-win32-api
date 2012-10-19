@@ -267,7 +267,7 @@ ok(defined($function), "cdecl c_sum_integers() function defined");
 is($function->Call(2, 3), 5, 'cdecl sum_integers() returns expected value');
 
 $input = "Just another perl hacker";
-$ptr = unpack('J', pack('p', $input));
+$ptr = unpack(PTR_LET(), pack('p', $input));
 $result = Win32::API::ReadMemory($ptr, length($input));
 is($result,$input,'ReadMemory() works');
 

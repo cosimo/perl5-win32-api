@@ -100,7 +100,7 @@ ok( $simple_struct{a} == 2
     }
     my $SSIDstruct = pack('LZ[32]',length("TheSSID"), "TheSSID" );
     my $profname = Encode::encode("UTF-16LE","TheProfileName\x00");
-    my $Wlan_connection_parameters = pack('Lx![p]PPJLL', 0
+    my $Wlan_connection_parameters = pack('Lx![p]PP'.PTR_LET().'LL', 0
                                           ,$profname
                                           , $SSIDstruct, 0, 3, 1);
 
@@ -110,7 +110,6 @@ ok( $simple_struct{a} == 2
     #$Wlan_connection_parameters->{pDesiredBssidList}  = 0;
     #$Wlan_connection_parameters->{dot11BssType}       = 3;
     #$Wlan_connection_parameters->{dwFlags}            = 1;
-
     is($function->Call(hex_to_int64("0x8000000050000000"),
                        0x12344321,
                "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x10\x11\x12\x13\x14\x15\x16"
@@ -157,6 +156,8 @@ WlanConnect(
     $Wlan_connection_parameters->{pDesiredBssidList}  = 0;
     $Wlan_connection_parameters->{dot11BssType}       = 3;
     $Wlan_connection_parameters->{dwFlags}            = 1;
+{
+    no warnings 'portable';
     is($function->Call(length(pack('J', 0)) == 4?
                        "\x00\x00\x00\x50\x00\x00\x00\x80":
                        0x8000000050000000,
@@ -164,6 +165,7 @@ WlanConnect(
                     "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x10\x11\x12\x13\x14\x15\x16",
                     $Wlan_connection_parameters,
                     0xF080F080), 0, "::Struct fake WlanConnect returned ERROR_SUCCESS");
+}
     Win32::API::Struct->typedef('WLANPARAMCONTAINER', 'PWLAN_CONNECTION_PARAMETERS', 'wlan;');
     $function = Win32::API->new($test_dll, ' void __stdcall GetConParams('
                                 .'BOOL Fill, WLANPARAMCONTAINER * param)');

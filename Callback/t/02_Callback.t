@@ -40,6 +40,7 @@ diag('Compiler version:', $cc_vers);
     $callback = Win32::API::Callback->new(
         sub {
             my ($value) = @_;
+            die 'incorrect @_ count to the Perl Callback' if @_ != 1;
             return $value * 2;
         },
         'N',
@@ -59,6 +60,7 @@ $callback = Win32::API::Callback->new(
     sub {
         #print Dumper(\@_);
         #$DB::single = 1;
+        die 'incorrect @_ count to the Perl Callback' if @_ != 5;
         my $chr = $_[0];
         $chr = $_[0] & 0xFF; #x64 fill high bits with garbage
         die "bad char" if chr($chr) ne 'P';
@@ -95,6 +97,7 @@ SKIP: {
         sub {
             #print Dumper(\@_);
             #$DB::single = 1;
+            die 'incorrect @_ count to the Perl Callback' if @_ != 5;
             my $chr = $_[0];
             $chr = $_[0] & 0xFF; #x64 fill high bits with garbage
             die "bad char" if chr($chr) ne 'P';
@@ -149,6 +152,7 @@ $callback = Win32::API::Callback->new(
     sub {
         #print Dumper(\@_);
         #$DB::single = 1;
+        die 'incorrect @_ count to the Perl Callback' if @_ != 5;
         my $chr = $_[0];
         $chr = $_[0] & 0xFF;
         die "bad char" if chr($chr) ne 'P';

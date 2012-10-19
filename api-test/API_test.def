@@ -36,3 +36,4 @@ EXPORTS
   GetConParams  
   MyQueryPerformanceCounter
   GetTestDllHModule
+  setlasterror_loop
