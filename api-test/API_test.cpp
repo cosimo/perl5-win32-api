@@ -364,3 +364,26 @@ API_TEST_API BOOL __stdcall MyQueryPerformanceCounter(LARGE_INTEGER *lpPerforman
 API_TEST_API HMODULE __stdcall GetTestDllHModule(void){
     return g_hModule;
 }
+API_TEST_API char * __stdcall setlasterror_loop(int iterations){
+    /*sloppy code, no buffer overrun prevention */
+    int i;
+    LARGE_INTEGER start;
+    BOOL startbool;
+    LARGE_INTEGER end;
+    BOOL endbool;
+    LARGE_INTEGER freq;
+    BOOL freqbool;
+    double delta;
+    static char msg [256] = {0};
+    freqbool = QueryPerformanceFrequency(&freq);
+    if(! freqbool) DebugBreak();
+    startbool = QueryPerformanceCounter(&start);
+    for(i = 0; i < iterations; i++){
+        SetLastError(1);
+    }
+    endbool = QueryPerformanceCounter(&end);
+    if(!startbool || !endbool) DebugBreak();
+    delta = (double)(end.QuadPart - start.QuadPart)/(double)(freq.QuadPart);
+    sprintf(msg, "time was %.17f secs, %.17f ms per C call", delta, (delta/(double)iterations)*1000);
+    return (char *)msg;
+}

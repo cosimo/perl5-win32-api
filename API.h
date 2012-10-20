@@ -10,6 +10,37 @@
 
 #include "ppport.h"
 
+/* see https://rt.cpan.org/Ticket/Display.html?id=80217
+  http://gcc.gnu.org/bugzilla/show_bug.cgi?id=35124
+  http://gcc.gnu.org/bugzilla/show_bug.cgi?id=41001
+  undo this if that bug is ever fixed
+*/
+#ifdef __CYGWIN__
+#  define _alloca(size) __builtin_alloca(size)
+#endif
+
+/* some Mingw GCCs use Static TLS on all DLLs, DisableThreadLibraryCalls fails
+   if DLL has Static TLS, todo, figure out how to disable Static TLS on Mingw
+   Win32::API never uses it, also Win32::API never uses C++ish exception handling
+   see https://rt.cpan.org/Public/Bug/Display.html?id=80249 and
+   http://www.cygwin.com/ml/cygwin-apps/2010-03/msg00075.html
+*/
+
+#ifdef _MSC_VER
+#define DISABLE_T_L_CALLS STMT_START {if(!DisableThreadLibraryCalls(hinstDLL)) return FALSE;} STMT_END
+#else
+#define DISABLE_T_L_CALLS STMT_START { 0; } STMT_END
+#endif
+
+/*never use this on cygwin, the debug messages in Call_asm leave the printf
+  string args on the c stack and the target C func sees printf args, I (bulk88)
+  did not research what GCC compiler flags or pragmas or declaration attrs are
+  necessery to make WIN32_API_DEBUG work on Cygwin GCC
+
+  when using WIN32_API_DEBUG change the iterations count to 1 in benchmark.t
+  otherwise the test takes eternity
+*/
+
 // #define WIN32_API_DEBUG
 
 #ifdef _WIN64
@@ -24,11 +55,14 @@ typedef unsigned long long_ptr;
 #define T_INTEGER			3
 #define T_SHORT				4
 
-//T_QUAD is a 8 byte string,
-//use T_VOID or T_NUMBER for a 8 byte IV if 64 bit perl
+//T_QUAD means a pointer is not 64 bits
 //T_QUAD is also used in ifdefs around the C code implementing T_QUAD
 #ifndef _WIN64
-    #define T_QUAD          5
+#  define T_QUAD                        5
+#  if ! (IVSIZE == 8)
+//USEMI64 Perl does not have native i64s, use 8 byte strings or Math::Int64s to emulate
+#    define USEMI64
+#  endif
 #endif
 #define T_CHAR				6
 
@@ -107,8 +141,12 @@ typedef struct {
 
 #define PREP_SV_SET(sv) if(SvTHINKFIRST((sv))) sv_force_normal_flags((sv), SV_COW_DROP_PV)
 
+//C=Callback, CIATP=Callback::IATPatch
 #define W32AC_T HV
 #define W32ACIATP_T HV
 /*no idea why this is defined to 0 but we need this as a label*/
 #undef ERROR
 
+#ifndef WC_NO_BEST_FIT_CHARS
+#  define WC_NO_BEST_FIT_CHARS 0x00000400
+#endif

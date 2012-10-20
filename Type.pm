@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use vars qw( %Known %PackSize %Modifier %Pointer $VERSION @ISA );
 
-$VERSION = '0.65';
+$VERSION = '0.66';
 
 use Carp;
 BEGIN{
@@ -114,7 +114,8 @@ sub typedef {
     $name =~ m/^(.+?)\s*(\*)$/;
     $name = $1;
     $name .= $2 if defined $2;
-    my $packing = packing($type, $name);
+    #FIXME BUG, unsigned __int64 * doesn't pase in typedef, it does in parse_prototype
+    my $packing = packing($type, $name); #FIXME BUG
     if(! defined $packing){
         warn "Win32::API::Type::typedef: WARNING unknown type '$_[1]'";
         return undef;

@@ -42,11 +42,11 @@ is($function->Call($string, $char), 'aph', 'find_char() function call works');
 {
 my $source = Encode::encode("UTF-16LE","Just another perl hacker\x00");
 my $string = '';
-$string = SafeReadWideCString(unpack('J',pack('p', $source)));
+$string = SafeReadWideCString(unpack(PTR_LET(),pack('p', $source)));
 is($string, "Just another perl hacker", "SafeReadWideCString ASCII");
 $string = '';
 $source = Encode::encode("UTF-16LE","Just another perl h\x{00E2}cker\x00");
-$string = SafeReadWideCString(unpack('J',pack('p', $source)));
+$string = SafeReadWideCString(unpack(PTR_LET(),pack('p', $source)));
 is($string, "Just another perl h\x{00E2}cker", "SafeReadWideCString Wide");
 $string = SafeReadWideCString(0);
 ok(! defined $string, "SafeReadWideCString null pointer");

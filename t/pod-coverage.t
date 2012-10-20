@@ -7,5 +7,5 @@ pod_coverage_ok( "Win32::API", {also_private =>
 [qr/DEBUG|ERROR_NOACCESS|FreeLibrary|FromUnicode/,
  qr/GetProcAddress|IVSIZE|IsBadStringPtr|IsUnicode|LoadLibrary|PointerAt/,
  qr/PointerTo|ToUnicode|calltype_to_num|parse_prototype|type_to_num/,
- qr/GetModuleFileName/
+ qr/GetModuleFileName|PTRSIZE|ISCYG/
  ]});

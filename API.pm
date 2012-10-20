@@ -18,6 +18,14 @@ use strict;
 use warnings;
 require Exporter;      # to export the constants to the main:: space
 require DynaLoader;    # to dynuhlode the module.
+use Config;
+BEGIN {
+    sub ISCYG ();
+    eval "sub ISCYG () { ".($^O eq 'cygwin' ? 1 : 0)."}";
+    no warnings 'uninitialized';
+    die "Win32::API on Cygwin requires the cygpath tool on PATH"
+        if ISCYG && index(`cygpath --help`,'Usage: cygpath') == -1;
+}
 use vars qw( $DEBUG $sentinal @ISA @EXPORT_OK %Imported $VERSION );
 
 @ISA = qw( Exporter DynaLoader );
@@ -30,7 +38,8 @@ $DEBUG = 0;
 
 BEGIN {
 sub ERROR_NOACCESS () { 998 }
-eval " *Win32::API::Type::IVSIZE = *Win32::API::More::IVSIZE = *IVSIZE = sub  () { ".length(pack('J',0))." }";
+eval " *Win32::API::Type::PTRSIZE = *Win32::API::More::PTRSIZE = *PTRSIZE = sub  () { ".$Config{ptrsize}." }";
+eval " *Win32::API::Type::IVSIZE = *Win32::API::More::IVSIZE = *IVSIZE = sub  () { ".$Config{ivsize}." }";
 }
 
 sub DEBUG {
@@ -49,7 +58,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.72';
+$VERSION = '0.73';
 
 #### some package-global hash to
 #### keep track of the imported
@@ -75,7 +84,7 @@ sub new {
     my ($hdll, $freedll) = (0, 0);
     my $self = {};
     if(! defined $hproc){
-        if ($^O eq 'cygwin' and $dll ne File::Basename::basename($dll)) {
+        if (ISCYG() and $dll ne File::Basename::basename($dll)) {
     
             # need to convert $dll to win32 path
             # isn't there an API for this?
@@ -257,7 +266,7 @@ sub type_to_num {
         or $type eq 'n'
         or $type eq 'l'
         or $type eq 'L'
-        or ( IVSIZE == 8  and $type eq 'Q' || $type eq 'q'))
+        or ( PTRSIZE == 8  and $type eq 'Q' || $type eq 'q'))
     {
         $num = 1;
     }
@@ -286,7 +295,7 @@ sub type_to_num {
     {
         $num = 6;
     }
-    elsif (IVSIZE == 4 and $type eq 'q' || $type eq 'Q')
+    elsif (PTRSIZE == 4 and $type eq 'q' || $type eq 'Q')
     {
         $num = 5;
     }
@@ -342,7 +351,7 @@ sub type_to_num {
         or $type eq 'n'
         or $type eq 'l'
         or $type eq 'L'
-        or ( IVSIZE == 8  and $type eq 'Q' || $type eq 'q')
+        or ( PTRSIZE == 8  and $type eq 'Q' || $type eq 'q')
         or (! $out and  # in XS short 'in's are interger/numbers code
             $type eq 'S'
             || $type eq 's'))
@@ -384,7 +393,7 @@ sub type_to_num {
             $num |= 0x80;
         }
     }
-    elsif (IVSIZE == 4 and $type eq 'q' || $type eq 'Q')
+    elsif (PTRSIZE == 4 and $type eq 'q' || $type eq 'Q')
     {
         $num = 5;
         if(defined $out && $type eq 'Q'){
@@ -1082,7 +1091,7 @@ done to vaildate the argument's type vs the parameter's type if the function
 has a C prototype definition (not letter definition). First, if the parameter
 type starts with the LP prefix, the LP prefix is stripped, then compared to
 the argument's type. If that fails, the Win32::API::Type database
-(see L<Win32::API::Type\typedef>)
+(see L<Win32::API::Type/typedef>)
 will be used to convert the parameter type to the base type. If that fails,
 the parameter type will be stripped of a trailing whitespace then a '*', and
 then checked against the base type. L<Dies|perlfunc/die> if the parameter and
@@ -1287,6 +1296,8 @@ L<Win32::API::Struct>
 L<Win32::API::Type>
 
 L<Win32::API::Callback>
+
+L<Win32::API::IATPatch>
 
 L<http://homepage.ntlworld.com/jonathan.deboynepollard/FGA/function-calling-conventions.html>
 

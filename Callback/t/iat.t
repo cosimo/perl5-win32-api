@@ -2,7 +2,8 @@
 use strict;
 use Config;
 use Test::More;
-plan tests => 27;
+if($^O eq 'cygwin'){plan skip_all => 'Cygwin allocates >0x80000000 memory';}
+else{plan tests => 27;}
 use vars qw(
     $function
     $function2
@@ -17,7 +18,6 @@ use vars qw(
 );
 BEGIN {
     eval "sub PTR_SIZE () { ".$Config{ptrsize}." }";
-    eval "sub PTR_LET () { ".($Config{ptrsize} == 8 ? 'Q' : 'L')." }";
 }
 use Win32::API ('WriteMemory', 'ReadMemory', 'IsBadReadPtr');
 use Win32::API::Callback;

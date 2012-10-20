@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use vars qw( $VERSION @ISA $Stage2FuncPtrPkd );
 
-$VERSION = '0.72';
+$VERSION = '0.73';
 
 
 require Exporter;      # to export the constants to the main:: space
@@ -49,6 +49,10 @@ BEGIN {
     sub CONTEXT_RAX();
     *UseMI64 = *Win32::API::UseMI64; #keep UseMI64 out of export list
     *IsBadStringPtr = *Win32::API::IsBadStringPtr;
+    sub PTRSIZE ();
+    *PTRSIZE = *Win32::API::PTRSIZE;
+    sub PTRLET ();
+    *PTRLET = *Win32::API::Type::pointer_pack_type;
 }
 #######################################################################
 # dynamically load in the API extension module.
@@ -83,7 +87,7 @@ sub new {
             $self->{inbytes} += 8; #always 8
         }
         else{
-            $self->{inbytes} += IVSIZE; #4 or 8
+            $self->{inbytes} += PTRSIZE; #4 or 8
         }
     }
     $self->{outtype} = $out;
@@ -110,7 +114,7 @@ sub MakeStruct {
     return $struct;
 }
 
-#this was rewritten in XS
+#this was rewritten in XS, and is broken b/c it doesn't work on 32bit Perl with Quads
 #sub MakeParamArr { #on x64, never do "$i++;       $packedparam .= $arr->[$i];"
 #    #on x86, structs and over word size params appears on the stack,
 #    #on x64 anything over the size of a "word" is passed by pointer
@@ -178,10 +182,10 @@ if(! ISX64 ) {
     my (@pass_arr, $return, $typeletter, $inbytes);
     $inbytes = $self->{inbytes};
     #first is ebp copy then ret address
-    $inbytes += IVSIZE * 2;
-    my $paramcount = $inbytes / IVSIZE ;
-    my $stackstr = unpack('P['.$inbytes.']', pack('J', $_[1]));
-    my @arr = unpack("(a[J])[$paramcount]",$stackstr);
+    $inbytes += PTRSIZE * 2;
+    my $paramcount = $inbytes / PTRSIZE ;
+    my $stackstr = unpack('P['.$inbytes.']', pack(PTRLET, $_[1]));
+    my @arr = unpack("(a[".PTRLET."])[$paramcount]",$stackstr);
     #print Dumper(\@arr);
     shift @arr, shift @arr; #remove ebp copy and ret address
     $paramcount -= 2;
@@ -196,16 +200,21 @@ if(! ISX64 ) {
     if($typeletter eq 'n' || $typeletter eq 'N'
           || $typeletter eq 'l' || $typeletter eq 'L'
           || $typeletter eq 'i' || $typeletter eq 'I'){
-        $_[2] = pack('J', $return);
+        $_[2] = pack(PTRLET, $return);
     }elsif($typeletter eq 'q' || $typeletter eq 'Q'){
-        if($self->{'UseMI64'} || ref($return)){ #un/signed meaningless
-            $_[2] = Math::Int64::int64_to_native($return);
+        if(IVSIZE == 4){
+            if($self->{'UseMI64'} || ref($return)){ #un/signed meaningless
+                $_[2] = Math::Int64::int64_to_native($return);
+            }
+            else{
+                warn("Win32::API::Callback::RunCB return value for return type Q is under 8 bytes long")
+                if length($return) < 8;
+                $_[2] = $return.''; #$return should be a 8 byte string
+                #will be garbage padded in XS if < 8, but must be a string, not a IV or under
+            }
         }
         else{
-            warn("Win32::API::Callback::RunCB return value for return type Q is under 8 bytes long")
-            if length($return) < 8;
-            $_[2] = $return.''; #$return should be a 8 byte string
-            #will be garbage padded in XS if < 8, but must be a string, not a IV or under
+            $_[2] = pack($typeletter, $return);
         }
     }elsif($typeletter eq 'f' || $typeletter eq 'F' ){
         $_[2] = pack('f', $return);
@@ -213,11 +222,11 @@ if(! ISX64 ) {
         $_[2] = pack('d', $return);
         $_[4] = 1; #use double
     }else { #return null
-        $_[2] = pack('J', 0);
+        $_[2] = "\x00" x 8;
     }
     
     if(! $self->{cdecl}){
-        $_[3] = IVSIZE * $paramcount; #stack rewind amount in bytes
+        $_[3] = PTRSIZE * $paramcount; #stack rewind amount in bytes
     }
     else{$_[3] = 0;}
 };
@@ -541,6 +550,10 @@ or 'WINAPIV'.
 =head3 UseMI64
 
 See L<Win32::API/UseMI64>.
+
+=head1 SEE ALSO
+
+L<Win32::API::IATPatch>
 
 =head1 AUTHOR
 

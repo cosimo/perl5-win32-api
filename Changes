@@ -1,5 +1,20 @@
 History of Win32::API perl extension.
 
+2012-10-20  Win32::API v0.73    bulk88
+   - Known Issue, IATPatch usually does not work on Cygwin
+   - Fixed, now works on 32 bit Cygwin Perl
+   - Fixed, now works on 32 bit Perl with 64 bit IVs
+   - Fixed, misc POD
+   - Added, check for cygpath tool on ::API for Cygwin 
+   - Fixed, cygpath fix from Jerry D. Hedden
+   - Fixed, ::Callback's DLL failed to load in DynaLoader on newer
+     (Strawberry Perl 5.16.*) Mingws due to newer Mingws starting to always
+     include Static TLS in DLLs
+   - Fixed, ::API on newer 32 bit Mingws (Strawberry Perl 5.16.*) crashed on
+     all cdecl calls due to different optimization defaults in newer Mingws
+   - Improved, some tests were hardened
+   - Fixed, should build on ActiveState's PPM system
+
 2012-10-16  Win32::API v0.72    cosimo
    - Improved Callback tests by properly detecting native or ithreads
      fork capability. Thanks to Steve Hay for the patch.

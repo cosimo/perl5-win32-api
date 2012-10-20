@@ -63,6 +63,7 @@ t/03_undef.t
 t/04_rt_48006.t
 t/05_more_struct.t
 t/06_rt_74578.t
+t/benchmark.t
 t/pod-coverage.t
 t/pod.t
 t/v69.t

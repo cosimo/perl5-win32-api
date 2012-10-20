@@ -112,7 +112,7 @@ STATIC SV * getTarg(pTHX) {
  * If wlen isn't -1 (calculate length), wlen must include the null wchar
  * in its count of wchars, and null wchar must be last wchar
  */
-STATIC void w32sv_setwstr(pTHX_ SV * sv, WCHAR *wstr, __int3264 wlenparam) {
+STATIC void w32sv_setwstr(pTHX_ SV * sv, WCHAR *wstr, INT_PTR wlenparam) {
     char * dest;
     BOOL use_default = FALSE;
     BOOL * use_default_ptr = &use_default;    
@@ -131,7 +131,7 @@ STATIC void w32sv_setwstr(pTHX_ SV * sv, WCHAR *wstr, __int3264 wlenparam) {
     but infact is creating non terminated, length counted, strings, catch it*/
     if(wstr[wlen-1] != L'\0') Perl_croak(aTHX_ "(XS) " MODNAME "::w32sv_setwstr panic: %s", "wide string is not null terminated\n");
 #ifdef _WIN64     /* WCTMB only takes 32 bits ints*/
-    if(wlenparam > (__int3264) INT_MAX && wlenparam != 0xFFFFFFFF) Perl_croak(aTHX_ "(XS) " MODNAME "::w32sv_setwstr panic: %s", "string overflow\n");
+    if(wlenparam > (INT_PTR) INT_MAX && wlenparam != 0xFFFFFFFF) Perl_croak(aTHX_ "(XS) " MODNAME "::w32sv_setwstr panic: %s", "string overflow\n");
 #endif
     if(((WCHAR *)SvPVX(sv)) == wstr) {//WCTMB bufs cant overlap
         //dont trip MEM_WRAP_CHECK macro that is a pointless runtime assert
@@ -180,6 +180,12 @@ BOOT:
 #endif
     STATIC_ASSERT(sizeof(sentinal_struct) == 12); //8+2+2
     STATIC_ASSERT(sizeof(SENTINAL_STRUCT) == 2+2+8);    
+#ifdef USEMI64
+    STATIC_ASSERT(IVSIZE == 4);
+#endif
+#ifdef T_QUAD
+    STATIC_ASSERT(sizeof(char *) == 4);
+#endif
 #ifdef WIN32_API_DEBUG
 #define  DUMPMEM(type,name) printf(SDumpStr, #type " " #name, sizeof(((APIPARAM *)0)->name), offsetof(APIPARAM, name));
     DUMPMEM(int,t);
@@ -229,7 +235,7 @@ PPCODE:
 			"Win32::API::UseMI64",
 			"self");
     //dont create one if doesn't exist
-    old_flag = hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
+    old_flag = (SV*)hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
     if(old_flag) old_flag = *(SV **)old_flag;
     PUSHs(boolSV(sv_true(old_flag))); //old_flag might be NULL, ST(0) now gone
     
@@ -606,6 +612,7 @@ PPCODE:
                 break;
 #ifdef T_QUAD
             case T_QUAD:{
+#ifdef USEMI64
                 __int64 * pI64;
                 if(UseMI64 || SvROK(pl_stack_param)){
                     SPAGAIN;
@@ -627,8 +634,12 @@ PPCODE:
                 pI64 = (__int64 *) SvPV_nolen(pl_stack_param);
                 if(SvCUR(pl_stack_param) != 8)
                 croak("Win32::API::Call: parameter %d must be a%s",i+1, " packed 8 bytes long string, it is a 64 bit integer (Math::Int64 broken?)");
-                params[i].t = T_QUAD;
 				params[i].q = *pI64;
+#else
+                params[i].q = (__int64) SvIV(pl_stack_param);
+#endif //USEMI64
+
+                params[i].t = T_QUAD;
 #ifdef WIN32_API_DEBUG
 				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%I64d\n", i, params[i].t, params[i].q);
 #endif
@@ -695,7 +706,7 @@ PPCODE:
 					}
 				}
 #ifdef WIN32_API_DEBUG
-                printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%s\n", i, params[i].t, params[i].p);
+                printf("(XS)Win32::API::Call: params[%d].t=%d, .p=%s .l=%X\n", i, params[i].t, params[i].p, params[i].p);
 #endif
                 break;
             }
@@ -911,6 +922,7 @@ PPCODE:
         retsv = newSVuv((UV)(unsigned short)retval.l);
         break;
 #ifdef T_QUAD
+#ifdef USEMI64
     case T_QUAD:
     case (T_QUAD|T_FLAG_UNSIGNED):
 #ifdef WIN32_API_DEBUG
@@ -930,7 +942,21 @@ PPCODE:
             SvREFCNT_inc_simple_void_NN(retsv); //cancel the mortal, will be remortaled later
         }
         break;
+#else //USEMI64
+    case T_QUAD:
+#ifdef WIN32_API_DEBUG
+	   	printf("(XS)Win32::API::Call: returning %I64d.\n", retval.q);
 #endif
+        retsv = newSViv(retval.q);
+        break;
+    case (T_QUAD|T_FLAG_UNSIGNED):
+#ifdef WIN32_API_DEBUG
+	   	printf("(XS)Win32::API::Call: returning %I64d.\n", retval.q);
+#endif
+        retsv = newSVuv(retval.q);
+        break;
+#endif //USEMI64
+#endif //T_QUAD
     case T_FLOAT:
 #ifdef WIN32_API_DEBUG
 	   	printf("(XS)Win32::API::Call: returning %f.\n", retval.f);
@@ -990,7 +1016,7 @@ PPCODE:
         retsv = &PL_sv_undef;
         break;
     }
-    XSprePUSH;//due to T_QUAD, this can't be done earlier
+    XSprePUSH;//due to USEMI64, this can't be done earlier
     mPUSHs(retsv);
     }//tout scope
 }
