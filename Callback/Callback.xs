@@ -665,15 +665,15 @@ PPCODE:
     //Code here to make a inter thread refcount to deal with ithreads cloning
     //to prevent a double free
     SVUVVar = SvRV(ptr_obj);
-    #if defined(USE_ITHREADS)
+#if defined(USE_ITHREADS)
     mg = mg_findext(SVUVVar, PERL_MAGIC_ext,&vtbl_HeapBlock);    
     refcnt = InterlockedDecrement((LONG *) mg->mg_ptr);
     if(refcnt == 0 ){ //if -1 or -2, means another thread will free it
-    #endif
+#endif
     HeapFree(execHeap, 0, (LPVOID)SvUV(SVUVVar));
-    #if defined(USE_ITHREADS)
+#if defined(USE_ITHREADS)
     }
-    #endif
+#endif
 
 MODULE = Win32::API::Callback   PACKAGE = Win32::API::Callback::IATPatch
 
