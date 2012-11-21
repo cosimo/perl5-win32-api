@@ -3,6 +3,27 @@
 
 use ExtUtils::MakeMaker qw/ WriteMakefile/;
 
+# Must be a better way to do this, surely...
+use Config;
+
+my $is_64bit_build = ($Config{ptrsize} == 8);
+my $is_msvc_compiler = ($Config{cc} =~ /cl/);
+
+sub GS_flag {
+    if($is_msvc_compiler
+       && Win32::API::Test::compiler_version_from_shell() >= 14 ) {
+        return ' -GS- ';
+    }
+    else {
+        return '';
+    }
+}
+
+sub MY::post_constants {
+    return 'CCFLAGS '.($_[0]->{MAKE} =~ /^make/ || $_[0]->{MAKE} =~ /^dmake/ ? ':=' : '=')
+    . ' $(CCFLAGS) '.GS_flag()."\n";
+}
+
     WriteMakefile(
         'NAME'	=> 'Win32::API::Callback',
         ($] < 5.005 ? () : (

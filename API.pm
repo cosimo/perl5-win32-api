@@ -58,7 +58,7 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.73';
+$VERSION = '0.74';
 
 #### some package-global hash to
 #### keep track of the imported
@@ -1297,7 +1297,7 @@ L<Win32::API::Type>
 
 L<Win32::API::Callback>
 
-L<Win32::API::IATPatch>
+L<Win32::API::Callback::IATPatch>
 
 L<http://homepage.ntlworld.com/jonathan.deboynepollard/FGA/function-calling-conventions.html>
 

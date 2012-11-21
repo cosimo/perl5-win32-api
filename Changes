@@ -1,5 +1,11 @@
 History of Win32::API perl extension.
 
+2012-11-21  Win32::API v0.74    bulk88
+   - Fixed, non threaded Perl fix from Reini Urban
+   - Fixed, Perl 5.8 in Struct.pm syntax error (cpantesters report)
+   - Fixed, LNK 4210 warning on >= VS 2005 fixed
+   - Fixed, misc POD
+
 2012-10-20  Win32::API v0.73    bulk88
    - Known Issue, IATPatch usually does not work on Cygwin
    - Fixed, now works on 32 bit Cygwin Perl

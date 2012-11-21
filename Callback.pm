@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use vars qw( $VERSION @ISA $Stage2FuncPtrPkd );
 
-$VERSION = '0.73';
+$VERSION = '0.74';
 
 
 require Exporter;      # to export the constants to the main:: space
@@ -553,7 +553,7 @@ See L<Win32::API/UseMI64>.
 
 =head1 SEE ALSO
 
-L<Win32::API::IATPatch>
+L<Win32::API::Callback::IATPatch>
 
 =head1 AUTHOR
 

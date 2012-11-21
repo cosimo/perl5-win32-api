@@ -9,7 +9,7 @@ package Win32::API::Struct;
 use strict;
 use warnings;
 use vars qw( $VERSION @ISA );
-$VERSION = '0.63';
+$VERSION = '0.64';
 
 use Carp;
 use Win32::API::Type;
@@ -465,13 +465,13 @@ sub is_known {
         return 1;
     }
     else {
-        my $_ = $name;
-        if (s/^LP//) {
-            return exists $Known{$_};
+        my $nametest = $name;
+        if ($nametest =~ s/^LP//) {
+            return exists $Known{$nametest};
         }
-        $_ = $name;
-        if(s/\*$//){
-            return exists $Known{$_};
+        $nametest = $name;
+        if($nametest =~ s/\*$//){
+            return exists $Known{$nametest};
         }
         return 0;
     }
