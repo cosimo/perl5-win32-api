@@ -32,5 +32,6 @@ sub MY::post_constants {
         )),
         'VERSION_FROM' => '../API.pm',
         'dist'	=> {COMPRESS => 'gzip -9f', SUFFIX => 'gz'},
+        ($] > 5.007000 ? () : (TYPEMAPS => ['../typemap56'])),
     );
 

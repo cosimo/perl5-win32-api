@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use vars qw( %Known %PackSize %Modifier %Pointer $VERSION @ISA );
 
-$VERSION = '0.66';
+$VERSION = '0.67';
 
 use Carp;
 BEGIN{
@@ -279,7 +279,7 @@ sub Pack {
         else{
             if(length($_[2]) < 8){
                 warn("Win32::API::Call value for 64 bit integer is under 8 bytes long");
-                $_[2] = pack('a[8]', $_[2]);
+                $_[2] = pack('a8', $_[2]);
             }
         }
         return;

@@ -9,15 +9,21 @@ use strict;
 
 use File::Spec;
 use Test::More;
-use Encode;
+use Win32::API::Test;
+BEGIN {
+    eval { require Encode; };
+    if($@){
+        require Encode::compat;
+    }
+    Encode->import();
+}
 use Math::Int64 ('hex_to_int64');
 
-plan tests => 23;
+plan tests => 22;
 use vars qw($function $result $return $test_dll );
 
 
 use_ok('Win32::API', 'SafeReadWideCString');
-use_ok('Win32::API::Test');
 
 
 $test_dll = Win32::API::Test::find_test_dll();
@@ -98,7 +104,7 @@ eval{
 
 SKIP: {
     skip('Quads are native on this computer', 4) if 
-        length(pack('J',0)) == 8;
+        IV_SIZE == 8;
     #test that UseMI64 is not required for non Callback "in" params
     $function = new Win32::API::More($test_dll, 'LONG64 __stdcall sum_quads_ref(LONG64 a, LONG64 b, LONG64 * c)');
     $result = 0; #cant be undef

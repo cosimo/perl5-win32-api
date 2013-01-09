@@ -9,13 +9,13 @@ use strict;
 
 use Test::More;
 use Math::Int64 ('uint64', 'uint64_to_number');
+use Win32::API::Test;
 
-plan tests => 7;
+plan tests => 6;
 use vars qw($function $result $return $test_dll );
 
 
 use_ok('Win32::API');
-use_ok('Win32::API::Test');
 
 $test_dll = Win32::API::Test::find_test_dll();
 diag('API test dll found at (' . $test_dll . ')');
@@ -27,12 +27,12 @@ ok(defined($c_slr_loop), 'setlasterror_loop() function defined');
 my $QPC = Win32::API::More->new('kernel32.dll', "BOOL WINAPI QueryPerformanceCounter(
                         UINT64 * lpPerformanceCount );");
 ok($QPC, "QueryPerformanceCounter Win32::API obj created");
-$QPC->UseMI64(1) if length(pack('J',0)) == 4;
+$QPC->UseMI64(1) if IV_SIZE == 4;
 my $freq;
 $freq = uint64(0);
 my $QPF = Win32::API::More->new('kernel32.dll', "BOOL WINAPI QueryPerformanceFrequency(
                             UINT64 *lpFrequency);");
-$QPF->UseMI64(1) if length(pack('J',0)) == 4;
+$QPF->UseMI64(1) if IV_SIZE == 4;
 ok($QPF->Call($freq), "QueryPerformanceFrequency Win32::API obj created and call success");
 
 #note that we capture the garbage return value for SLR, this is to simulate that most

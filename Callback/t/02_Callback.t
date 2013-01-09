@@ -9,7 +9,7 @@ use strict;
 use Config;
 use Test::More;
 use Math::Int64 qw( int64 hex_to_uint64 uint64_to_hex);
-plan tests => 21;
+plan tests => 20;
 use vars qw(
     $function
     $result
@@ -18,11 +18,11 @@ use vars qw(
 );
 
 BEGIN {
-    eval "sub PTR_SIZE () { ".length(pack('J',0))." }";
+    eval "sub PTR_SIZE () { ".length(pack(($] <= 5.007002 ? 'L':'J'),0))." }";
 }
 use_ok('Win32::API');
 use_ok('Win32::API::Callback');
-use_ok('Win32::API::Test');
+use Win32::API::Test;
 
 
 ok(1, 'loaded');
@@ -46,21 +46,6 @@ diag('Compiler version:', $cc_vers);
         'N',
         'N'
     );
-#make the the ActiveState distropref patch succeed
-=pod
-}
-
-SKIP: {
-
-	skip('because callbacks currently /SEGFAULT/ all compilers but MSVC 6+', 1)
-		unless $cc_name eq 'cl' && $cc_vers >= 12;
-
-	$result = $function->Call( $callback, 21 );
-	is($result, 42, 'callback function works');
-}
-
-#
-=cut
     ok($callback, 'callback function defined');
 
     $function = new Win32::API($test_dll, 'do_callback', 'KI', 'I');
@@ -80,7 +65,7 @@ $callback = Win32::API::Callback->new(
         $chr = $_[0] & 0xFF; #x64 fill high bits with garbage
         die "bad char" if chr($chr) ne 'P';
         if(PTR_SIZE == 4){
-            my ($low,$high) = unpack('JJ', $_[1]);
+            my ($low,$high) = unpack(IV_LET.IV_LET, $_[1]);
             die "bad unsigned int64" if $low != 0xABCDEF12;
             die "bad unsigned int64" if $high != 0x12345678;
         }else{
@@ -88,8 +73,8 @@ $callback = Win32::API::Callback->new(
             no warnings 'portable', 'overflow'; #silence on 32 bits
             die "bad unsigned int64" if $_[1] != eval "0x12345678ABCDEF12";
         }
-        my $f4char = unpack('P[4]',pack('J',$_[2]));
-        die "bad 4 char struct" if $f4char ne "JAPH";
+        my $f4char = unpack('P4',pack(IV_LET,$_[2]));
+        die "bad 4 char struct \"$f4char\"" if $f4char ne "JAPH";
         die "bad float" if $_[3] != 2.5;
         die "bad double" if $_[4] != 3.5;
         return 70000;
@@ -117,7 +102,7 @@ SKIP: {
             $chr = $_[0] & 0xFF; #x64 fill high bits with garbage
             die "bad char" if chr($chr) ne 'P';
             die "bad unsigned int64" if $_[1] != hex_to_uint64("0x12345678ABCDEF12");
-            my $f4char = unpack('P[4]',pack('J',$_[2]));
+            my $f4char = unpack('P4',pack(IV_LET,$_[2]));
             die "bad 4 char struct" if $f4char ne "JAPH";
             die "bad float" if $_[3] != 2.5;
             die "bad double" if $_[4] != 3.5;
@@ -172,7 +157,7 @@ $callback = Win32::API::Callback->new(
         $chr = $_[0] & 0xFF;
         die "bad char" if chr($chr) ne 'P';
         if(PTR_SIZE == 4){
-            my ($low,$high) = unpack('JJ', $_[1]);
+            my ($low,$high) = unpack(IV_LET.IV_LET, $_[1]);
             die "bad unsigned int64" if $low != 0xABCDEF12;
             die "bad unsigned int64" if $high != 0x12345678;
         }else{
@@ -180,7 +165,7 @@ $callback = Win32::API::Callback->new(
             die "bad unsigned int64" if $_[1] != 0x12345678ABCDEF12;
         }
         my $f4char; 
-        $f4char = unpack('P[4]',pack('J',$_[2]));
+        $f4char = unpack('P4',pack(IV_LET,$_[2]));
         die "bad 4 char struct" if $f4char ne "JAPH";
         die "bad float" if $_[3] != 2.5;
         die "bad double" if $_[4] != 3.5;
@@ -232,7 +217,7 @@ $callback = Win32::API::Callback->new(
         #print Dumper(\@_);
         ok(@_ == 0,  "@_ should be empty");
         if(PTR_SIZE == 4){
-            return pack('JJ', 0x30004000, 0x80002000);
+            return pack(IV_LET.IV_LET, 0x30004000, 0x80002000);
         }
         else{
             no warnings 'portable', 'overflow'; #silence on 32 bits
@@ -248,7 +233,7 @@ $result = $function->Call($callback);
 {
     no warnings 'portable', 'overflow'; #silence on 32 bits
     is($result,
-       PTR_SIZE == 4 ? pack('JJ', 0x30004000, 0x80002000) : 0x8000200030004000
+       PTR_SIZE == 4 ? pack(IV_LET.IV_LET, 0x30004000, 0x80002000) : 0x8000200030004000
        , "do_callback_void_q was successful");
 }
 #

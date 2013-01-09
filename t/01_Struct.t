@@ -10,8 +10,16 @@ use Config;
 use File::Spec;
 use Test::More;
 use Math::Int64 qw( hex_to_int64 );
-use Encode;
-plan tests => 18;
+BEGIN {
+    eval { require Encode; };
+    if($@){
+        require Encode::compat;
+    }
+    Encode->import();
+    eval 'sub OPV () {'.$].'}';
+    sub OPV();
+}
+plan tests => 17;
 
 use vars qw(
     $function
@@ -20,7 +28,7 @@ use vars qw(
 );
 
 use_ok('Win32::API');
-use_ok('Win32::API::Test');
+use Win32::API::Test;
 
 ok(1, 'loaded');
 
@@ -95,15 +103,22 @@ ok( $simple_struct{a} == 2
 #old fashioned way first
 {
     $function = Win32::API->new($test_dll, 'WlanConnect', 'QNPPN', 'I');
-    if(length(pack('J')) == 4 && defined(&Win32::API::UseMI64)){ #defined bc dont fatal error on 0.68
+    if(IV_SIZE == 4 && defined(&Win32::API::UseMI64)){ #defined bc dont fatal error on 0.68
         $function->UseMI64(1);
     }
-    my $SSIDstruct = pack('LZ[32]',length("TheSSID"), "TheSSID" );
+    my $SSIDstruct = pack('LZ32',length("TheSSID"), "TheSSID" );
     my $profname = Encode::encode("UTF-16LE","TheProfileName\x00");
-    my $Wlan_connection_parameters = pack('Lx![p]PP'.PTR_LET().'LL', 0
+    my $Wlan_connection_parameters;
+    if(OPV > 5.007002){
+        $Wlan_connection_parameters = pack('Lx![p]PP'.PTR_LET().'LL', 0
                                           ,$profname
                                           , $SSIDstruct, 0, 3, 1);
-
+    }
+    else {#5.6 nranch not 64 bit compatible, missing alignment
+        $Wlan_connection_parameters = pack('LPP'.PTR_LET().'LL', 0
+                                          ,$profname
+                                          , $SSIDstruct, 0, 3, 1);
+    }
     #$Wlan_connection_parameters->{wlanConnectionMode} = 0;
     #$Wlan_connection_parameters->{strProfile}         = $profilename;
     #$Wlan_connection_parameters->{pDot11Ssid}         = $pDot11Ssid;
@@ -158,7 +173,7 @@ WlanConnect(
     $Wlan_connection_parameters->{dwFlags}            = 1;
 {
     no warnings 'portable';
-    is($function->Call(length(pack('J', 0)) == 4?
+    is($function->Call(IV_SIZE == 4?
                        "\x00\x00\x00\x50\x00\x00\x00\x80":
                        0x8000000050000000,
                     0x12344321,

@@ -108,6 +108,8 @@ BEGIN {
     eval ' sub PTR_LET () { "'
     .($Config{ptrsize} == 8 ? 'Q' : 'L').
     '" }';
+    eval 'sub IV_LET () { '.($] <= 5.007002 ? 'L':'J').' }';
+    eval 'sub IV_SIZE () { '.length(pack(IV_LET(),0)).' }';
     package Win32::API::Test;
 }
 

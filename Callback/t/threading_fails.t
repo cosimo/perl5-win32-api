@@ -22,6 +22,8 @@ sub cb {
 }
 my $callback = Win32::API::Callback->new(\&cb, "L", "N");
 
+diag("This might crash");
+
 #$callback->{'code'}, no other way to do it ATM, even though not "public"
 my $hnd = $function->Call(0, 0, $callback->{'code'}, 0, 0, 0);
 ok($hnd, "CreateThread worked");

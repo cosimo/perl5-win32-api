@@ -1,5 +1,13 @@
 History of Win32::API perl extension.
 
+2013-01-09  Win32::API v0.75    bulk88
+   - Fixed/added, alpha Perl 5.6.2 support has been added, ::API will compile,
+     will not crash except for randomly threading_fails.t . Many tests fail due
+     to prerequities not being met. 00_API.t should pass on 5.6.2 with zero
+     failures wWITHOUT prereqs. Other tests require Math::Int64 and
+     Encode::compat.
+   - Removed, distropref workaround for ActiveState's PPM system (AS fixed it)
+
 2012-11-21  Win32::API v0.74    bulk88
    - Fixed, non threaded Perl fix from Reini Urban
    - Fixed, Perl 5.8 in Struct.pm syntax error (cpantesters report)

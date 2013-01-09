@@ -79,10 +79,6 @@ BOOL WINAPI DllMain(
 #define boolSV(b) ((b) ? &sv_yes : &sv_no)
 #endif
 
-#ifndef PL_na
-#	define PL_na na
-#endif
-
 #ifndef SvPV_nolen
 #	define SvPV_nolen(sv) SvPV(sv, PL_na)
 #endif
@@ -482,6 +478,9 @@ PREINIT:
     int iTypes;
     AV * Types;
     I32 lenTypes;
+#if (PERL_API_VERSION_LE(5, 8, 0))
+    SV * unpacktypeSV = sv_newmortal();
+#endif
 PPCODE:
     //intypes array ref is always created in PM file
     Types = (AV*)SvRV(*hv_fetch(self, "intypes", sizeof("intypes")-1, 0));
@@ -582,8 +581,17 @@ PPCODE:
             }
             goto HAVEUNPACKED;
         }
+#if ! (PERL_API_VERSION_LE(5, 8, 0))
         PUTBACK;    
         unpackstring(&type, &type+1, packedParam, packedParam+SvCUR(packedParamSV), 0);
+#else /* dont have unpackstring */
+        PUSHMARK(SP);
+        PUSHs(unpacktypeSV);
+        PUSHs(packedParamSV);
+        PUTBACK;
+        sv_setpvn(unpacktypeSV,&type, 1);
+        call_pv("Win32::API::Callback::_CallUnpack", G_SCALAR);
+#endif
         SPAGAIN;
         unpackedParamSV = POPs;
 #ifdef USEMI64
