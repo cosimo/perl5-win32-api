@@ -6,7 +6,7 @@ Win32::API::Callback::IATPatch - Hooking and Patching a DLL's Imported C Functio
 
   use Win32::API;
   use Win32::API::Callback;
-  die "Doesn't work on Cygwin" if $^O eq 'cygwin';
+  warn "usually fatally errors on Cygwin" if $^O eq 'cygwin';
   # do not do a "use" or "require" on Win32::API::Callback::IATPatch
   # IATPatch comes with Win32::API::Callback
   my $LoadLibraryExA;
@@ -151,8 +151,9 @@ See L<Win32::API::Callback::IATPatch/"SYNOPSIS"> for a usage example.
 
 =item E<nbsp>Cygwin not supported
 
-L<new()|Win32::API::Callback::IATPatch/"new"> always fatally errors on Cygwin
-with "IATPatch 3GB mode not supported"
+L<new()|Win32::API::Callback::IATPatch/"new"> usually fatally errors on Cygwin
+with "IATPatch 3GB mode not supported" on Cygwins that allocate the heap at
+0x80000000 or are "Large Address Aware"
 
 =back
 

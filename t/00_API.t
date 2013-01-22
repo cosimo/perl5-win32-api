@@ -10,12 +10,16 @@ use strict;
 #use Config; # ?not used
 use File::Spec;
 use Test::More;
-use Encode;
+use Config;
+use Win32::API::Test;
 plan tests => 48;
 use vars qw($function $result $input $test_dll $ptr);
 
+SKIP: {
+    skip("Perl $] does not have Encode", 1) if ($] < 5.007002);
+    use_ok('Encode');
+}
 use_ok('Win32::API');
-use_ok('Win32::API::Test');
 use_ok('Win32');
 
 ok(1, 'loaded');
@@ -95,7 +99,7 @@ SKIP: {
 ### tests from our own DLL
 #on x64 the return value is + since the test value is way under 2^63
 SKIP: {
-if(length(pack('J', 0)) == 8){
+if(IV_SIZE == 8){
     skip("ULONG is an 8 byte integer on x64 on old api", 2);
 }
 
@@ -120,13 +124,13 @@ is($result, unpack('l', pack('L', 0x80005000)), 'return value for unsigned is si
 {
 #old API psuedo pointer handling
 my $pass = 1;
-my $hnd = "\x00" x length(pack('J', 0));
+my $hnd = "\x00" x length(pack(PTR_LET, 0));
 $function = new Win32::API($test_dll, 'BOOL __stdcall GetHandle(LPHANDLE pHandle)');
 
 $pass = $pass && defined($function);
 #takes "\xAB\xCD\xED\x00"
 $pass = $pass && $function->Call($hnd) == 1;
-$hnd = unpack('J', $hnd);
+$hnd = unpack(PTR_LET, $hnd);
 $pass = $pass && $hnd == 4000;
 ok($pass, 'GetHandle operates correctly');
 $pass = 1;
@@ -237,12 +241,13 @@ $result = "\x00";
 is($function->Call(0xFF02, 0xFF03, $result), pack('c', -128), 'numeric truncation sum_char_ref() returns the expected value');
 is(substr($result,0,1), "\x05", 'sum_char_ref() correctly modifies its ref argument');
 
-
-#test old API WCHAR handing
-$function = new Win32::API($test_dll, 'BOOL __stdcall wstr_cmp(LPWSTR string)');
-is($function->Call(Encode::encode("UTF-16LE","Just another perl hacker\x00"))
-   , 1, 'wstr_cmp() returns the expected value');
-
+SKIP: {
+    skip("no Encode on this Perl", 1) if ! $Encode::VERSION;
+    #test old API WCHAR handing
+    $function = new Win32::API($test_dll, 'BOOL __stdcall wstr_cmp(LPWSTR string)');
+    is($function->Call(Encode::encode("UTF-16LE","Just another perl hacker\x00"))
+       , 1, 'wstr_cmp() returns the expected value');
+}
 
 #test buffer overflow protection
 $function = new Win32::API($test_dll, 'VOID __stdcall buffer_overflow(char* string)');

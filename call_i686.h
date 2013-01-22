@@ -26,6 +26,16 @@
     #define ASM_LOAD_EAX(param,...)  asm ("push %0" :: "g" (param));
 #endif
 
+#ifdef __GNUC__
+#  define GCC_VERSION (__GNUC__ * 10000 \
+                     + __GNUC_MINOR__ * 100 \
+                     + __GNUC_PATCHLEVEL__)
+#  if GCC_VERSION >= 40400
+#    pragma GCC push_options
+#    pragma GCC optimize ("no-omit-frame-pointer")
+#  endif
+#endif
+
 void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retval, BOOL c_call)
 {
 
@@ -269,3 +279,8 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
     }
 }
 
+#ifdef __GNUC__
+#  if GCC_VERSION >= 40400
+#    pragma GCC pop_options
+#  endif
+#endif

@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use vars qw( $VERSION @ISA $Stage2FuncPtrPkd );
 
-$VERSION = '0.73';
+$VERSION = '0.75';
 
 
 require Exporter;      # to export the constants to the main:: space
@@ -42,9 +42,12 @@ use Config;
 BEGIN {
     #there is supposed to be 64 bit IVs on 32 bit perl compatibility here
     #but it is untested
-    eval "sub IVSIZE () { ".length(pack('J',0))." }";
+    #Win64 added in 5.7.3
+    eval "sub IVSIZE () { ".length(pack($] >= 5.007003 ? 'J' : 'I' ,0))." }";
     #what kind of stack processing/calling convention/machine code we needed
     eval "sub ISX64 () { ".(index($Config{'archname'},"MSWin32-x64") == 0 ?  1 : 0)." }";
+    eval 'sub OPV () {'.$].'}';
+    sub OPV();
     sub CONTEXT_XMM0();
     sub CONTEXT_RAX();
     *UseMI64 = *Win32::API::UseMI64; #keep UseMI64 out of export list
@@ -53,6 +56,9 @@ BEGIN {
     *PTRSIZE = *Win32::API::PTRSIZE;
     sub PTRLET ();
     *PTRLET = *Win32::API::Type::pointer_pack_type;
+    if(OPV <= 5.008000){ #dont have unpackstring in C
+        eval('sub _CallUnpack {return unpack($_[0], $_[1]);}');
+    }
 }
 #######################################################################
 # dynamically load in the API extension module.
@@ -179,14 +185,19 @@ sub MakeStruct {
 if(! ISX64 ) {
 *RunCB  = sub {#32 bits
     my $self = $_[0];
-    my (@pass_arr, $return, $typeletter, $inbytes);
+    my (@pass_arr, $return, $typeletter, $inbytes, @arr);
     $inbytes = $self->{inbytes};
     #first is ebp copy then ret address
     $inbytes += PTRSIZE * 2;
     my $paramcount = $inbytes / PTRSIZE ;
-    my $stackstr = unpack('P['.$inbytes.']', pack(PTRLET, $_[1]));
-    my @arr = unpack("(a[".PTRLET."])[$paramcount]",$stackstr);
-    #print Dumper(\@arr);
+    my $stackstr = unpack('P'.$inbytes, pack(PTRLET, $_[1]));
+    #pack () were added in 5.7.2
+    if (OPV > 5.007002) {
+        @arr = unpack("(a[".PTRLET."])[$paramcount]",$stackstr);
+    } else {
+        #letter can not be used for size, must be numeric on 5.6
+        @arr = unpack(("a4") x $paramcount,$stackstr);
+    }
     shift @arr, shift @arr; #remove ebp copy and ret address
     $paramcount -= 2;
     $return = &{$self->{sub}}(@{MakeParamArr($self, \@arr)});
@@ -553,7 +564,7 @@ See L<Win32::API/UseMI64>.
 
 =head1 SEE ALSO
 
-L<Win32::API::IATPatch>
+L<Win32::API::Callback::IATPatch>
 
 =head1 AUTHOR
 

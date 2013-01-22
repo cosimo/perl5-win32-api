@@ -1,17 +1,33 @@
 History of Win32::API perl extension.
 
-2012-??-??  Win32::API v0.??    bulk88
-   - Cygwin fix attempt #4
-   - Known Issue, IATPatch does not work on Cygwin
+2013-01-09  Win32::API v0.75    bulk88
+   - Fixed/added, alpha Perl 5.6.2 support has been added, ::API will compile,
+     will not crash except for randomly threading_fails.t . Many tests fail due
+     to prerequities not being met. 00_API.t should pass on 5.6.2 with zero
+     failures wWITHOUT prereqs. Other tests require Math::Int64 and
+     Encode::compat.
+   - Removed, distropref workaround for ActiveState's PPM system (AS fixed it)
+
+2012-11-21  Win32::API v0.74    bulk88
+   - Fixed, non threaded Perl fix from Reini Urban
+   - Fixed, Perl 5.8 in Struct.pm syntax error (cpantesters report)
+   - Fixed, LNK 4210 warning on >= VS 2005 fixed
+   - Fixed, misc POD
+
+2012-10-20  Win32::API v0.73    bulk88
+   - Known Issue, IATPatch usually does not work on Cygwin
    - Fixed, now works on 32 bit Cygwin Perl
    - Fixed, now works on 32 bit Perl with 64 bit IVs
    - Fixed, misc POD
    - Added, check for cygpath tool on ::API for Cygwin 
    - Fixed, cygpath fix from Jerry D. Hedden
    - Fixed, ::Callback's DLL failed to load in DynaLoader on newer
-     (Strawberry Perl 5.16.*) Mingws due to Mingw starting to always
+     (Strawberry Perl 5.16.*) Mingws due to newer Mingws starting to always
      include Static TLS in DLLs
+   - Fixed, ::API on newer 32 bit Mingws (Strawberry Perl 5.16.*) crashed on
+     all cdecl calls due to different optimization defaults in newer Mingws
    - Improved, some tests were hardened
+   - Fixed, should build on ActiveState's PPM system
 
 2012-10-16  Win32::API v0.72    cosimo
    - Improved Callback tests by properly detecting native or ithreads

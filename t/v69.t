@@ -10,7 +10,13 @@ use strict;
 #use Config; # ?not used
 use File::Spec;
 use Test::More;
-use Encode;
+BEGIN {
+    eval { require Encode; };
+    if($@){
+        require Encode::compat;
+    }
+    Encode->import();
+}
 
 plan tests => 36;
 use vars qw($function $function2 $result $test_dll $input $ptr);

@@ -235,7 +235,7 @@ PPCODE:
 			"Win32::API::UseMI64",
 			"self");
     //dont create one if doesn't exist
-    old_flag = hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
+    old_flag = (SV*)hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
     if(old_flag) old_flag = *(SV **)old_flag;
     PUSHs(boolSV(sv_true(old_flag))); //old_flag might be NULL, ST(0) now gone
     

@@ -10,6 +10,8 @@ die qq(OS unsupported\n)
 
 # Must be a better way to do this, surely...
 use Config;
+require './Test.pm';
+
 my $is_64bit_build = ($Config{ptrsize} == 8);
 my $is_msvc_compiler = ($Config{cc} =~ /cl/);
 
@@ -62,6 +64,7 @@ WriteMakefile1(
     #'clean' => {FILES => 'API_test.dll API_test_dll/Release/*'},
     
     XSOPT  => ' -nolinenumbers ',
+    ($ExtUtils::MakeMaker::VERSION >= 6.47 ? (MIN_PERL_VERSION => 5.000000) : ()),
     
     (
         $is_64bit_build
@@ -111,6 +114,21 @@ ASFLAGS =  -Zi
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
 
 ';
+}
+
+sub MY::post_constants {
+    return 'CCFLAGS '.($_[0]->{MAKE} =~ /^make/ || $_[0]->{MAKE} =~ /^dmake/ ? ':=' : '=')
+    . ' $(CCFLAGS) '.GS_flag()."\n";
+}
+
+sub GS_flag {
+    if($is_msvc_compiler
+       && Win32::API::Test::compiler_version_from_shell() >= 14 ) {
+        return ' -GS- ';
+    }
+    else {
+        return '';
+    }
 }
 
 sub WriteMakefile1 {  #Written by Alexandr Ciornii, version 0.21. Added by eumm-upgrade.

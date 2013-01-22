@@ -10,17 +10,16 @@ use strict;
 use File::Spec;
 use Test::More;
 use Math::Int64 qw( hex_to_int64 );
+use Win32::API::Test;
 
-
-plan tests => 17;
+plan tests => 16;
 use vars qw($function $result $return $test_dll );
 
 SKIP: {
-    skip('Quads are native on this computer', 17) if 
-        length(pack('J',0)) == 8;
+    skip('Quads are native on this computer', 16) if 
+        IV_SIZE == 8;
 
 use_ok('Win32::API');
-use_ok('Win32::API::Test');
 use_ok('Win32');
 
 
