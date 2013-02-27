@@ -12,3 +12,8 @@ MANIFEST.bak
 Win32-API-*.tar.gz
 MYMETA.*
 Win32-API-*
+
+dll.base
+dll.exp
+API.o
+Callback.o

@@ -20,6 +20,17 @@
 #  define _alloca(size) __builtin_alloca(size)
 #endif
 
+/* see https://rt.cpan.org/Ticket/Display.html?id=81748 and
+   http://anisbet-tech-help.blogspot.com/2010/04/conditional-compilation-between-gcc.html
+*/
+#ifdef __GNUC__
+#  if __GNUC__ == 3 && __GNUC_MINOR__ == 4 && __GNUC_PATCHLEVEL__ == 5
+#    define _alloca(size) __builtin_alloca(size)
+#  endif
+#endif
+
+
+
 /* some Mingw GCCs use Static TLS on all DLLs, DisableThreadLibraryCalls fails
    if DLL has Static TLS, todo, figure out how to disable Static TLS on Mingw
    Win32::API never uses it, also Win32::API never uses C++ish exception handling
