@@ -38,10 +38,10 @@ bulk88's comments
 13. Certain calling conventions on certain platforms, pass by copy silently
     becomes pass by pointer when the struct exceeds a certain size.
     API/Callback's C parsing don't do this at the moment.
-14. Alot of GV lookups could be cached to their pointers and kept inside
+14. *DONE* Alot of GV lookups could be cached to their pointers and kept inside
     START_MY_CXT globals. On clone the pointers can be refreshed from the new
     interp. I (bulk88) have done this before.
-15. When using hv_fetch and hv_store, a slight performance optimization can
+15. *DONE* When using hv_fetch and hv_store, a slight performance optimization can
     be obtained by the char * being passed, being exactly equal to the PV *
     in the SV thats part of the HEK using the shared string table system,
     and by precalculating the hash number for that string per interp.
@@ -51,7 +51,7 @@ bulk88's comments
 18. If someone asks for MSVC C++ name demangling and supplies a patch, add it.
     No reason other it being extremely extremely difficult that C++ can't be
     supported.
-19. On x86, add a stack pointer checker similar to runtime checks by visual
+19. *DONE* On x86, add a stack pointer checker similar to runtime checks by visual
     studio, requires asm code, will catch stdcall funcs called with wrong
     prototype, or very broken cdecl funcs written in asm, maybe setjmp/longjmp
     is of use for this idea

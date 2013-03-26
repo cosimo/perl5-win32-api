@@ -34,7 +34,7 @@ WriteMakefile1(
         'Win32'         => 0,
         'Win32API::File'=> 0,
         'IPC::Open3'    => 0,
-        'Encode'        => 0
+        'Encode::compat'=> 0
     },
 
     'NAME'	=> 'Win32::API',
@@ -72,7 +72,10 @@ WriteMakefile1(
 		    ? ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_asm_x64_msvc$(OBJ_EXT)' )
 		    : ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_asm_x64_gnu$(OBJ_EXT)' )
 		)
-	    : ( )
+	    : ( $is_msvc_compiler
+                    ? ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_asm_x86_msvc$(OBJ_EXT)' )
+                    : ()
+              )
     )
 );
 
@@ -86,8 +89,6 @@ sub MY::depend
 
 sub MY::postamble
 {
-    return unless $is_64bit_build;
-    
     #old 64bit strawberryperl hack
     if ($Config{'gccversion'} =~ /4.4.3/ &&$Config{'myuname'} =~ /Win32 strawberryperl/) {
       return <<'EOM1';
@@ -108,7 +109,7 @@ ASFLAGS =  -Zi
 ':'')
 .'
 .asm$(OBJ_EXT):
-	ml64 $(ASFLAGS) -c $<
+	'.($is_64bit_build ? 'ml64' : 'ml').' $(ASFLAGS) -c $<
 
 .s$(OBJ_EXT):
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
@@ -117,8 +118,22 @@ ASFLAGS =  -Zi
 }
 
 sub MY::post_constants {
-    return 'CCFLAGS '.($_[0]->{MAKE} =~ /^make/ || $_[0]->{MAKE} =~ /^dmake/ ? ':=' : '=')
-    . ' $(CCFLAGS) '.GS_flag()."\n";
+    return
+'benchmark :: pure_all
+	$(FULLPERLRUN) "-MExtUtils::Command::MM" "-e" "test_harness(\'$(TEST_VERBOSE)\', \'$(INST_LIB)\', \'$(INST_ARCHLIB)\')" t/benchmark.t
+';
+}
+
+sub MY::cflags {
+    package ExtUtils::MM_Win32;
+    my($self) = shift;
+    my $dlib = $self->SUPER::cflags(@_);
+    my $pos = index($dlib,'CCFLAGS = ',0);
+    die "bad CCFLAGS match" if $pos == -1;
+    $dlib = substr($dlib, 0, $pos+length('CCFLAGS = '))
+        .main::GS_flag()
+        .substr($dlib, $pos+length('CCFLAGS = '), length($dlib)-$pos+length('CCFLAGS = '));
+    return $dlib;
 }
 
 sub GS_flag {

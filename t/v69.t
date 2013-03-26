@@ -181,5 +181,6 @@ ok(IsBadReadPtr(1, 4), "1 is a bad pointer for IsBadReadPtr");
 ok(!IsBadReadPtr(unpack(PTR_LET(),pack('p', $input)), length($input)),
    "IsBadReadPtr returned false on a good pointer");
 
+diag('"bad prototype" warning is intentional');
 $function2 = new Win32::API::More( 'kernel32.dll' , 'HANDLE  GetProcessHeap( void ** ptr )');
 is($function2, undef, "** types do not parse currently");

@@ -20,6 +20,7 @@ API_test.dll
 API_test64.dll
 call_asm_x64_gnu.s
 call_asm_x64_msvc.asm
+call_asm_x86_msvc.asm
 call_i686.h
 call_x86_64.h
 Callback.pm

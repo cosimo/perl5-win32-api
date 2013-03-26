@@ -313,6 +313,9 @@ static const GUID wlanguid  =
        || pConnectionParameters->dot11BssType != dot11_BSS_type_any
        || pConnectionParameters->dwFlags != WLAN_CONNECTION_HIDDEN_NETWORK
        || pReserved != (PVOID)0xF080F080
+#ifdef WIN64
+       || (DWORD_PTR)(&quad) % 16 != 0 //C stack alignment test for x64
+#endif
        ){
         DebugBreak();
     }

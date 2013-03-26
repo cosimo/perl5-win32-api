@@ -29,17 +29,29 @@ Call_x64_real:
 
 	# Now the stack 
 	movq	40(%rbp),%r11	# r11 = stack
-	movq	48(%rbp),%rax	# rax = nstack
+	mov	48(%rbp),%eax	# eax = nstack
+
+	#align stack so *after* the copystack loop it will be 16 bytes
+	#do 32 bits, GBs of stack params is impossible
+	mov	%eax, %r10d
+	#if odd set al to 1
+	and	$1,%eax
+	#boost 1 to 8 if its 1, if its 0 it will remain 0
+	shl	$3,%eax
+	#rax might be zero or not, all eax ops zero extend upper 32 bits
+	sub	%rax, %rsp
+	mov	%r10d, %eax
+
 
 	# Except not if there isn't any 
-	testq	%rax,%rax
+	test	%eax,%eax
 	je	docall
 
 copystack:
-	subq	$1,%rax
+	sub	$1,%eax
 	movq	(%r11,%rax,8),%r10
 	pushq	%r10
-	testq	%rax,%rax
+	test	%eax,%eax
 	jne	copystack
 
 docall:
@@ -47,15 +59,8 @@ docall:
 	movq	16(%rbp),%r10   # r10 = ApiFunction
 	subq	$32,%rsp	# Microsoft x64 calling convention - allocate 32 bytes of "shadow space" on the stack
 	callq	*%r10
-	addq	$32,%rsp	# restore stack
 
-	# Store return value
-	movq	56(%rbp),%r10	# r10 = iret
-	movq	%rax,(%r10)
-	movq	64(%rbp),%r10	# r10 = dret
-	movsd	%xmm0,(%r10)
- 
-	
+	#pass through rax and xmm0 to caller
 	movq	%rbp,%rsp
 	popq	%rbp
 	retq

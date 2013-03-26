@@ -9,6 +9,7 @@
  */
 
 #define NEED_sv_2pv_flags
+#define NEED_newSVpvn_share
 #include "ppport.h"
 
 /* see https://rt.cpan.org/Ticket/Display.html?id=80217
@@ -19,6 +20,10 @@
 #ifdef __CYGWIN__
 #  define _alloca(size) __builtin_alloca(size)
 #endif
+
+/* old (5.8 ish) strawberry perls/Mingws somehow dont ever include malloc.h from
+  perl.h, so this include is needed for alloca */
+#include <malloc.h>
 
 /* some Mingw GCCs use Static TLS on all DLLs, DisableThreadLibraryCalls fails
    if DLL has Static TLS, todo, figure out how to disable Static TLS on Mingw
@@ -43,6 +48,53 @@
 */
 
 // #define WIN32_API_DEBUG
+
+#ifdef WIN32_API_DEBUG
+#  define WIN32_API_DEBUGM(x) x
+#else
+#  define WIN32_API_DEBUGM(x)
+#endif
+
+
+/* turns on profiling, use only for benchmark.t, DO NOT ENABLE in CPAN RELEASE
+   not all return paths in Call() get the current time (incomplete
+   implementation), VC only
+*/
+//#define WIN32_API_PROF
+
+#ifdef WIN32_API_PROF
+#  define WIN32_API_PROFF(x) x
+#else
+#  define WIN32_API_PROFF(x)
+#endif
+
+#ifdef WIN32_API_PROF
+LARGE_INTEGER        my_freq = {0};
+LARGE_INTEGER        start = {0};
+LARGE_INTEGER        loopstart = {0};
+LARGE_INTEGER        Call_asm_b4 = {0};
+LARGE_INTEGER        Call_asm_after = {0};
+LARGE_INTEGER        return_time = {0};
+LARGE_INTEGER        return_time2 = {0};
+#  ifndef WIN64
+__declspec( naked )  unsigned __int64 rdtsc () {
+                    __asm
+                {
+                    mov eax, 80000000h
+                    push ebx
+                    cpuid
+                    _emit 0xf
+                    _emit 0x31
+                    pop ebx
+                    retn
+                }
+}
+/* note: not CPU affinity locked on x86, visually discard high time iternations */
+#    define W32A_Prof_GT(x) ((x)->QuadPart = rdtsc())
+#  else
+#    define W32A_Prof_GT(x) (QueryPerformanceCounter(x))
+#  endif
+#endif
 
 #ifdef _WIN64
 typedef unsigned long long long_ptr;
@@ -104,6 +156,22 @@ union {
 	unsigned char t; //1 bytes, union is 8 bytes, put last to avoid padding
 } APIPARAM;
 
+/* a version of APIPARAM without a "t" type member */
+typedef struct {
+union {
+	LPBYTE b;
+	char c;
+    short s;
+	char *p;
+	long_ptr l; // 4 bytes on 32bit; 8 bytes on 64bbit; not sure if it is correct
+	float f;
+	double d;
+#ifdef T_QUAD
+    __int64 q;
+#endif
+};
+} APIPARAM_U;
+
 typedef struct {
 	SV* object;
 	int size;
@@ -114,9 +182,21 @@ typedef struct {
 } APICALLBACK;
 
 #define STATIC_ASSERT(expr) ((void)sizeof(char[1 - 2*!!!(expr)]))
+/*
+  because of unknown alignment where the sentinal is placed after the PV
+  buffer, put 2 wide nulls, some permutation will be 1 aligned wide null char
 
-//because of unknown alignment, put 2 wide nulls,
-//some permutation will be 1 wide null char
+  http://gcc.gnu.org/bugzilla/show_bug.cgi?id=28679 bug on Strawberry Perl
+  5.8.9 which includes "gcc (GCC) 3.4.5 (mingw-vista special r3)", reported as
+
+In file included from API.c:28:
+API.h:122: warning: malformed '#pragma pack(push[, id], <n>)' - ignored
+API.h:130: warning: #pragma pack (pop) encountered without matching #pragma pack
+ (push, <n>)
+
+  This causes 4 extra unused padding bytes to be placed after null2, which can
+  be a performance degradation
+*/
 #pragma pack(push)
 #pragma pack(push, 1)
 typedef struct {
@@ -183,7 +263,6 @@ S_croak_xs_usage(pTHX_ const CV *const cv, const char *const params)
         Perl_croak_nocontext("Usage: CODE(0x%"UVxf")(%s)", PTR2UV(cv), params);
     }
 }
-#undef  PERL_ARGS_ASSERT_CROAK_XS_USAGE
 
 #ifdef PERL_IMPLICIT_CONTEXT
 #define croak_xs_usage(a,b)	S_croak_xs_usage(aTHX_ a,b)
@@ -192,3 +271,7 @@ S_croak_xs_usage(pTHX_ const CV *const cv, const char *const params)
 #endif
 
 #endif
+
+#define PERL_VERSION_LE(R, V, S) (PERL_REVISION < (R) || \
+(PERL_REVISION == (R) && (PERL_VERSION < (V) ||\
+(PERL_VERSION == (V) && (PERL_SUBVERSION <= (S))))))

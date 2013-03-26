@@ -52,3 +52,13 @@ my $delta = (uint64_to_number($end-$start)/uint64_to_number($freq));
 diag("time was $delta secs, ".(($delta/scalar(@{[0..$iterations, 1,1]}))*1000)." ms per Win32::API call");
 my $msg = $c_slr_loop->Call($iterations);
 diag($msg);
+if(*Win32::API::_xxSetLastError{CODE}) {
+    $startbool = $QPC->Call($start);
+    for(0..$iterations){
+        $SLRret = Win32::API::_xxSetLastError(1);
+    }
+    $endbool = $QPC->Call($end);
+    die "QPC calls failed" unless $startbool && $endbool;
+    $delta = (uint64_to_number($end-$start)/uint64_to_number($freq));
+    diag("time was $delta secs, ".(($delta/scalar(@{[0..$iterations, 1,1]}))*1000)." ms per _xxSetLastError call");    
+}

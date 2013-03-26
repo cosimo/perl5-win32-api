@@ -22,6 +22,7 @@ SKIP: {
 use_ok('Win32::API');
 use_ok('Win32');
 
+diag('00_API.t entered RUN phase');
 ok(1, 'loaded');
 
 # Reset errors before starting?

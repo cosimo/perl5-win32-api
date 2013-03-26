@@ -14,32 +14,39 @@
 #######################################################################
 
 package Win32::API;
-use strict;
-use warnings;
-require Exporter;      # to export the constants to the main:: space
-require DynaLoader;    # to dynuhlode the module.
-use Config;
+    use strict;
+    use warnings;
+    use Config;
 BEGIN {
+    require Exporter;      # to export the constants to the main:: space
+    require DynaLoader;    # to dynuhlode the module.
+
     sub ISCYG ();
     eval "sub ISCYG () { ".($^O eq 'cygwin' ? 1 : 0)."}";
     no warnings 'uninitialized';
     die "Win32::API on Cygwin requires the cygpath tool on PATH"
         if ISCYG && index(`cygpath --help`,'Usage: cygpath') == -1;
-}
-use vars qw( $DEBUG $sentinal @ISA @EXPORT_OK %Imported $VERSION );
 
-@ISA = qw( Exporter DynaLoader );
-@EXPORT_OK = qw( ReadMemory IsBadReadPtr MoveMemory
-WriteMemory SafeReadWideCString ); # symbols to export on request
+    use vars qw( $DEBUG $sentinal @ISA @EXPORT_OK %Imported $VERSION );
 
-use Scalar::Util qw( looks_like_number );
+    @ISA = qw( Exporter DynaLoader );
+    @EXPORT_OK = qw( ReadMemory IsBadReadPtr MoveMemory
+    WriteMemory SafeReadWideCString ); # symbols to export on request
 
-$DEBUG = 0;
+    use Scalar::Util qw( looks_like_number );
 
-BEGIN {
-sub ERROR_NOACCESS () { 998 }
-eval " *Win32::API::Type::PTRSIZE = *Win32::API::More::PTRSIZE = *PTRSIZE = sub  () { ".$Config{ptrsize}." }";
-eval " *Win32::API::Type::IVSIZE = *Win32::API::More::IVSIZE = *IVSIZE = sub  () { ".$Config{ivsize}." }";
+    $DEBUG = 0;
+    
+    sub ERROR_NOACCESS	() { 998 }
+    sub ERROR_NOT_ENOUGH_MEMORY () { 8 }
+    sub APICONTROL_CC_STD	() { 0 }
+    sub APICONTROL_CC_C	() { 1 }
+    sub APICONTROL_CC_mask  () { 0x7 }
+    sub APICONTROL_UseMI64	() { 0x8 }
+    sub APICONTROL_is_more	() { 0x10 }
+    sub APICONTROL_has_proto() { 0x20 }
+    eval " *Win32::API::Type::PTRSIZE = *Win32::API::More::PTRSIZE = *PTRSIZE = sub  () { ".$Config{ptrsize}." }";
+    eval " *Win32::API::Type::IVSIZE = *Win32::API::More::IVSIZE = *IVSIZE = sub  () { ".$Config{ivsize}." }";
 }
 
 sub DEBUG {
@@ -58,8 +65,6 @@ use File::Basename ();
 #######################################################################
 # STATIC OBJECT PROPERTIES
 #
-$VERSION = '0.75';
-
 #### some package-global hash to
 #### keep track of the imported
 #### libraries and procedures
@@ -69,19 +74,22 @@ my %Procedures = ();
 
 #######################################################################
 # dynamically load in the API extension module.
-#
-bootstrap Win32::API;
+# BEGIN required for constant subs in BOOT:
+BEGIN {
+    $VERSION = '0.76_01';
+    bootstrap Win32::API;
+}
 
 #######################################################################
 # PUBLIC METHODS
 #
 sub new {
-    my ($class, $dll, $hproc) = (shift, shift);
+    my ($class, $dll, $hproc, $ccnum, $outnum) = (shift, shift);
     if(! defined $dll){
         $hproc = shift;
     }
     my ($proc, $in, $out, $callconvention) = @_;
-    my ($hdll, $freedll) = (0, 0);
+    my ($hdll, $freedll, $proto, $stackunwind) = (0, 0, 0, 0);
     my $self = {};
     if(! defined $hproc){
         if (ISCYG() and $dll ne File::Basename::basename($dll)) {
@@ -122,13 +130,13 @@ sub new {
     }
     #### determine if we have a prototype or not, outtype is for future use in XS
     if ((not defined $in) and (not defined $out)) {
-        ($proc, $self->{in}, $self->{intypes}, $self->{out}, $self->{outtype},
-         $self->{cdecl}) = parse_prototype($class, $proc);
+        ($proc, $self->{in}, $self->{intypes}, $outnum, $self->{outtype},
+         $ccnum) = parse_prototype($class, $proc);
         if( ! $proc ){
             Win32::API::FreeLibrary($hdll) if $freedll;
             return undef;
         }
-        $self->{proto} = 1;
+        $proto = 1;
     }
     else {
         $self->{in} = [];
@@ -152,8 +160,8 @@ sub new {
                 } else {undef(@{$self_in});} #empty arr, as if in param was ""
             }
         }
-        $self->{out}   = $class->type_to_num($out, 1);
-        $self->{cdecl} = calltype_to_num($callconvention);
+        $outnum   = $class->type_to_num($out, 1);
+        $ccnum = calltype_to_num($callconvention);
     }
 
     if(!$hproc){ #if not non DLL func
@@ -181,12 +189,34 @@ sub new {
     else {
         DEBUG "Using non-DLL function pointer '$hproc' for '$proc'\n";
     }
-
+    if(PTRSIZE == 4 && $ccnum == APICONTROL_CC_C) {#fold out on WIN64
+        #calculate add to ESP amount, in units of 4, will be *4ed later
+        $stackunwind += $_ == T_QUAD || $_ == T_DOUBLE ? 2 : 1 for(@{$self->{in}});
+        if($stackunwind > 0xFFFF) {
+            DEBUG "FAILED This function has too many parameters (> ~65535) \n";
+            Win32::API::FreeLibrary($hdll) if $freedll;
+            Win32::SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+            $! = Win32::GetLastError();
+            return undef;
+        }
+    }
     #### ok, let's stuff the object
     $self->{procname} = $proc;
     $self->{dll}      = $hdll;
     $self->{dllname}  = $dll;
-    $self->{proc}     = $hproc;
+    $self->{control}  = pack((PTRSIZE == 8 ? 'Q' : 'L').'L'
+                             .(PTRSIZE == 8 ? 'L' : '') #padding for x64
+                             .(PTRSIZE == 8 ? 'Q' : 'L')
+                             .(PTRSIZE == 8 ? 'Q' : 'L')
+                        , $hproc
+                        ,($class eq "Win32::API::More" ? APICONTROL_is_more : 0)
+                        | ($proto ? APICONTROL_has_proto : 0)
+                        | $ccnum
+                        | (PTRSIZE == 8 ? 0 :  $stackunwind << 8)
+                        | $outnum << 24
+                        ,(PTRSIZE == 8 ? (0) : ())
+                        , (($self->{in})+0)
+                        , (exists $self->{intypes} ? ($self->{intypes})+0 : 0));
 
     #### keep track of the imported function
     if(defined $dll){
@@ -195,8 +225,44 @@ sub new {
     }
     DEBUG "Object blessed!\n";
 
+    #one-off classes might go away since there is no measurable time difference
+    #between hv_fetch_ent with a HEK SV and this crazy scheme
+    #
+    #there are unnecessery pack/unpack calls here
+    my ($packedcontrol, $controlmask) = (pack('p',$self->{control}), '');
+    my @splitcontrol = split '', $packedcontrol;
+    #this probably isn't the most efficient algorithm for generating an
+    #null-less XOR key/mask that results in a null-less delta
+    foreach my $char (@splitcontrol){
+        my ($intchar, $i) = unpack('C', $char);
+        for($i = 1; $i < 256; $i++){
+            if(($intchar ^ $i) != 0) {
+                $controlmask .= pack('C', $i);
+                goto chardone;
+            }
+        }
+        #couldn't find a non null byte to XOR original
+        die "Win32::API: can't make XOR mask";
+        chardone:
+        0;
+    }
+
+    $packedcontrol = pack((PTRSIZE == 8 ? 'Q' : 'L'),
+         unpack((PTRSIZE == 8 ? 'Q' : 'L'), $packedcontrol)
+         ^ unpack((PTRSIZE == 8 ? 'Q' : 'L'), $controlmask))
+         .$controlmask;
+    die "Win32::API: can't make XOR mask" if index($packedcontrol, "\x00") != -1;
+    $packedcontrol = "W32::API".$packedcontrol; #"W32::API" is exactly 8 bytes
+    {
+        no strict 'refs';
+        @{$packedcontrol.'::ISA'} = $class;
+        #since Call() is the most frequently called function, put it in the
+        #one off stash, this is to take advantage of a shortcut in S_method_common
+        *{$packedcontrol.'::Call'} = *Win32::API::Call;
+    }
     #### cast the spell
-    bless($self, $class);
+    bless($self, $packedcontrol);
+    #bless($self, $class);
     return $self;
 }
 
@@ -227,6 +293,17 @@ sub DESTROY {
         Win32::API::FreeLibrary($Libraries{$self->{dllname}});
         delete($Libraries{$self->{dllname}});
     }
+    #can't clog up symbol table, delete our unique class name
+    my $class = ref($self).'::';
+    {
+        no strict 'refs';
+        #wipe @ISA, etc
+        foreach my $symbol (keys %{$class}) {
+            delete ${$class}{$symbol};
+        }
+        #wipe package
+        delete $::{$class};
+    }
 }
 
 # Convert calling convention string (_cdecl|__stdcall)
@@ -237,14 +314,14 @@ sub calltype_to_num {
 
     if (!$type || $type eq "__stdcall" || $type eq "WINAPI" || $type eq "NTAPI"
         || $type eq "CALLBACK"  ) {
-        return 0;
+        return APICONTROL_CC_STD;
     }
     elsif ($type eq "_cdecl" || $type eq "__cdecl" || $type eq "WINAPIV") {
-        return 1;
+        return APICONTROL_CC_C;
     }
     else {
         warn "unknown calling convention: '$type'";
-        return 0;
+        return APICONTROL_CC_STD;
     }
 }
 
@@ -558,6 +635,7 @@ sub parse_prototype {
 sub CLONE { 
     return if $_[0] ne "Win32::API";
     
+    _my_cxt_clone();
     foreach( keys %Libraries){
         if($Libraries{$_} != Win32::API::LoadLibrary(Win32::API::GetModuleFileName($Libraries{$_}))){
             die "Win32::API::CLONE unable to clone DLL \"$Libraries{$_}\" Unicode Problem??";

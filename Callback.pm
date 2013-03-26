@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use vars qw( $VERSION @ISA $Stage2FuncPtrPkd );
 
-$VERSION = '0.75';
+$VERSION = '0.76_01';
 
 
 require Exporter;      # to export the constants to the main:: space
@@ -50,7 +50,6 @@ BEGIN {
     sub OPV();
     sub CONTEXT_XMM0();
     sub CONTEXT_RAX();
-    *UseMI64 = *Win32::API::UseMI64; #keep UseMI64 out of export list
     *IsBadStringPtr = *Win32::API::IsBadStringPtr;
     sub PTRSIZE ();
     *PTRSIZE = *Win32::API::PTRSIZE;
