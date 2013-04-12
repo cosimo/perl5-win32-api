@@ -11,16 +11,18 @@ use Test::More;
 use Math::Int64 ('uint64', 'uint64_to_number');
 use Win32::API::Test;
 
-plan tests => 6;
+plan tests => 7;
 use vars qw($function $result $return $test_dll );
 
 
+#use B::Concise;
 use_ok('Win32::API');
 
 $test_dll = Win32::API::Test::find_test_dll();
 diag('API test dll found at (' . $test_dll . ')');
 ok(-e $test_dll, 'found API test dll');
 
+sub benchmark {
 my $c_slr_loop= new Win32::API($test_dll, 'char * setlasterror_loop(int interations)');
 ok(defined($c_slr_loop), 'setlasterror_loop() function defined');
 
@@ -43,22 +45,32 @@ my $end = uint64(0);
 my ($startbool, $SLRret, $endbool);
 my $iterations = 200000;
 $startbool = $QPC->Call($start);
-for(0..$iterations){
-    $SLRret = $SLR->Call(1);
-}
+$SLRret = $SLR->Call(1) for(0..$iterations);
 $endbool = $QPC->Call($end);
 ok($startbool && $endbool, "QPC calls succeeded");
 my $delta = (uint64_to_number($end-$start)/uint64_to_number($freq));
 diag("time was $delta secs, ".(($delta/scalar(@{[0..$iterations, 1,1]}))*1000)." ms per Win32::API call");
+
+Win32::API->Import('kernel32.dll', 'BOOL WINAPI SetLastError( DWORD dwErrCode );');
+$startbool = $QPC->Call($start);
+$SLRret = SetLastError(1) for(0..$iterations);
+$endbool = $QPC->Call($end);
+ok($startbool && $endbool, "QPC calls succeeded");
+my $delta = (uint64_to_number($end-$start)/uint64_to_number($freq));
+diag("time was $delta secs, ".(($delta/scalar(@{[0..$iterations, 1,1]}))*1000)." ms per Win32::AP::Import style call");
+
 my $msg = $c_slr_loop->Call($iterations);
 diag($msg);
+
 if(*Win32::API::_xxSetLastError{CODE}) {
     $startbool = $QPC->Call($start);
-    for(0..$iterations){
-        $SLRret = Win32::API::_xxSetLastError(1);
-    }
+    $SLRret = Win32::API::_xxSetLastError(1) for(0..$iterations);
     $endbool = $QPC->Call($end);
     die "QPC calls failed" unless $startbool && $endbool;
     $delta = (uint64_to_number($end-$start)/uint64_to_number($freq));
     diag("time was $delta secs, ".(($delta/scalar(@{[0..$iterations, 1,1]}))*1000)." ms per _xxSetLastError call");    
 }
+}
+benchmark();
+#my $walker = B::Concise::compile('-src','-exec', *benchmark{CODE});
+#$walker->();

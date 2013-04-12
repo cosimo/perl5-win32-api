@@ -71,6 +71,13 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
        so if there is 1 param,  param will be pointing the struct after the
        last one, in other words, param will be a * to an uninit APIPARAM,
        therefore -- it immediatly */
+/* make gcc not trust ESP */
+#ifdef __GNUC__
+    void * orig_esp;
+    register void * unused_gcc asm ("eax");
+    unused_gcc = alloca(1);
+    asm ("movl %%esp, %0" : "=g" (orig_esp));
+#endif
 	while(param > params_start) {
         param--;
         p.qParam = param->q;
@@ -284,9 +291,17 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
         "addl %%eax, %%esp\n" 
 
         : /* no output */ 
-        : "m" (stack_unwind) /* input */ 
+        : "g" (stack_unwind) /* input */
         : "%eax" /* modified registers */ 
     );
+    {
+        register void * raw_esp asm("esp");
+        void * new_esp = raw_esp;
+        if(raw_esp != orig_esp) {
+            if(IsDebuggerPresent()) DebugBreak();
+            else Perl_croak_nocontext(bad_esp_msg, orig_esp, raw_esp);
+        }
+    }
 #endif
 }
 }

@@ -280,9 +280,83 @@ API_TEST_API void * __stdcall Take41Params(
    || p37 != (void *)37   || p38 != (void *)38   || p39 != (void *)39   || p40 != (void *)40
     ){
         printf("One of the 40 In params was bad\n");
-        return *(void **)0;
+        memset(&p0, 255, ((char *)&p40)-((char *)&p0) + sizeof(void *));
+        return (void *)0;
     }
+    memset(&p0, 255, ((char *)&p40)-((char *)&p0) + sizeof(void *));
     return (void *)1;
+}
+
+API_TEST_API void * __stdcall Take253Params(
+    void * p0, void * p1, void * p2, void * p3,
+    void * p4, void * p5, void * p6, void * p7,
+    void * p8, void * p9, void * p10, void * p11,
+    void * p12, void * p13, void * p14, void * p15,
+    void * p16, void * p17, void * p18, void * p19,
+    void * p20, void * p21, void * p22, void * p23,
+    void * p24, void * p25, void * p26, void * p27,
+    void * p28, void * p29, void * p30, void * p31,
+    void * p32, void * p33, void * p34, void * p35,
+    void * p36, void * p37, void * p38, void * p39,
+    void * p40, void * p41, void * p42, void * p43,
+    void * p44, void * p45, void * p46, void * p47,
+    void * p48, void * p49, void * p50, void * p51,
+    void * p52, void * p53, void * p54, void * p55,
+    void * p56, void * p57, void * p58, void * p59,
+    void * p60, void * p61, void * p62, void * p63,
+    void * p64, void * p65, void * p66, void * p67,
+    void * p68, void * p69, void * p70, void * p71,
+    void * p72, void * p73, void * p74, void * p75,
+    void * p76, void * p77, void * p78, void * p79,
+    void * p80, void * p81, void * p82, void * p83,
+    void * p84, void * p85, void * p86, void * p87,
+    void * p88, void * p89, void * p90, void * p91,
+    void * p92, void * p93, void * p94, void * p95,
+    void * p96, void * p97, void * p98, void * p99,
+    void * p100, void * p101, void * p102, void * p103,
+    void * p104, void * p105, void * p106, void * p107,
+    void * p108, void * p109, void * p110, void * p111,
+    void * p112, void * p113, void * p114, void * p115,
+    void * p116, void * p117, void * p118, void * p119,
+    void * p120, void * p121, void * p122, void * p123,
+    void * p124, void * p125, void * p126, void * p127,
+    void * p128, void * p129, void * p130, void * p131,
+    void * p132, void * p133, void * p134, void * p135,
+    void * p136, void * p137, void * p138, void * p139,
+    void * p140, void * p141, void * p142, void * p143,
+    void * p144, void * p145, void * p146, void * p147,
+    void * p148, void * p149, void * p150, void * p151,
+    void * p152, void * p153, void * p154, void * p155,
+    void * p156, void * p157, void * p158, void * p159,
+    void * p160, void * p161, void * p162, void * p163,
+    void * p164, void * p165, void * p166, void * p167,
+    void * p168, void * p169, void * p170, void * p171,
+    void * p172, void * p173, void * p174, void * p175,
+    void * p176, void * p177, void * p178, void * p179,
+    void * p180, void * p181, void * p182, void * p183,
+    void * p184, void * p185, void * p186, void * p187,
+    void * p188, void * p189, void * p190, void * p191,
+    void * p192, void * p193, void * p194, void * p195,
+    void * p196, void * p197, void * p198, void * p199,
+    void * p200, void * p201, void * p202, void * p203,
+    void * p204, void * p205, void * p206, void * p207,
+    void * p208, void * p209, void * p210, void * p211,
+    void * p212, void * p213, void * p214, void * p215,
+    void * p216, void * p217, void * p218, void * p219,
+    void * p220, void * p221, void * p222, void * p223,
+    void * p224, void * p225, void * p226, void * p227,
+    void * p228, void * p229, void * p230, void * p231,
+    void * p232, void * p233, void * p234, void * p235,
+    void * p236, void * p237, void * p238, void * p239,
+    void * p240, void * p241, void * p242, void * p243,
+    void * p244, void * p245, void * p246, void * p247,
+    void * p248, void * p249, void * p250, void * p251,
+    void * p252) {
+    void * ret;
+    if (p252 == (void *)252 && p0 == (void *)0 && p130 == (void *)130) ret = (void *)1;
+    else ret = (void *)0;
+    memset(&p0, 255, ((char *)&p252)-((char *)&p0) + sizeof(void *));
+    return ret;
 }
 
 /* cdecl functions */
@@ -389,4 +463,9 @@ API_TEST_API char * __stdcall setlasterror_loop(int iterations){
     delta = (double)(end.QuadPart - start.QuadPart)/(double)(freq.QuadPart);
     sprintf(msg, "time was %.17f secs, %.17f ms per C call", delta, (delta/(double)iterations)*1000);
     return (char *)msg;
+}
+
+API_TEST_API int __stdcall is_null(void * ptr){
+    if(!ptr) return TRUE;
+    else return FALSE;
 }

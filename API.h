@@ -104,27 +104,27 @@ typedef unsigned long long_ptr;
 
 #define T_VOID				0
 #define T_NUMBER			1
-#define T_POINTER			2
-#define T_INTEGER			3
-#define T_SHORT				4
-
+#define T_INTEGER			2
+#define T_SHORT				3
+#define T_CHAR				4
+//high processing group
+#define T_POINTER			5
+#define T_STRUCTURE			6
+#define T_POINTERPOINTER		7
+#define T_CODE				8
+//end of high processing group
+#define T_FLOAT 			9
+//on 32 bits everthing below needs 2 pushes b/c 8 bytes
+#define T_DOUBLE			10
 //T_QUAD means a pointer is not 64 bits
 //T_QUAD is also used in ifdefs around the C code implementing T_QUAD
 #ifndef _WIN64
-#  define T_QUAD                        5
+#  define T_QUAD			11
 #  if ! (IVSIZE == 8)
 //USEMI64 Perl does not have native i64s, use 8 byte strings or Math::Int64s to emulate
 #    define USEMI64
 #  endif
 #endif
-#define T_CHAR				6
-
-#define T_FLOAT 			7
-#define T_DOUBLE			8
-#define T_STRUCTURE			51
-
-#define T_POINTERPOINTER	22
-#define T_CODE				55
 
 #define T_FLAG_UNSIGNED     (0x80)
 #define T_FLAG_NUMERIC      (0x40)
@@ -214,6 +214,13 @@ typedef struct {
 #  define mXPUSHs(s)                     XPUSHs(sv_2mortal(s))
 #endif
 
+/* a no grow version of PUSHMARK */
+#define W32APUSHMARK(p)						\
+	STMT_START {						\
+	    ++PL_markstack_ptr;					\
+	    *PL_markstack_ptr = (I32)((p) - PL_stack_base);	\
+	} STMT_END
+
 //all callbacks in Call() or helpers for Call() must static assert against this
 //this is the ONE and only stack extend done in Call() and its helpers
 //for callbacks, this eliminates half a dozen EXTENDs and replaced them
@@ -275,3 +282,76 @@ S_croak_xs_usage(pTHX_ const CV *const cv, const char *const params)
 #define PERL_VERSION_LE(R, V, S) (PERL_REVISION < (R) || \
 (PERL_REVISION == (R) && (PERL_VERSION < (V) ||\
 (PERL_VERSION == (V) && (PERL_SUBVERSION <= (S))))))
+
+#if PERL_VERSION_LE(5, 13, 8)
+MAGIC * my_find_mg(SV * sv, int type, const MGVTBL *vtbl){
+	MAGIC *mg;
+	for (mg = SvMAGIC (sv); mg; mg = mg->mg_moremagic) {
+		if (mg->mg_type == type && mg->mg_virtual == vtbl)
+			assert (mg->mg_ptr);
+			return mg;
+	}
+	return NULL;
+}
+#define mg_findext(a,b,c) my_find_mg(a,b,c)
+#endif
+
+#if PERL_VERSION_LE(5, 7, 2)
+MAGIC *
+my_sv_magicext(pTHX_ SV* sv, SV* obj, int how, MGVTBL *vtable,
+		 const char* name, I32 namlen)
+{
+    MAGIC* mg;
+
+    if (SvTYPE(sv) < SVt_PVMG) {
+	(void)SvUPGRADE(sv, SVt_PVMG);
+    }
+    Newz(702,mg, 1, MAGIC);
+    mg->mg_moremagic = SvMAGIC(sv);
+    SvMAGIC(sv) = mg;
+
+    /* Some magic sontains a reference loop, where the sv and object refer to
+	each other.  To prevent a reference loop that would prevent such
+	objects being freed, we look for such loops and if we find one we
+	avoid incrementing the object refcount. */
+    if (!obj || obj == sv ||
+	how == PERL_MAGIC_arylen ||
+	how == PERL_MAGIC_qr ||
+	(SvTYPE(obj) == SVt_PVGV &&
+	    (GvSV(obj) == sv || GvHV(obj) == (HV*)sv || GvAV(obj) == (AV*)sv ||
+	    GvCV(obj) == (CV*)sv || GvIOp(obj) == (IO*)sv ||
+	    GvFORM(obj) == (CV*)sv)))
+    {
+	mg->mg_obj = obj;
+    }
+    else {
+	mg->mg_obj = SvREFCNT_inc(obj);
+	mg->mg_flags |= MGf_REFCOUNTED;
+    }
+    mg->mg_type = how;
+    mg->mg_len = namlen;
+    if (name) {
+	if (namlen > 0)
+	    mg->mg_ptr = savepvn(name, namlen);
+	else if (namlen == HEf_SVKEY)
+	    mg->mg_ptr = (char*)SvREFCNT_inc((SV*)name);
+	else
+	    mg->mg_ptr = (char *) name;
+    }
+    mg->mg_virtual = vtable;
+
+    mg_magical(sv);
+    if (SvGMAGICAL(sv))
+	SvFLAGS(sv) &= ~(SVf_IOK|SVf_NOK|SVf_POK);
+    return mg;
+}
+#  ifdef PERL_IMPLICIT_CONTEXT
+#    define sv_magicext(a,b,c,d,e,f)       my_sv_magicext(aTHX_ a,b,c,d,e,f)
+#  else
+#    define sv_magicext            my_sv_magicext
+#  endif
+#endif
+
+#ifndef SVt_MASK
+#  define SVt_MASK SVTYPEMASK
+#endif

@@ -1,29 +1,30 @@
 .386P
 .model FLAT
 PUBLIC	@Call_asm@16
-;EXTRN	__fltused:NEAR
-;EXTRN   __RTC_CheckEsp:NEAR
-;EXTRN   __RTC_CheckEsp:NEAR
-EXTRN   __imp__RaiseException@16:NEAR
-EXTRN   __imp__TerminateProcess@8:NEAR
+EXTRN   __imp__IsDebuggerPresent@0:NEAR
+IFDEF PERL_IMPLICIT_CONTEXT
+EXTRN   __imp__Perl_croak_nocontext:NEAR
+ELSE
+EXTRN   __imp__Perl_croak:NEAR
+ENDIF
+EXTRN   _bad_esp_msg:NEAR
 ; Function compile flags: /Ogsy
 ;	COMDAT @Call_asm@16
 _TEXT	SEGMENT
-_control$ = 12						; size = 4
-_retval$ = 16						; size = 4
-T_QUAD = 5
-T_DOUBLE = 8
-STATUS_BAD_STACK = 0C0000028h
-EXCEPTION_NONCONTINUABLE = 01h
+_control$ = 8						; size = 4
+_retval$ = 12						; size = 4
+T_DOUBLE = 10
+T_FLOAT = 9
 @Call_asm@16 PROC NEAR					; COMDAT
 param equ ecx
 params_start equ edx
-retval  equ esi
+retval  equ edi
 
 ; 51   : {
-	push	esi
 	push	ebp
 	mov	ebp, esp
+	push	esi
+	push    edi
 
 ; 128  : #if (defined(_MSC_VER) || defined(BORLANDC))
 ; 129  : 			__asm {
@@ -41,36 +42,11 @@ loop_body:
 
 ; 74   : 		switch(param->t) {
 
-	cmp	al, T_QUAD
-	je	SHORT push_high_dword
-	cmp	al, T_DOUBLE
-	jne	SHORT push_low_dword
+	cmp	al, T_DOUBLE ;T_DOUBLE and higher are 64 bit types
+	jb	SHORT push_low_dword
 push_high_dword:
-
-; 75   : 		case T_DOUBLE:
-; 76   : 		case T_QUAD:
-; 77   : #if (defined(_MSC_VER) || defined(BORLANDC))
-; 78   : 			__asm {
-; 79   : ;very dangerous/compiler specific
-; 80   : ;avoiding indirections, *(ebp+offset), then *(reg+offset[0 or 4])
-; 81   :                                 push dword ptr [p+4];
-
 	push	DWORD PTR [param+4]
 push_low_dword:
-
-; 82   : 			};
-; 83   : #elif (defined(__GNUC__))
-; 95   : #endif /* VC VS GCC */
-; 103  : 
-; 104  : #ifdef WIN32_API_DEBUG
-; 116  : #else
-; 117  :                 default:
-; 118  : #endif
-; 119  : 			p.pParam = param->p;
-; 130  : ;very dangerous/compiler specific
-; 131  : ;avoiding indirections, *(ebp+offset), then *(reg+offset[0 or 4])
-; 132  :                                 push dword ptr [p];
-
 	push	DWORD PTR [param]
 
 ; 128  : #if (defined(_MSC_VER) || defined(BORLANDC))
@@ -117,16 +93,16 @@ gt_param_test:
 ; 161  :     {
 ; 162  :     unsigned char t = control->out;
 ; 163  :     switch(t WIN32_API_DEBUGM( & ~T_FLAG_UNSIGNED) ) { //unsign has no special treatment here
-
+	;use no C stack *s after call, they might be corrupt on a prototype mistake
+	mov	retval, DWORD PTR _retval$[ebp] ;edi is retval
 	call	DWORD PTR [esi] ; esi is var control
 	movzx	ecx, BYTE PTR [esi+7] ; return type, can't use eax or edx
-	sub	ecx, 7
-        mov	retval, DWORD PTR _retval$[ebp] ;esi is retval
+	sub	ecx, T_FLOAT
 	je	SHORT get_float
 	dec	ecx
 	je	SHORT get_double
 
-        ; EAX EDX returner (an integer)
+	; EAX EDX returner (an integer)
 	mov	DWORD PTR [retval], eax
 	mov	DWORD PTR [retval+4], edx
 	jmp	SHORT cleanup
@@ -142,8 +118,7 @@ cleanup:
 ; 274  : {
 ; 275  :     unsigned int stack_unwind = (control->whole_bf >> 6) & 0x3FFFC;
 
-	mov	eax, DWORD PTR _control$[ebp] ;control is loaded 2 times in this func
-	mov	eax, DWORD PTR [eax+4]
+	mov	eax, DWORD PTR [esi+4]
 	shr	eax, 6
 	and	eax, 3FFFCh
 
@@ -152,52 +127,55 @@ cleanup:
 ; 278  :         add esp, stack_unwind
 
 	add	esp, eax
-        ; this only detects stdcall vs cdecl mistakes, and wrong num of params
-        ; on stdcall, it does NOT detect wrong number of params for cdecl
-        ; that is more complicated, and random to detect, the only way to detect
-        ; it with a long security cookie infront of the stack params, and even
-        ; then, there is no guarentee the compiler or func being called will
-        ; assign to incoming arg stack slots (infront of the return address)
-        ; automatically detecting a read would be very difficult, and would
-        ; require swapping C stacks, and position a NO_ACCESS page right
-        ; infront of C stack params, bulk88 doesnt think there is any interest
-        ; in this idea 
-        cmp     ebp, esp
-        ;removed code, __RTC_CheckEsp doesn't exist on Mingw or VC 6
-        ;leave ;get C stack working again, if ESP is too high, doing the call
-        ; will corrupt our retaddr or our saved esi, or caller's vars
-        ;pop	esi
-        ;call __RTC_CheckEsp
-	;ret	8
-
-        jnz     SHORT bad_esp
+	; when C stack corruption, edi and esi will be restored with garbage
+	; but we dont care since we dont return to caller, also balance stack
+	; for ebp esp comparison later
+	pop     edi
+	pop     esi
+	; this only detects stdcall vs cdecl mistakes, and wrong num of params
+	; on stdcall, it does NOT detect wrong number of params for cdecl
+	; that is more complicated, and random to detect, the only way to detect
+	; it with a long security cookie infront of the stack params, and even
+	; then, there is no guarentee the compiler or func being called will
+	; assign to incoming arg stack slots (infront of the return address)
+	; automatically detecting a read would be very difficult, and would
+	; require swapping C stacks, and position a NO_ACCESS page right
+	; infront of C stack params, bulk88 doesnt think there is any interest
+	; in this idea
+	cmp     ebp, esp
+	jnz     SHORT bad_esp
 ; 279  :     };
 ; 280  : #elif (defined(__GNUC__))
 ; 289  : #endif
 ; 290  : }
 ; 291  : }
-        leave ; get C stack working again, if ESP is too high, doing the call
-        ; will corrupt our retaddr or our saved esi, or caller's vars, techincally
-        ; this leave will fix the corrupt esp problem and allow execution to
-        ; resume
-        pop	esi
+	;leave ; get C stack working again, if ESP is too high, doing the call
+	; will corrupt our retaddr or our saved esi, or caller's vars, techincally
+	; this leave will fix the corrupt esp problem and allow execution to
+	; resume
+	pop     ebp
 	ret	8
-        
-        bad_esp:
-        ; make a 2 DWORD array for debugging info, how to this see in Debugger, IDK
-        push esp
-        push ebp
-        push esp ;lpArguments, struct { DWORD ebp; DWORD esp;} *
-        push 2 ;nNumberOfArguments
-        mov esi, STATUS_BAD_STACK ; saving non-vols pointless here
-        push EXCEPTION_NONCONTINUABLE ;dwExceptionFlags
-        push esi ;dwExceptionCode, contains STATUS_BAD_STACK
-        call	DWORD PTR __imp__RaiseException@16
-        ; someone hit continue in a debugger, fix your code
-        push esi ;uExitCode, contains STATUS_BAD_STACK
-        push -1 ;hProcess, constant for GetCurrentProcess
-        call DWORD PTR __imp__TerminateProcess@8
-        
+	
+	bad_esp:
+	call    DWORD PTR __imp__IsDebuggerPresent@0
+	;test    eax, eax
+	;jnz     break
+	push    esp ;esp must be always first, since the push modifies esp, after
+	;sampling its value
+	push    ebp
+	push    OFFSET FLAT:_bad_esp_msg ;defined in C for preprocessor
+IFDEF PERL_IMPLICIT_CONTEXT ;complicated but seems to work to pass C defs to
+	; ASM. The alternative is define a const C void * that does = to the
+	; Perl croak_nocontext macro, which on no-thread perl is defed to Perl_croak
+	call    DWORD PTR __imp__Perl_croak_nocontext
+ELSE
+	call    DWORD PTR __imp__Perl_croak ;no pTHX_ in unthreaded perl, so Perl_croak_nocontext doesn't exist
+ENDIF
+break:
+	db 0Fh
+	db 0Bh
+	; an int 3 can resume exec, a ud2 cant
+	; no return
 @Call_asm@16 ENDP
 _TEXT	ENDS
 END

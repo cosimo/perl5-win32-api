@@ -1,5 +1,27 @@
 History of Win32::API perl extension.
 
+2013-??-??  Win32::API v0.76_??    bulk88
+   - Fixed, on 32 bits, Call_asm since 0.76_01, in Visual Studio, even with
+     symbols loaded, lost the the part of the call stack behind Call_asm in VS
+     debugger, while in the body of Call_asm, in a crash this made debugging
+     harder by showing a corrupt or incomplete call stack, the prologue code was
+     reworked to enable traditional EBP walking
+   - Changed RaiseException/TerminateProcess on ESP inconsistency to a catchable
+     die() if no C debugger is attached, community opinion from PerlMonks, if
+     C debugger is attached, then Win32::API crashes to enable examination of
+     process state
+   - Added, previously (v0.76_01) 32 bit VC-only stack checking/ESP
+     inconsistency now works on 32 bit GCC for __stdcall/__cdecl mixups only,
+     not for wrong number of params (C stack overwritten)
+   - Fixed, iat.t fatally exits after "ok 23" with "Usage:
+     Win32::API::Callback::IATPatch::new(classSV, callback, HookDll,
+     ImportDllName, ImportFunctionName) at t/iat.t line 163." on 32 bit Mingw
+     Perl with 64 bit IVs (all of iat.t is skipped on 32 bit Cygwin Perls with
+     64 bit IVs, so test was never executed before), reported by kmx
+   - Improved, the internals of a Win32::API obj were reorgranized for more
+     speed
+   - Improved, POD for NULL pointer for letter 'P'
+
 2013-03-26  Win32::API v0.76_01    bulk88
    - Fixed RT #82611, make tool detection in Makefile.PL didn't work for
      absolute path make tools, also removed a "dmake:  makefile:  line 276:

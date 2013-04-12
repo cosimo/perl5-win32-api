@@ -46,6 +46,13 @@
 
 #define MODNAME "Win32::API"
 
+/*added because of http://www.cpantesters.org/cpan/report/fd483be1-6c0a-1014-9049-f37bd871b27e
+  but the below isn't the problem to above report, memset func ptr being
+  NULL in the DLL is */
+#if defined(_MSC_VER) && defined(__GNUC__)
+#  error A compiler can be either _MSC_VER or __GNUC__, not both
+#endif
+
 /*get rid of CRT startup code on MSVC, we use exactly 3 CRT functions
 memcpy, memmov, and wcslen, neither require any specific initialization other than
 loading the CRT DLL (SSE probing on modern CRTs is done when CRT DLL is loaded
@@ -84,7 +91,7 @@ const static struct {
 STATIC void pointerCall3Param(pTHX_ SV * sv1, SV * sv2, SV * sv3, int func_offset) {
     //for Type::Un/Pack obj, type, param, for ::Struct::ck_type param, proto, param_num
 	dSP;
-	PUSHMARK(SP);
+	W32APUSHMARK(SP);
     STATIC_ASSERT(CALL_PL_ST_EXTEND >= 3); //EXTEND replacement
     PUSHs(sv1);
     PUSHs(sv2);
@@ -99,6 +106,9 @@ STATIC SV * getTarg(pTHX) {
     SvOK_off(TARG);
     return TARG;
 }
+
+const char bad_esp_msg [] = "Win32::API a function was called with the wrong prototype "
+"and cause a C stack inconsistency EBP=%"UVxf" EBP=%"UVxf ;
 
 /* Convert wide character string to mortal SV.  Use UTF8 encoding
  * if the string cannot be represented in the system codepage.
@@ -185,11 +195,15 @@ typedef struct {
         };
         U32 whole_bf;
     };
+	union {
+		I16 inparamlen_signed;
+		U16 inparamlen;
+	};
     /* padding hole here on x64 */
     /* these 2 AVs are not owned by this struct, their refcnt is owned in the blessed HV
        these 2 AVs are here for no func call look up of them, intypes may be NULL*/
-    AV * in;
     AV * intypes;
+	APIPARAM param;
 } APICONTROL;
 
 #define APICONTROL_CC_STD 0
@@ -240,6 +254,51 @@ static SV * initSharedKeys (pTHX_ my_cxt_t * cxt) {
     */
     cxt->sentinal = get_sv("Win32::API::sentinal", 1); /* must be 1 b/c used in CLONE and BOOT */
     return cxt->sentinal;
+}
+
+/* declare as 5 member, not normal 8 to save image space*/
+const static struct {
+	int (*svt_get)(SV* sv, MAGIC* mg);
+	int (*svt_set)(SV* sv, MAGIC* mg);
+	U32 (*svt_len)(SV* sv, MAGIC* mg);
+	int (*svt_clear)(SV* sv, MAGIC* mg);
+	int (*svt_free)(SV* sv, MAGIC* mg);
+} vtbl_API = {
+	NULL, NULL, NULL, NULL, NULL
+};
+
+/* gets hidden magic SV from SV, returns NULL if not there, return is not refcnt++ed*/
+STATIC SV * getMgSV(pTHX_ SV * sv) {
+	MAGIC * mg;
+	if(SvRMAGICAL(sv)) { /* implies SvTYPE  >= SVt_PVMG */
+		mg = mg_findext(sv, PERL_MAGIC_ext, &vtbl_API);
+		if(mg) {
+			return mg->mg_obj;
+		}
+		else return NULL;
+	}
+	else return NULL;
+}
+
+/* puts newsv, refcnt++ed (caller doesn't have to do it), in sv as hidden magic SV */
+STATIC void setMgSV(pTHX_ SV * sv, SV * newsv) {
+	MAGIC * mg;
+	if(SvRMAGICAL(sv)) { /* implies SvTYPE  >= SVt_PVMG */
+		mg = mg_findext(sv, PERL_MAGIC_ext, &vtbl_API);
+		if(mg) {
+			SV * oldsv;
+			SvREFCNT_inc_simple_void_NN(newsv);
+			oldsv = mg->mg_obj;
+			mg->mg_obj = newsv;
+			SvREFCNT_dec(oldsv);
+		} else {
+			goto addmg;
+		}
+	}
+	else {
+		addmg:
+		sv_magicext(sv,newsv,PERL_MAGIC_ext,&vtbl_API,NULL,0);
+	}
 }
 
 MODULE = Win32::API   PACKAGE = Win32::API
@@ -293,6 +352,11 @@ BOOT:
         newCONSTSUB(stash, "IsUnicode",&PL_sv_yes);
 #else
         newCONSTSUB(stash, "IsUnicode",&PL_sv_no);
+#endif
+#ifdef __GNUC__
+        newCONSTSUB(stash, "IsGCC",&PL_sv_yes);
+#else
+        newCONSTSUB(stash, "IsGCC",&PL_sv_no);
 #endif
     {
     typedef struct {
@@ -359,20 +423,23 @@ BOOT:
 void
 UseMI64(...)
 PREINIT:
-    HV * self;
-    SV * controlSV;
+    SV * self;
     APICONTROL * control;
 PPCODE:
     if (items < 1 || items > 2)
        croak_xs_usage(cv,  "self [, FlagBool]");
-    self = (HV*)ST(0);
-	if (!(SvROK((SV*)self) && ((self = (HV*)SvRV((SV*)self)), SvTYPE((SV*)self) == SVt_PVHV)))
-        croak("%s: %s is not a hash reference",
+    self = ST(0);
+	if (!(SvROK(self) && ((self = SvRV(self)),
+                          (SvFLAGS(self) & (SVs_OBJECT|SVs_RMG|SVt_MASK))
+                          == (SVs_OBJECT|SVs_RMG|SVt_PVMG))))
+    /* I dont think an upgrade to > SVt_PVMG, like SVt_PVLV, will ever happen
+      unless someone went inside the object */
+    /* add a SvCUR APICONTROL check ?? */
+        croak("%s: %s is not of type Win32::API [::More]",
 			"Win32::API::UseMI64",
 			"self");
     //key always exists
-    controlSV = *hv_fetch(self, "control", sizeof("control")-1, 0);
-    control = (APICONTROL *)SvPVX(controlSV);
+    control = (APICONTROL *)SvPVX(self);
     PUSHs(boolSV(control->UseMI64)); //ST(0) now gone
     PUTBACK;
     
@@ -655,6 +722,7 @@ CODE:
     return;
 
 # use ... to avoid overhead of items check+croak, this is a private xsub
+#ifdef PERL_IMPLICIT_CONTEXT
 void
 _my_cxt_clone(...)
 CODE:
@@ -666,6 +734,8 @@ CODE:
         initSharedKeys(aTHX_ &(MY_CXT));
     }
     return; /* dont execute another implied XSPP PUTBACK */
+
+#endif
 
 # todo, disable this for release
 IV
@@ -680,6 +750,52 @@ CODE:
     RETVAL = (IV) SLR_u.special((DWORD)in);
 OUTPUT:
     RETVAL
+
+
+# xsub to attach a hidden SV in RV inside to the target SV of RV outside
+# both params must be references
+# void SetMagicSV(outside, inside)
+void
+SetMagicSV(...)
+PREINIT:
+    SV * outside;
+    SV * inside;
+CODE:
+    if(items != 2)
+        croak_xs_usage(cv, "outside, inside");
+    inside = POPs;
+    outside = POPs;
+    PUTBACK;
+    if(SvROK(outside) && SvROK(inside)) {
+        outside = SvRV(outside);
+        inside = SvRV(inside);
+    }
+    else{
+        croak_xs_usage(cv, "outside, inside");
+    }
+    setMgSV(aTHX_ outside, inside);
+    return;
+
+# $ref_to_inside = GetMagicSV($ref_to_outside)
+void
+GetMagicSV(...)
+PREINIT:
+    SV * outside;
+    SV * inside;
+CODE:
+    if(items != 1)
+        croak_xs_usage(cv,  "reference");
+    outside = *SP;
+    if(!SvROK(outside))
+        croak_xs_usage(cv,  "reference");
+    outside = SvRV(outside);
+    inside = getMgSV(aTHX_ outside);
+    if(!inside)
+        croak_xs_usage(cv,  "reference");
+    *SP = sv_2mortal(newRV_inc(inside));
+    /* no PUTBACK, got 1 item, returning 1 item */
+    return;
+
 
 # all callbacks in Call() that use Call()'s SP (not a dSP SP)
 # must call SPAGAIN after the ENTER, incase of a earlier callback
@@ -703,6 +819,8 @@ Call(api, ...)
 CODE:
     WIN32_API_PROFF(QueryPerformanceFrequency(&my_freq));
     WIN32_API_PROFF(W32A_Prof_GT(&start));
+	if (PL_markstack_ptr+1 == PL_markstack_max)
+        markstack_grow();
     EXTEND(SP,CALL_PL_ST_EXTEND);//the one and only EXTEND, all users must
     //static assert against the constant
 {   //compiler can toss some variables that EXTEND used
@@ -710,7 +828,6 @@ CODE:
     const APICONTROL * control;
     SV * retsv;
     SV*	in_type;
-    AV*		inlist;
     AV*		intypes;
 
     AV*		pparray;
@@ -721,83 +838,40 @@ CODE:
     int nin, i;
     long_ptr tin;
     dMY_CXT;
-    HV*		obj = (HV*) SvRV(api); /* ILP mixing*/
     UCHAR needs_post_call_loop = 0;
+    control = (APICONTROL *) SvPVX(SvRV(api));
     {
-        HV * stash = SvSTASH(obj);
-        {
-        APICLASSNAME * classname;
-#ifdef HvNAME_HEK_NN
-        classname = (APICLASSNAME *)HEK_KEY(HvAUX(stash)->xhv_name_u.xhvnameu_name);/* non public API */
-#else
-        classname = HvNAME_get(stash);
-#endif
-        /* upto 3 "unallocated" bytes read here */
-        if(classname->MagicLow == *(DWORD32 *)"W32:" &&
-            classname->MagicHigh == *(DWORD32 *)":API"){
-            control = (APICONTROL *)(classname->EncodedPtr ^ classname->PtrKey);
-        }
-        else{
-            croak_xs_usage(cv,  "api, ...");
-        }
-        }
+    /* all but -1 are unsigned, so we have ~65K params, not 32K */
+    short s = (short)(control->inparamlen)+(short)1;
+    nin = control->inparamlen | (s != 0)-1;
+    
+    if(items-1 != s) {
+        croak("Wrong number of parameters: expected %d, got %d.\n", s, items-1);
     }
-    /* now in APICONTROL
-    {   //key always exists, crash if not
-        SV * controlSV = HeVAL(hv_fetch_ent(obj, MY_CXT.controlKey, 0, 0));
-        control = (APICONTROL *)SvPVX(controlSV);
     }
-    {
-        SV * inKey = MY_CXT.inKey; // ILP mixing
-        if(control->has_proto) {
-        	SV*	obj_intypes = HeVAL(hv_fetch_ent(obj, MY_CXT.intypesKey, 0, 0));
-        	intypes = (AV*) SvRV(obj_intypes);
-        }
-        obj_in = HeVAL(hv_fetch_ent(obj, inKey, 0, 0));
-        obj_in = control->in;
-    }
-    inlist = (AV*) SvRV(obj_in);
-    */
-    inlist = control->in;
     intypes = control->intypes;
-    nin  = AvFILLp(inlist); /* AvFILL is a func call */
-
-    if(items-1 != nin+1) {
-        croak("Wrong number of parameters: expected %d, got %d.\n", nin+1, items-1);
-    }
 
     if(nin >= 0) {
         WIN32_API_PROFF(W32A_Prof_GT(&loopstart));
         {
-        SV * const * const in_arr = AvARRAY(inlist);
         /* a note about Perl stack operations below, we write replace SV *s on
            the Perl stack in some cases where the SV * the user passed in can't
            be used or we aren't interested in it but some other SV * after
            Call_asm(), so the ST() slots ARENT always what the caller passed in
         */
         params = (APIPARAM *) _alloca((nin+1) * sizeof(APIPARAM));
+        memcpy(params, &(control->param), (nin+1) * sizeof(APIPARAM));
         // structs = (APISTRUCT *) _alloca((nin+1) * sizeof(APISTRUCT));
         // callbacks = (APICALLBACK *) _alloca((nin+1) * sizeof(APICALLBACK));
 
         /* #### FIRST PASS: initialize params #### */
         for(i = 0; i <= nin; i++) {
             SV*     pl_stack_param;
-            APIPARAM * param;
-            in_type = in_arr[i]; /* dont use av_fetch */
-            //sv_dump(in_type);
-            tin = SvIVX(in_type);
-            //unsigned meaningless no sign vs zero extends are done bc uv/iv is
-            //the biggest native integer on the cpu, big to small is truncation
-            tin &= ~T_FLAG_UNSIGNED;
-            //unimplemented except for char
-            if((tin & ~ T_FLAG_NUMERIC) != T_CHAR){
-                tin &= ~T_FLAG_NUMERIC;
-            }
+            APIPARAM * param = &(params[i]);
+            tin = param->t;
             pl_stack_param = ST(i+1);
-            param = &(params[i]);
             switch(tin) {
             case T_NUMBER:
-                param->t = T_NUMBER;
 				param->l = (long_ptr) SvIV(pl_stack_param);  //xxx not sure about T_NUMBER length on Win64
 #ifdef WIN32_API_DEBUG
 				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%ld\n", i, params[i].t, params[i].l);
@@ -809,7 +883,7 @@ CODE:
                 __int64 * pI64;
                 if(control->UseMI64 || SvROK(pl_stack_param)){
                     SPAGAIN;
-                    PUSHMARK(SP);
+					W32APUSHMARK(SP);
                     STATIC_ASSERT(CALL_PL_ST_EXTEND >= 1);
                     PUSHs(pl_stack_param); //currently mortal, came from caller
                     PUTBACK;
@@ -831,8 +905,6 @@ CODE:
 #else
                 param->q = (__int64) SvIV(pl_stack_param);
 #endif //USEMI64
-
-                param->t = T_QUAD;
 #ifdef WIN32_API_DEBUG
 				printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%I64d\n", i, params[i].t, params[i].q);
 #endif
@@ -840,7 +912,6 @@ CODE:
 #endif
             case T_CHAR:{
                 char c;
-                param->t = T_CHAR;
                 //this might be the "overflowed" null char that is after each PV buffer
                 c = (SvPV_nolen(pl_stack_param))[0];
                 //zero/sign extend bug? not sure about 32bit call conv, google
@@ -862,21 +933,18 @@ CODE:
 #endif
                 }break;
             case T_FLOAT:
-                param->t = T_FLOAT;
                	param->f = (float) SvNV(pl_stack_param);
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%f\n", i, params[i].t, params[i].f);
 #endif
                 break;
             case T_DOUBLE:
-                param->t = T_DOUBLE;
                	param->d = (double) SvNV(pl_stack_param);
 #ifdef WIN32_API_DEBUG
                	printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%f\n", i, params[i].t, params[i].d);
 #endif
                 break;
             case T_POINTER:{
-                param->t = T_POINTER; //chance of useless unpack later
                 if(SvREADONLY(pl_stack_param)) //Call() param was a string litteral
                     ST(i+1)= pl_stack_param = sv_mortalcopy(pl_stack_param);
                 if(control->has_proto) {
@@ -905,7 +973,6 @@ CODE:
                 break;
             }
             case T_POINTERPOINTER:
-                param->t = T_POINTERPOINTER;
                 needs_post_call_loop = 1;
                 if(SvROK(pl_stack_param) && SvTYPE(SvRV(pl_stack_param)) == SVt_PVAV) {
                     pparray = (AV*) SvRV(pl_stack_param);
@@ -933,8 +1000,6 @@ CODE:
             case T_STRUCTURE:
 				{
 					MAGIC* mg;
-
-					param->t = T_STRUCTURE;
                     needs_post_call_loop = 1;
 					if(SvROK(pl_stack_param) && SvTYPE(SvRV(pl_stack_param)) == SVt_PVHV) {
 						mg = mg_find(SvRV(pl_stack_param), 'P');
@@ -973,7 +1038,7 @@ CODE:
 		AvARRAY(intypes)[i],       sv_2mortal(newSViv(i+1)),       PARAM3_CK_TYPE);
 						}
 						SPAGAIN;
-						PUSHMARK(SP);
+						W32APUSHMARK(SP);
 						STATIC_ASSERT(CALL_PL_ST_EXTEND >= 1);
 						PUSHs(pl_stack_param);
 						PUTBACK;
@@ -998,7 +1063,6 @@ CODE:
                 break;
 
 			case T_CODE:
-				param->t = T_CODE;
 #ifdef WIN32_API_DEBUG
 				printf("(XS)Win32::API::Call: got a T_CODE, (SV=0x%08x) (SvPV='%s')\n", pl_stack_param, SvPV_nolen(pl_stack_param));
 #endif
@@ -1063,7 +1127,7 @@ CODE:
 		}
 		if(param->t == T_STRUCTURE) {
             SPAGAIN;
-			PUSHMARK(SP);
+			W32APUSHMARK(SP);
             STATIC_ASSERT(CALL_PL_ST_EXTEND >= 1);
 			PUSHs(sv);
 			PUTBACK;
@@ -1125,7 +1189,7 @@ CODE:
 #endif
         retsv = newSVpvn((char *)&retval.q, sizeof(retval.q));
         if(control->UseMI64){
-            PUSHMARK(SP);
+			W32APUSHMARK(SP);
             STATIC_ASSERT(CALL_PL_ST_EXTEND >= 1);
             mPUSHs(retsv); //newSVpvn above must be freeded, this also destroys
             //our Perl stack incoming args

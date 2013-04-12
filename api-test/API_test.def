@@ -30,6 +30,7 @@ EXPORTS
   GetGetHandle
   FreeHandle
   Take41Params
+  Take253Params
   c_sum_integers
   WlanConnect
   Take6MemsStruct
@@ -37,3 +38,4 @@ EXPORTS
   MyQueryPerformanceCounter
   GetTestDllHModule
   setlasterror_loop
+  is_null

@@ -12,7 +12,7 @@ use File::Spec;
 use Test::More;
 use Config;
 use Win32::API::Test;
-plan tests => 48;
+plan tests => 55;
 use vars qw($function $result $input $test_dll $ptr);
 
 SKIP: {
@@ -288,6 +288,67 @@ $function = new Win32::API($test_dll, 'Take41Params', 'N' x 41, 'N');
 is($function->Call(0..40), 1, #the C++ func was written using a perl script
    'Take41Params() returns the expected value');
 
+#test ESP sanity check on 32 bits added in 0.76
+SKIP: {
+    if(PTR_LET eq 'Q'){
+        skip("ESP checking not implemented on x64", 2);
+    }
+
+    $function = new Win32::API($test_dll, 'Take41Params', 'N' x 41, 'N', '__cdecl');
+    eval {
+        $function->Call(0..40); #will die
+    };
+    like($@, "/\QWin32::API a function was called with the wrong prototype\E/",
+       'Take41Params() with __stdcall/__cdecl swap dies after calling it');
+    SKIP: {
+        if(Win32::API::IsGCC()) {
+            skip("wrong param count detection not implemented in Win32::API for GCC", 1);
+        }
+        $function = new Win32::API($test_dll, 'Take41Params', 'N', 'N', '__cdecl');
+        eval {
+            $function->Call(0); #will die
+        };
+        like($@, "/\QWin32::API a function was called with the wrong prototype\E/",
+           'Take41Params() stack corruption dies after calling it');
+    }
+    
+    # at 253 dwords, this overwrites the longjmp c auto struct in perl_run and
+    # causes a crash in msvcr71.dll __local_unwind2, never run this test for
+    # reason
+    #$function = new Win32::API($test_dll, 'Take253Params', 'N', 'N', '__cdecl');
+    #eval {
+    #    $function->Call(0); #will die
+    #};
+    #like($@, "/\QWin32::API a function was called with the wrong prototype\E/",
+    #   'Take253Params() stack corruption dies after calling it');
+
+}
+{
+    #test what is NULL in letter mode proto mode, this is different from what
+    #NULL is in C proto mode
+    $function = new Win32::API($test_dll, 'is_null', 'P', 'N');
+    my $str = "0";
+    my $emptystr = "";
+    my $num = 0;
+    ok(!($function->Call('0')) && !($function->Call('')) && $function->Call(0)
+       && !($function->Call(undef)),
+       "NULL behavior with letter proto is okay, consts");
+    ok(!($function->Call($str)) && $function->Call($num),
+       "NULL behavior with letter proto is okay, scalars");
+    ok( ( index(qx[$^X -V], 'PERL_PRESERVE_IVUV') != -1
+            #this causes an NV on 5.6
+            ? $function->Call($str+0)
+            : 1),
+    "NULL behavior with letter proto is okay, scalar str \"0\" cast");
+    ok(!($function->Call($emptystr)),
+    "NULL behavior with letter proto is okay, scalar str \"\"");
+    #below is an NV, not IV
+    SKIP : {
+        skip("this is an IV on 5.8", 1) if $] < 5.012 && $] > 5.008;
+        ok(!($function->Call($emptystr+0)),
+        "NULL behavior with letter proto is okay, scalar str \"\" cast");
+    }
+}
 
 __END__
 #### 12: sum integers and double via _cdecl function

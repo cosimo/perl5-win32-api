@@ -93,7 +93,7 @@ sub MY::postamble
     if ($Config{'gccversion'} =~ /4.4.3/ &&$Config{'myuname'} =~ /Win32 strawberryperl/) {
       return <<'EOM1';
 .asm$(OBJ_EXT):
-	ml64 $(ASFLAGS) -c $<
+	ml64 $(ASFLAGS) $(PERL_DEFINES) -c $<
 
 .s$(OBJ_EXT):
 	perl -pi.bak -e "s/^(.globl )?Call_x64_real/$$1_Call_x64_real/" call_asm_x64_gnu.s
@@ -109,7 +109,7 @@ ASFLAGS =  -Zi
 ':'')
 .'
 .asm$(OBJ_EXT):
-	'.($is_64bit_build ? 'ml64' : 'ml').' $(ASFLAGS) -c $<
+	'.($is_64bit_build ? 'ml64' : 'ml').' $(ASFLAGS) $(PERL_DEFINES)  -c $<
 
 .s$(OBJ_EXT):
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
@@ -133,7 +133,8 @@ sub MY::cflags {
     $dlib = substr($dlib, 0, $pos+length('CCFLAGS = '))
         .main::GS_flag()
         .substr($dlib, $pos+length('CCFLAGS = '), length($dlib)-$pos+length('CCFLAGS = '));
-    return $dlib;
+    my @defs = $dlib =~ /(?:-|\/)D\w+/g;
+    return $dlib.'PERL_DEFINES = '.join(' ', @defs)."\n";
 }
 
 sub GS_flag {

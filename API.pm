@@ -193,20 +193,27 @@ sub new {
         #calculate add to ESP amount, in units of 4, will be *4ed later
         $stackunwind += $_ == T_QUAD || $_ == T_DOUBLE ? 2 : 1 for(@{$self->{in}});
         if($stackunwind > 0xFFFF) {
-            DEBUG "FAILED This function has too many parameters (> ~65535) \n";
-            Win32::API::FreeLibrary($hdll) if $freedll;
-            Win32::SetLastError(ERROR_NOT_ENOUGH_MEMORY);
-            $! = Win32::GetLastError();
-            return undef;
+            goto too_many_in_params;
         }
+    }
+    # if a prototype has 8 byte types on 32bit, $stackunwind will be higher than
+    # length of {in} letter array, so 2 different checks need to be done
+    if($#{$self->{in}} > 0xFFFF) {
+        too_many_in_params:
+        DEBUG "FAILED This function has too many parameters (> ~65535) \n";
+        Win32::API::FreeLibrary($hdll) if $freedll;
+        Win32::SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        $! = Win32::GetLastError();
+        return undef;
     }
     #### ok, let's stuff the object
     $self->{procname} = $proc;
     $self->{dll}      = $hdll;
     $self->{dllname}  = $dll;
-    $self->{control}  = pack((PTRSIZE == 8 ? 'Q' : 'L').'L'
-                             .(PTRSIZE == 8 ? 'L' : '') #padding for x64
-                             .(PTRSIZE == 8 ? 'Q' : 'L')
+    #$self->{control}  = pack((PTRSIZE == 8 ? 'Q' : 'L').'L'
+    my $control  = pack((PTRSIZE == 8 ? 'Q' : 'L').'L'
+                             .'S'
+                             .'S' #padding
                              .(PTRSIZE == 8 ? 'Q' : 'L')
                         , $hproc
                         ,($class eq "Win32::API::More" ? APICONTROL_is_more : 0)
@@ -214,9 +221,20 @@ sub new {
                         | $ccnum
                         | (PTRSIZE == 8 ? 0 :  $stackunwind << 8)
                         | $outnum << 24
-                        ,(PTRSIZE == 8 ? (0) : ())
-                        , (($self->{in})+0)
+                        , $#{$self->{in}} #in param count
+                        , 0 #padding
                         , (exists $self->{intypes} ? ($self->{intypes})+0 : 0));
+    #maek a APIPARAM template array
+    foreach my $tin (@{$self->{in}}) {
+        #unsigned meaningless no sign vs zero extends are done bc uv/iv is
+        #the biggest native integer on the cpu, big to small is truncation
+        $tin &= ~T_FLAG_UNSIGNED;
+        #unimplemented except for char
+        if(($tin & ~ T_FLAG_NUMERIC) != T_CHAR){
+            $tin &= ~T_FLAG_NUMERIC;
+        }
+        $control .= "\x00" x 8 . pack('C', $tin)."\x00" x 7;
+    }
 
     #### keep track of the imported function
     if(defined $dll){
@@ -225,55 +243,22 @@ sub new {
     }
     DEBUG "Object blessed!\n";
 
-    #one-off classes might go away since there is no measurable time difference
-    #between hv_fetch_ent with a HEK SV and this crazy scheme
-    #
-    #there are unnecessery pack/unpack calls here
-    my ($packedcontrol, $controlmask) = (pack('p',$self->{control}), '');
-    my @splitcontrol = split '', $packedcontrol;
-    #this probably isn't the most efficient algorithm for generating an
-    #null-less XOR key/mask that results in a null-less delta
-    foreach my $char (@splitcontrol){
-        my ($intchar, $i) = unpack('C', $char);
-        for($i = 1; $i < 256; $i++){
-            if(($intchar ^ $i) != 0) {
-                $controlmask .= pack('C', $i);
-                goto chardone;
-            }
-        }
-        #couldn't find a non null byte to XOR original
-        die "Win32::API: can't make XOR mask";
-        chardone:
-        0;
-    }
-
-    $packedcontrol = pack((PTRSIZE == 8 ? 'Q' : 'L'),
-         unpack((PTRSIZE == 8 ? 'Q' : 'L'), $packedcontrol)
-         ^ unpack((PTRSIZE == 8 ? 'Q' : 'L'), $controlmask))
-         .$controlmask;
-    die "Win32::API: can't make XOR mask" if index($packedcontrol, "\x00") != -1;
-    $packedcontrol = "W32::API".$packedcontrol; #"W32::API" is exactly 8 bytes
-    {
-        no strict 'refs';
-        @{$packedcontrol.'::ISA'} = $class;
-        #since Call() is the most frequently called function, put it in the
-        #one off stash, this is to take advantage of a shortcut in S_method_common
-        *{$packedcontrol.'::Call'} = *Win32::API::Call;
-    }
-    #### cast the spell
-    bless($self, $packedcontrol);
-    #bless($self, $class);
-    return $self;
+    my $ref = bless(\$control, $class);
+    SetMagicSV($ref, $self);
+    return $ref;
 }
 
 sub Import {
     my ($class, $dll, $proc, $in, $out, $callconvention) = @_;
+    #todo use a closure to stop leaking
     $Imported{"$dll:$proc"} = Win32::API->new($dll, $proc, $in, $out, $callconvention)
         or return 0;
     my $P = (caller)[0];
-    eval qq(
-        sub ${P}::$Imported{"$dll:$proc"}->{procname} { \$Win32::API::Imported{"$dll:$proc"}->Call(\@_); }
-    );
+    my $code = qq|
+    sub ${P}::${Win32::API::GetMagicSV($Imported{"$dll:$proc"})}{procname} {
+        \$Win32::API::Imported{"$dll:$proc"}->Call(\@_);
+    }|;
+    eval $code;
     return $@ ? 0 : 1;
 }
 
@@ -281,7 +266,7 @@ sub Import {
 # PRIVATE METHODS
 #
 sub DESTROY {
-    my ($self) = @_;
+    my ($self) = GetMagicSV($_[0]);
 
     return if ! defined $self->{dllname};
     #### decrease this library's procedures reference count
@@ -292,17 +277,6 @@ sub DESTROY {
         DEBUG "Win32::API::DESTROY: Freeing library '$self->{dllname}'\n";
         Win32::API::FreeLibrary($Libraries{$self->{dllname}});
         delete($Libraries{$self->{dllname}});
-    }
-    #can't clog up symbol table, delete our unique class name
-    my $class = ref($self).'::';
-    {
-        no strict 'refs';
-        #wipe @ISA, etc
-        foreach my $symbol (keys %{$class}) {
-            delete ${$class}{$symbol};
-        }
-        #wipe package
-        delete $::{$class};
     }
 }
 
@@ -345,42 +319,42 @@ sub type_to_num {
         or $type eq 'L'
         or ( PTRSIZE == 8  and $type eq 'Q' || $type eq 'q'))
     {
-        $num = 1;
+        $num = T_NUMBER;
     }
     elsif ($type eq 'P'
         or $type eq 'p')
     {
-        $num = 2;
+        $num = T_POINTER;
     }
     elsif ($type eq 'I'
         or $type eq 'i')
     {
-        $num = 3;
+        $num = T_INTEGER;
     }
     elsif ($type eq 'f'
         or $type eq 'F')
     {
-        $num = 7;
+        $num = T_FLOAT;
     }
     elsif ($type eq 'D'
         or $type eq 'd')
     {
-        $num = 8;
+        $num = T_DOUBLE;
     }
     elsif ($type eq 'c'
         or $type eq 'C')
     {
-        $num = 6;
+        $num = T_CHAR;
     }
     elsif (PTRSIZE == 4 and $type eq 'q' || $type eq 'Q')
     {
-        $num = 5;
+        $num = T_QUAD;
     }
     elsif($type eq '>'){
         die "Win32::API does not support pass by copy structs as function arguments";
     }
     else {
-        $num = 0; #'V' takes this branch, which is T_VOID in C
+        $num = T_VOID; #'V' takes this branch, which is T_VOID in C
     }#not valid return types of the C func
     if(defined $out) {#b/B remains private/undocumented
         die "Win32::API invalid return type, structs and ".
@@ -390,20 +364,20 @@ sub type_to_num {
     else {#in type
         if ($type eq 's' or $type eq 'S' or $type eq 't' or $type eq 'T')
         {
-            $num = 51;
+            $num = T_STRUCTURE;
         }
         elsif ($type eq 'b'
             or $type eq 'B')
         {
-            $num = 22;
+            $num = T_POINTERPOINTER;
         }
         elsif ($type eq 'k'
             or $type eq 'K')
         {
-            $num = 55;
+            $num = T_CODE;
         }
     }
-    $num |= 0x40 if $numeric;
+    $num |= T_FLAG_NUMERIC if $numeric;
     return $num;
 }
 
@@ -433,63 +407,63 @@ sub type_to_num {
             $type eq 'S'
             || $type eq 's'))
     {
-        $num = 1;
+        $num = Win32::API::T_NUMBER;
         if(defined $out && ($type eq 'N' || $type eq 'L'
                         ||  $type eq 'S' || $type eq 'Q')){
-            $num |= 0x80;
+            $num |= Win32::API::T_FLAG_UNSIGNED;
         }
     }
     elsif ($type eq 'P'
         or $type eq 'p')
     {
-        $num = 2;
+        $num = Win32::API::T_POINTER;
     }
     elsif ($type eq 'I'
         or $type eq 'i')
     {
-        $num = 3;
+        $num = Win32::API::T_INTEGER;
         if(defined $out && $type eq 'I'){
-            $num |= 0x80;
+            $num |= Win32::API::T_FLAG_UNSIGNED;
         }
     }
     elsif ($type eq 'f'
         or $type eq 'F')
     {
-        $num = 7;
+        $num = Win32::API::T_FLOAT;
     }
     elsif ($type eq 'D'
         or $type eq 'd')
     {
-        $num = 8;
+        $num = Win32::API::T_DOUBLE;
     }
     elsif ($type eq 'c'
         or $type eq 'C')
     {
-        $num = 6;
+        $num = Win32::API::T_CHAR;
         if(defined $out && $type eq 'C'){
-            $num |= 0x80;
+            $num |= Win32::API::T_FLAG_UNSIGNED;
         }
     }
     elsif (PTRSIZE == 4 and $type eq 'q' || $type eq 'Q')
     {
-        $num = 5;
+        $num = Win32::API::T_QUAD;
         if(defined $out && $type eq 'Q'){
-            $num |= 0x80;
+            $num |= Win32::API::T_FLAG_UNSIGNED;
         }
     }
     elsif ($type eq 's') #4 is only used for out params
     {
-        $num = 4;        
+        $num = Win32::API::T_SHORT;
     }
     elsif ($type eq 'S')
     {
-        $num = 4 | 0x80;
+        $num = Win32::API::T_SHORT | Win32::API::T_FLAG_UNSIGNED;
     }
     elsif($type eq '>'){
         die "Win32::API does not support pass by copy structs as function arguments";
     }
     else {
-        $num = 0; #'V' takes this branch, which is T_VOID in C
+        $num = Win32::API::T_VOID; #'V' takes this branch, which is T_VOID in C
     } #not valid return types of the C func
     if(defined $out) {#b/B remains private/undocumented
         die "Win32::API invalid return type, structs and ".
@@ -500,20 +474,20 @@ sub type_to_num {
         if (   $type eq 't'
             or $type eq 'T')
         {
-            $num = 51;
+            $num = Win32::API::T_STRUCTURE;
         }
         elsif ($type eq 'b'
             or $type eq 'B')
         {
-            $num = 22;
+            $num = Win32::API::T_POINTERPOINTER;
         }
         elsif ($type eq 'k'
             or $type eq 'K')
         {
-            $num = 55;
+            $num = Win32::API::T_CODE;
         }
     }
-    $num |= 0x40 if $numeric;
+    $num |= Win32::API::T_FLAG_NUMERIC if $numeric;
     return $num;
 }
 package Win32::API;
@@ -848,7 +822,9 @@ And optionally you can specify the calling convention, this defaults to
 '__stdcall', alternatively you can specify '_cdecl' or '__cdecl' (API > v0.68)
 or (API > v0.70_02) 'WINAPI', 'NTAPI', 'CALLBACK' (__stdcall), 'WINAPIV' (__cdecl) .
 False is __stdcall. Vararg functions are always cdecl. MS DLLs are typically
-stdcall. Non-MS DLLs are typically cdecl.
+stdcall. Non-MS DLLs are typically cdecl. If API > v0.75, mixing up the calling
+convention on 32 bits is detected and Perl will C<croak> an error message and
+C<die>.
 
 =back
 
@@ -1002,7 +978,11 @@ value is a char (char), pass as C<"a">, not C<97>, C<"abc"> will truncate to C<"
 value is a pointer (to a string, structure, etc...)
 padding out the buffer string is required, buffer overflow detection is
 performed. Pack and unpack the data yourself. If P is a return type, only
-null terminated strings or NULL pointer are supported. It is suggested to
+null terminated strings or NULL pointer are supported. If P is an in type, NULL
+is integer C<0>. C<undef>, C<"0">, and C<""+0> are not integer C<0>, C<"0"+0> is
+integer C<0>.
+
+It is suggested to
 not use P as a return type and instead use N and read the memory yourself, and
 free the pointer if applicable. This pointer is effectivly undefined after the
 C function returns control to Perl. The C function may not hold onto it after
@@ -1339,6 +1319,10 @@ prototype interface.
 
 Added in 0.70.
 
+=item __stdcall vs __cdecl checking on 32 bits
+
+Added in 0.76_01
+
 =back
 
 See the C<Changes> file for more details, many of which not mentioned here.
@@ -1351,13 +1335,9 @@ See the C<Changes> file for more details, many of which not mentioned here.
 
 Untested.
 
-=item E<nbsp> 32 bit perls with native quads
-
-Untested.
-
 =item E<nbsp> ithreads
 
-Untested.
+Minimally tested.
 
 =item E<nbsp> C functions getting utf8 scalars vs byte scalars
 

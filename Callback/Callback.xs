@@ -92,19 +92,6 @@ BOOL WINAPI DllMain(
 #	define call_sv(name, flags) perl_call_sv(name, flags)
 #endif
 
-#if PERL_VERSION_LE(5, 13, 8)
-MAGIC * my_find_mg(SV * sv, int type, const MGVTBL *vtbl){
-	MAGIC *mg;
-	for (mg = SvMAGIC (sv); mg; mg = mg->mg_moremagic) {
-		if (mg->mg_type == type && mg->mg_virtual == vtbl)
-			assert (mg->mg_ptr);
-			return mg;
-	}
-	return NULL;
-}
-#define mg_findext(a,b,c) my_find_mg(a,b,c)
-#endif
-
 #ifdef WIN32BIT
 typedef struct {
     unsigned short unwind_len;
