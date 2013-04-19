@@ -18,9 +18,23 @@ History of Win32::API perl extension.
      ImportDllName, ImportFunctionName) at t/iat.t line 163." on 32 bit Mingw
      Perl with 64 bit IVs (all of iat.t is skipped on 32 bit Cygwin Perls with
      64 bit IVs, so test was never executed before), reported by kmx
+   - Fixed, when using Win32::API::Import, the API object internally created was
+     leaked, now when the sub is freeded, the API object also is destroyed, this
+     might unload the DLL being called, previously the DLL referenced by a
+     ::Import was never unloaded except at interpreter exit
+   - Fixed, Win32::API::More::Import created Win32::API objs,
+     not Win32::API::More
+   - Fixed, POD had erronous commas in code samples, UseMI64 code example didn't
+     match current behaviour
    - Improved, the internals of a Win32::API obj were reorgranized for more
      speed
    - Improved, POD for NULL pointer for letter 'P'
+   - Improved, mangle_simple_struct in API_test*.dll was made less noisy during
+     a make test
+   - API Change, Import now returns a API obj ref, previously it returned a
+     1/0 bool scalar
+   - API Change, new and Import now check to make sure a sane number of params
+     are passed and die otherwise RT#82611 txn-1183194
 
 2013-03-26  Win32::API v0.76_01    bulk88
    - Fixed RT #82611, make tool detection in Makefile.PL didn't work for

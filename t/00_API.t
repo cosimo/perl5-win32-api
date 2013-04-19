@@ -12,7 +12,7 @@ use File::Spec;
 use Test::More;
 use Config;
 use Win32::API::Test;
-plan tests => 55;
+plan tests => 57;
 use vars qw($function $result $input $test_dll $ptr);
 
 SKIP: {
@@ -90,6 +90,7 @@ SKIP: {
     );
     ok($IsBadReadPtr, 'Import of IsBadReadPtr function from kernel32.dll');
     my $dllhandle = Win32::LoadLibrary($test_dll);
+    die "LoadLibrary on test dll failed" if ! $dllhandle;
     my $nofunction = new Win32::API($test_dll, 'int ThisFunctionDoesntExist(int a, int b)');
     die "function that doesn't exist, exists!" if $nofunction;
     Win32::FreeLibrary($dllhandle);
@@ -149,7 +150,11 @@ $function = new Win32::API($test_dll, 'int sum_integers(int a, int b)');
 ok(defined($function), 'sum_integers() function defined');
 
 #diag("$function->{procname} \$^E=", $^E);
-is($function->Call(2, 3), 5, 'function call with integer arguments and return value');
+is($function->Call(2, 3), 5, 'function call with integer arguments and return value (Call)');
+
+# Sum 2 integers with ::Import
+ok(Import Win32::API($test_dll, 'int sum_integers(int a, int b)'), "Import() on sum_integers worked");
+is(sum_integers(2, 3), 5, 'function call with integer arguments and return value (Import)');
 
 # Same as above, with a pointer
 $function = new Win32::API($test_dll, 'int sum_integers_ref(int a, int b, int* c)');

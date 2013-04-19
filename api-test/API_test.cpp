@@ -175,26 +175,34 @@ API_TEST_API int __stdcall mangle_simple_struct(simple_struct *x) {
 	mine.c = NULL;
 	mine.d = 0x12345678;
 
+/* this generates too much noise during testing
 	dump_struct("mine", &mine);
 	dump_struct("yours", x);
 
+*/
 	x->a /= 2;
 	x->b *= 2;
 	x->d = ~x->d;
 
 /*	tmp = (char *) malloc(strlen(x->c)); */
 	tmp = x->c;
+/*
 	printf("x.a=%d\n", x->a);
 	printf("x.b=%f\n", x->b);
 	printf("x.c=0x%08x\n", x->c);
 	printf("x.c='%s'\n", x->c);
+*/
 	// return 1;
 	while(tmp[0] != 0) {
+/*
 		printf("char='%c' toupper='%c'\n", tmp[0], toupper(tmp[0]));
+*/
 		tmp[0] = toupper(tmp[0]);
 		tmp++;
 	}
+/*
 	printf("x.d=0x%08x\n", x->d);
+*/
 	return 1;
 }
 

@@ -1,0 +1,59 @@
+#!perl -w
+
+# $Id$
+
+# Before `make install' is performed this script should be runnable with
+# `make test'. After `make install' it should work as `perl test.pl'
+
+use strict;
+
+use Test::More;
+use Math::Int64 qw( hex_to_int64 );
+use Win32::API::Test;
+
+plan tests => 15;
+use vars qw($result $return $test_dll $dllhandle);
+use Win32::API 'IsBadReadPtr';
+use Win32;
+
+$test_dll = Win32::API::Test::find_test_dll();
+ok(-e $test_dll, 'found API test dll');
+
+#test that when the sub created by ::Import is deleted, the API obj is destroyed
+ok($dllhandle = Win32::LoadLibrary($test_dll), "loaded test dll");
+ok(Import Win32::API($test_dll, 'int sum_integers(int a, int b)'), "Import() on sum_integers worked");
+ok(Win32::FreeLibrary($dllhandle), 'refcnt --ed on test dll');
+is(sum_integers(2, 3), 5, 'function call with integer arguments and return value (Import)');
+*sum_integers = *nothing;
+eval{ sum_integers(2, 3); };
+ok($@, 'undefed ::Import sub fails $@="'.(chomp($@), $@).'"');
+ok(IsBadReadPtr($dllhandle, 1), "test dll unloaded");
+
+#make sure ::More::Import packs and unpacks, and didn't create a ::API instead
+#of ::API::More
+ok(Import Win32::API::More($test_dll, 'USHORT  __stdcall sum_shorts_ref(short a, short b, signed short *c)')
+    , "Import() on sum_shorts_ref worked");
+$result = 0;
+is(sum_shorts_ref(2, 3, $result), 32768, 'sum_shorts_ref() returns the expected unsigned value');
+is($result, 5, 'sum_shorts_ref() correctly modifies its ref argument');
+
+ok(!(Import Win32::API::More($test_dll, 'void __stdcall ThisDoesntExist()'))
+   && $^E == 127 #ERROR_PROC_NOT_FOUND
+    , "Import() on non existant func failed");
+
+SKIP: {
+    skip('Quads are native on this computer', 4) if
+        IV_SIZE == 8;
+    my $function; #small scope intentional
+    ok($function = Import Win32::API::More($test_dll, 'LONG64 __stdcall sum_quads_ref(LONG64 a, LONG64 b, LONG64 * c)')
+        , "Import() on sum_quads_ref worked");
+    ok(!$function->UseMI64(1), "UseMI64 works correctly");
+
+    $result = 0; #cant be undef
+    $return = $function->Call(hex_to_int64("0x0200000000000000"),
+                   1, $result); #note, 1 isn't an int64 obj
+    is($return,
+        hex_to_int64("0x0200000000000001"),
+       '::More::Import() with MI64 sum_quads_ref() returns the expected value');
+    is($result, hex_to_int64("0x0200000000000001"), 'sum_quads_ref() correctly modifies its ref argument');
+}

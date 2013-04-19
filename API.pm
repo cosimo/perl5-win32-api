@@ -27,7 +27,7 @@ BEGIN {
     die "Win32::API on Cygwin requires the cygpath tool on PATH"
         if ISCYG && index(`cygpath --help`,'Usage: cygpath') == -1;
 
-    use vars qw( $DEBUG $sentinal @ISA @EXPORT_OK %Imported $VERSION );
+    use vars qw( $DEBUG $sentinal @ISA @EXPORT_OK $VERSION );
 
     @ISA = qw( Exporter DynaLoader );
     @EXPORT_OK = qw( ReadMemory IsBadReadPtr MoveMemory
@@ -84,6 +84,8 @@ BEGIN {
 # PUBLIC METHODS
 #
 sub new {
+    die "Win32::API/More::new/Import is a class method that takes 2 to 6 parameters, see POD"
+        if @_ < 3 || @_ > 7;
     my ($class, $dll, $hproc, $ccnum, $outnum) = (shift, shift);
     if(! defined $dll){
         $hproc = shift;
@@ -249,17 +251,17 @@ sub new {
 }
 
 sub Import {
-    my ($class, $dll, $proc, $in, $out, $callconvention) = @_;
-    #todo use a closure to stop leaking
-    $Imported{"$dll:$proc"} = Win32::API->new($dll, $proc, $in, $out, $callconvention)
-        or return 0;
+    my $closure = shift->new(@_)
+        or return undef;
     my $P = (caller)[0];
+    my $procname = ${Win32::API::GetMagicSV($closure)}{procname};
+    #0.68us (no meth res) vs 0.85us (meth res)
     my $code = qq|
-    sub ${P}::${Win32::API::GetMagicSV($Imported{"$dll:$proc"})}{procname} {
-        \$Win32::API::Imported{"$dll:$proc"}->Call(\@_);
+    sub ${P}::$procname {
+        Win32::API::Call(\$closure, \@_);
     }|;
     eval $code;
-    return $@ ? 0 : 1;
+    return $@ ? undef : $closure;
 }
 
 #######################################################################
@@ -281,7 +283,7 @@ sub DESTROY {
 }
 
 # Convert calling convention string (_cdecl|__stdcall)
-# to an integer (1|0). Unknown counts as __stdcall
+# to a C const. Unknown counts as __stdcall
 #
 sub calltype_to_num {
     my $type = shift;
@@ -635,7 +637,7 @@ Win32::API - Perl Win32 API Import Facility
 
   use Win32::API;
   $function = Win32::API::More->new(
-      'mydll', 'int sum_integers(int a, int b)',
+      'mydll', 'int sum_integers(int a, int b)'
   );
   $return = $function->Call(3, 2);
 
@@ -643,7 +645,7 @@ Win32::API - Perl Win32 API Import Facility
 
   use Win32::API;
   $function = Win32::API::More->new(
-      undef, 38123456, 'int name_ignored(int a, int b)',
+      undef, 38123456, 'int name_ignored(int a, int b)'
   );
   $return = $function->Call(3, 2);
 
@@ -651,7 +653,7 @@ Win32::API - Perl Win32 API Import Facility
   
   use Win32::API;
   $function = Win32::API::More->new(
-      'mydll', 'sum_integers', 'II', 'I',
+      'mydll', 'sum_integers', 'II', 'I'
   );
   $return = $function->Call(3, 2);
      
@@ -659,7 +661,7 @@ Win32::API - Perl Win32 API Import Facility
   
   use Win32::API;
   $function = Win32::API::More->new(
-      undef, 38123456, 'name_ignored', 'II', 'I',
+      undef, 38123456, 'name_ignored', 'II', 'I'
   );
   $return = $function->Call(3, 2);
   
@@ -667,7 +669,7 @@ Win32::API - Perl Win32 API Import Facility
  
   use Win32::API;
   Win32::API::More->Import(
-      'mydll', 'int sum_integers(int a, int b)',
+      'mydll', 'int sum_integers(int a, int b)'
   );  
   $return = sum_integers(3, 2);
 
@@ -734,8 +736,13 @@ just the call is different:
     Win32::API::More->Import("kernel32", "int GetCurrentProcessId()");
     $PID = GetCurrentProcessId();
 
-Note that C<Import> returns 1 on success and 0 on failure (in which case you
-can check the content of C<$^E>). 
+Note that C<Import> returns the Win32::API obj on success and false on failure
+(in which case you can check the content of C<$^E>). This allows some settings
+to be set through method calls that can't be specified as a parameter to Import,
+yet still have the convience of not writing C<-E<gt>Call()>. The Win32::API obj
+does not need to be assigned to a scalar. C<unless(Win32::API::More-E<gt>Import>
+is fine. Prior to v0.76_02, C<Import> returned returned 1 on success and 0 on
+failure.
 
 =head2 IMPORTING A FUNCTION
 
@@ -1239,9 +1246,12 @@ and L</ReadMemory> and L</IsBadReadPtr> require an explicit length.
 
 =head3 new
 
+    $obj = Win32::API::More->new([$dllname | undef , $funcptr], [$c_proto | $in, $out [, $calling_convention]]);
+
 See L</DESCRIPTION>.
 
 =head3 Import
+    $bool = Win32::API::More->Import([$dllname | undef , $funcptr], [$c_proto | $in, $out [, $calling_convention]]);
 
 See L</DESCRIPTION>.
 
@@ -1254,7 +1264,7 @@ The main method of a Win32::API object. Documented elsewhere in this document.
 =head3 UseMI64
 
     $bool = $APIObj->UseMI64();
-    $t_or_f_of_newbool = $APIObj->UseMI64($newbool);
+    $oldbool = $APIObj->UseMI64($newbool);
 
 Turns on Quads as L<Math::Int64> objects support for a particular object
 instance. You must call L<perlfunc/use>/L<perlfunc/require> on Math::Int64
@@ -1322,6 +1332,10 @@ Added in 0.70.
 =item __stdcall vs __cdecl checking on 32 bits
 
 Added in 0.76_01
+
+=item Import returns an api obj on success, undef on failure, instead of 1 or 0
+
+Added in 0.76_02
 
 =back
 

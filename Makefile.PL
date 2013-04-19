@@ -137,6 +137,14 @@ sub MY::cflags {
     return $dlib.'PERL_DEFINES = '.join(' ', @defs)."\n";
 }
 
+sub MY::test {
+    package ExtUtils::MM_Win32;
+    my($self) = shift;
+    my $test_sec = $self->SUPER::test(@_);
+    substr($test_sec,index($test_sec,'TEST_VERBOSE=0'), length('TEST_VERBOSE=0') ,'TEST_VERBOSE=1');
+    return $test_sec;
+}
+
 sub GS_flag {
     if($is_msvc_compiler
        && Win32::API::Test::compiler_version_from_shell() >= 14 ) {

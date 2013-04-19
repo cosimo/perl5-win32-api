@@ -70,8 +70,8 @@ diag('$^E=', $^E);
 $result = $function->Call($simple_struct);
 
 #print "\n\n\na=$simple_struct->{a} b=$simple_struct->{b} c=$simple_struct->{c} d=$simple_struct->{d}\n\n\n";
-printf "\n\n\na=%s b=%s c=%s d=%08x\n\n\n", $simple_struct->{a}, $simple_struct->{b},
-    $simple_struct->{c}, $simple_struct->{d};
+#printf "\n\n\na=%s b=%s c=%s d=%08x\n\n\n", $simple_struct->{a}, $simple_struct->{b},
+#   $simple_struct->{c}, $simple_struct->{d};
 
 ok( $simple_struct->{a} == 2
         && $simple_struct->{b} == 5
@@ -89,8 +89,8 @@ $simple_struct{b} = 2.5;
 $simple_struct{c} = "test";
 $simple_struct{d} = $mangled_d;
 
-printf "\n\n\na=%s b=%s c=%s d=%08x\n\n\n", $simple_struct->{a}, $simple_struct->{b},
-    $simple_struct->{c}, $simple_struct->{d};
+#printf "\n\n\na=%s b=%s c=%s d=%08x\n\n\n", $simple_struct->{a}, $simple_struct->{b},
+#    $simple_struct->{c}, $simple_struct->{d};
 $result = $function->Call(\%simple_struct);
 
 ok( $simple_struct{a} == 2
