@@ -39,6 +39,7 @@ BEGIN {
     
     sub ERROR_NOACCESS	() { 998 }
     sub ERROR_NOT_ENOUGH_MEMORY () { 8 }
+    sub ERROR_INVALID_PARAMETER () { 87 }
     sub APICONTROL_CC_STD	() { 0 }
     sub APICONTROL_CC_C	() { 1 }
     sub APICONTROL_CC_mask  () { 0x7 }
@@ -253,15 +254,11 @@ sub new {
 sub Import {
     my $closure = shift->new(@_)
         or return undef;
-    my $P = (caller)[0];
     my $procname = ${Win32::API::GetMagicSV($closure)}{procname};
-    #0.68us (no meth res) vs 0.85us (meth res)
-    my $code = qq|
-    sub ${P}::$procname {
-        Win32::API::Call(\$closure, \@_);
-    }|;
-    eval $code;
-    return $@ ? undef : $closure;
+    #dont allow "sub main:: {0;}"
+    Win32::SetLastError(ERROR_INVALID_PARAMETER), return undef if $procname eq '';
+    _ImportXS($closure, (caller)[0].'::'.$procname);
+    return $closure;
 }
 
 #######################################################################
@@ -781,7 +778,8 @@ readable, GetLastError will be ERROR_NOACCESS.
 
 The C prototype of the function. If you are using a function pointer, the name
 of the function should be something "friendly" to you and no attempt is made
-to retrive such a name from any DLL's export table.
+to retrive such a name from any DLL's export table. This name for a function
+pointer is also used for Import().
 
 =back
 
@@ -815,8 +813,9 @@ readable, GetLastError will be ERROR_NOACCESS.
 
 =item 3.
 The name of the function (as exported by the library) or for function pointers
-a name that is "friendly" to you. No attempt is made to retrive such a
-name from any DLL's export table in the 2nd case.
+a name that is "friendly" to you. This name for a function pointer is also used
+for Import(). No attempt is made to retrive such a name from any DLL's export
+table in the 2nd case.
 
 =item 4.
 The number and types of the arguments the function expects as input.

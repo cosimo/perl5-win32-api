@@ -11,8 +11,8 @@ use Test::More;
 use Math::Int64 qw( hex_to_int64 );
 use Win32::API::Test;
 
-plan tests => 15;
-use vars qw($result $return $test_dll $dllhandle);
+plan tests => 17;
+use vars qw($function $result $return $test_dll $dllhandle);
 use Win32::API 'IsBadReadPtr';
 use Win32;
 
@@ -40,6 +40,24 @@ is($result, 5, 'sum_shorts_ref() correctly modifies its ref argument');
 ok(!(Import Win32::API::More($test_dll, 'void __stdcall ThisDoesntExist()'))
    && $^E == 127 #ERROR_PROC_NOT_FOUND
     , "Import() on non existant func failed");
+
+{
+$function = new Win32::API::More($test_dll, 'HANDLE __stdcall GetGetHandle()');
+my $funcptr = $function->Call();
+
+$function = Import Win32::API::More(undef, $funcptr, 'GetHandle', 'P', 'I');
+my $hnd = pack(PTR_LET(), 0);
+my $pass = 1;
+print "pn ".${Win32::API::GetMagicSV($function)}{procname} ."\n";
+$pass = $pass && defined($function);
+$result = GetHandle($hnd);
+$pass = $pass && $result == 1;
+$pass = $pass && unpack(PTR_LET(), $hnd) == 4000;
+ok($pass, 'GetHandle from func pointer using letter interface operates correctly');
+$function = Import Win32::API::More(undef, $funcptr, undef, 'P', 'I');
+ok(!$function && Win32::GetLastError() == Win32::API::ERROR_INVALID_PARAMETER
+   , "empty string as func name for func * not allowed");
+}
 
 SKIP: {
     skip('Quads are native on this computer', 4) if

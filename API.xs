@@ -796,6 +796,30 @@ CODE:
     /* no PUTBACK, got 1 item, returning 1 item */
     return;
 
+# subname must be a string in ::Import
+# void _ImportXS($apiobj, $subname)
+void
+_ImportXS(...)
+PREINIT:
+    char * subname;
+    XS_EUPXS(XS_Win32__API_Call);
+#if (PERL_REVISION == 5 && PERL_VERSION < 9)
+    char* file = __FILE__;
+#else
+    const char* file = __FILE__;
+#endif
+CODE:
+    assert(items == 2);
+    /*if(items != 2)
+        croak_xs_usage(cv,  "api, subname");*/
+    {   SV * sv = POPs;
+        subname = SvPVX(sv);    }
+    {   SV * api = POPs;
+        PUTBACK;
+    {   CV * cv = newXS(subname, XS_Win32__API_Call, file);
+        XSANY.any_ptr = api;
+        setMgSV(aTHX_ (SV*)cv, api);  }}
+    return;
 
 # all callbacks in Call() that use Call()'s SP (not a dSP SP)
 # must call SPAGAIN after the ENTER, incase of a earlier callback
@@ -814,8 +838,7 @@ CODE:
 
 
 void
-Call(api, ...)
-    SV *api;
+Call(...)
 CODE:
     WIN32_API_PROFF(QueryPerformanceFrequency(&my_freq));
     WIN32_API_PROFF(W32A_Prof_GT(&start));
@@ -827,6 +850,7 @@ CODE:
     APIPARAM *params;
     const APICONTROL * control;
     SV * retsv;
+    SV*	api;
     SV*	in_type;
     AV*		intypes;
 
@@ -835,18 +859,33 @@ CODE:
 
 	SV** code;
 
+    /* nin is index of last parameter, 0 means 1 in param, -1 means no in params */
     int nin, i;
     long_ptr tin;
     dMY_CXT;
     UCHAR needs_post_call_loop = 0;
+    UCHAR is_Call;
+    if(!XSANY.any_ptr){ /* ->Call( */
+        if (items < 1)
+            croak_xs_usage(cv,  "api, ...");
+        api = ST(0);
+        items--; /* make ST(0)/api obj on Perl Stack disapper */
+        ax++;
+        is_Call = 1;
+    }
+    else { /* ::Import( */
+        api = XSANY.any_ptr;
+        is_Call = 0;
+    }
     control = (APICONTROL *) SvPVX(SvRV(api));
     {
-    /* all but -1 are unsigned, so we have ~65K params, not 32K */
+    /* all but -1 are unsigned, so we have ~65K params, not 32K
+       turn short -1 into int -1, but turn short -2 into unsigned int 65534 */
     short s = (short)(control->inparamlen)+(short)1;
     nin = control->inparamlen | (s != 0)-1;
     
-    if(items-1 != s) {
-        croak("Wrong number of parameters: expected %d, got %d.\n", s, items-1);
+    if(items != s) {
+        croak("Wrong number of parameters: expected %d, got %d.\n", s, items);
     }
     }
     intypes = control->intypes;
@@ -869,7 +908,7 @@ CODE:
             SV*     pl_stack_param;
             APIPARAM * param = &(params[i]);
             tin = param->t;
-            pl_stack_param = ST(i+1);
+            pl_stack_param = ST(i);
             switch(tin) {
             case T_NUMBER:
 				param->l = (long_ptr) SvIV(pl_stack_param);  //xxx not sure about T_NUMBER length on Win64
@@ -946,7 +985,7 @@ CODE:
                 break;
             case T_POINTER:{
                 if(SvREADONLY(pl_stack_param)) //Call() param was a string litteral
-                    ST(i+1)= pl_stack_param = sv_mortalcopy(pl_stack_param);
+                    ST(i)= pl_stack_param = sv_mortalcopy(pl_stack_param);
                 if(control->has_proto) {
                     if(SvOK(pl_stack_param)) {
                         if(control->is_more) {
@@ -1007,7 +1046,7 @@ CODE:
 #ifdef WIN32_API_DEBUG
 							printf("(XS)Win32::API::Call: SvRV(ST(i+1)) has P magic\n");
 #endif
-							ST(i+1) = pl_stack_param = mg->mg_obj; //inner tied var
+							ST(i) = pl_stack_param = mg->mg_obj; //inner tied var
 						}
                         if(!sv_isobject(pl_stack_param)) goto Not_a_struct;
                         {
@@ -1107,7 +1146,7 @@ CODE:
 	/* #### THIRD PASS: postfix pointers/structures #### */
 	if(needs_post_call_loop) {
     for(i = 0; i <= nin; i++) {
-        SV * sv = ST(i+1);
+        SV * sv = ST(i);
         APIPARAM * param = &(params[i]);
 		if(param->t == T_POINTER && param->p){
             char * sen = SvPVX(MY_CXT.sentinal);
@@ -1146,6 +1185,7 @@ CODE:
 #endif
 	/* #### NOW PUSH THE RETURN VALUE ON THE (PERL) STACK #### */
 
+    ax -= is_Call;
     XSprePUSH;// no ST() usage after here
     {//tout scope
     int tout = control->out;
