@@ -107,19 +107,20 @@ typedef unsigned long long_ptr;
 #define T_INTEGER			2
 #define T_SHORT				3
 #define T_CHAR				4
+#define T_NUMCHAR			5
 //high processing group
-#define T_POINTER			5
-#define T_STRUCTURE			6
-#define T_POINTERPOINTER		7
-#define T_CODE				8
+#define T_POINTER			6
+#define T_STRUCTURE			7
+#define T_POINTERPOINTER		8
+#define T_CODE				9
 //end of high processing group
-#define T_FLOAT 			9
+#define T_FLOAT 			10
 //on 32 bits everthing below needs 2 pushes b/c 8 bytes
-#define T_DOUBLE			10
+#define T_DOUBLE			11
 //T_QUAD means a pointer is not 64 bits
 //T_QUAD is also used in ifdefs around the C code implementing T_QUAD
 #ifndef _WIN64
-#  define T_QUAD			11
+#  define T_QUAD			12
 #  if ! (IVSIZE == 8)
 //USEMI64 Perl does not have native i64s, use 8 byte strings or Math::Int64s to emulate
 #    define USEMI64

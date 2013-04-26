@@ -31,6 +31,10 @@ History of Win32::API perl extension.
    - Improved, POD for NULL pointer for letter 'P'
    - Improved, mangle_simple_struct in API_test*.dll was made less noisy during
      a make test
+   - Improved, ::Import created subs are now faster than doing $api->Call(,
+     pre 0.76 Import time 0.85us per call, 0.76 alpha pure Perl Import time
+     0.69us, 0.76 XSUB Import (final) 0.34 us, regular ->Call( is 0.40 us, a
+     regular XSUB wrapper of the same C func is 0.22 us for comparison
    - API Change, Import now returns a API obj ref, previously it returned a
      1/0 bool scalar
    - API Change, new and Import now check to make sure a sane number of params

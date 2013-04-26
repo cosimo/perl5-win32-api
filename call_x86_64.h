@@ -47,12 +47,13 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 		if (i < available_registers)
 		{
 			/* First four arguments go in registers, either integer or floating point. */
-			switch (params[i].t)
+			switch (params[i].t+1)
 			{
 				case T_NUMBER:
                 case T_CODE:
 				case T_INTEGER:
 				case T_CHAR:
+				case T_NUMCHAR:
 					int_registers[i] = params[i].l;
 					break;
 				case T_POINTER:
@@ -74,7 +75,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 		}
 		else
 		{
-			switch (params[i].t)
+			switch (params[i].t+1)
 			{
 				case T_NUMBER:
                 case T_CODE:
@@ -88,6 +89,7 @@ void Call_asm(FARPROC ApiFunction, APIPARAM *params, int nparams, APIPARAM *retv
 					stack[i - available_registers].i = (size_t) params[i].p;
 					break;
 				case T_CHAR:
+				case T_NUMCHAR:
 					stack[i - available_registers].i = params[i].l;
 					break;
 				case T_FLOAT:

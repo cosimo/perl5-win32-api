@@ -214,11 +214,12 @@ sub new {
     $self->{dll}      = $hdll;
     $self->{dllname}  = $dll;
     #$self->{control}  = pack((PTRSIZE == 8 ? 'Q' : 'L').'L'
-    my $control  = pack((PTRSIZE == 8 ? 'Q' : 'L').'L'
+    $outnum &= ~T_FLAG_NUMERIC;
+    my $control  = pack(      'L'
                              .'S'
                              .'S' #padding
                              .(PTRSIZE == 8 ? 'Q' : 'L')
-                        , $hproc
+                             .(PTRSIZE == 8 ? 'Q' : 'L')
                         ,($class eq "Win32::API::More" ? APICONTROL_is_more : 0)
                         | ($proto ? APICONTROL_has_proto : 0)
                         | $ccnum
@@ -226,16 +227,15 @@ sub new {
                         | $outnum << 24
                         , $#{$self->{in}} #in param count
                         , 0 #padding
+                        , $hproc
                         , (exists $self->{intypes} ? ($self->{intypes})+0 : 0));
-    #maek a APIPARAM template array
+    #make a APIPARAM template array
     foreach my $tin (@{$self->{in}}) {
         #unsigned meaningless no sign vs zero extends are done bc uv/iv is
         #the biggest native integer on the cpu, big to small is truncation
-        $tin &= ~T_FLAG_UNSIGNED;
-        #unimplemented except for char
-        if(($tin & ~ T_FLAG_NUMERIC) != T_CHAR){
-            $tin &= ~T_FLAG_NUMERIC;
-        }
+        #numeric is implemented as T_NUMCHAR for in, keeps asm jumptable clean
+        $tin &= ~(T_FLAG_UNSIGNED|T_FLAG_NUMERIC);
+        $tin--; #T_VOID doesn't exist as in param in XS
         $control .= "\x00" x 8 . pack('C', $tin)."\x00" x 7;
     }
 
@@ -343,7 +343,7 @@ sub type_to_num {
     elsif ($type eq 'c'
         or $type eq 'C')
     {
-        $num = T_CHAR;
+        $num = $numeric ? T_NUMCHAR : T_CHAR;
     }
     elsif (PTRSIZE == 4 and $type eq 'q' || $type eq 'Q')
     {
@@ -438,7 +438,7 @@ sub type_to_num {
     elsif ($type eq 'c'
         or $type eq 'C')
     {
-        $num = Win32::API::T_CHAR;
+        $num = $numeric ? Win32::API::T_NUMCHAR : Win32::API::T_CHAR;
         if(defined $out && $type eq 'C'){
             $num |= Win32::API::T_FLAG_UNSIGNED;
         }
@@ -662,7 +662,7 @@ Win32::API - Perl Win32 API Import Facility
   );
   $return = $function->Call(3, 2);
   
-  #### Method 5: with Import
+  #### Method 5: with Import (slightly faster than ->Call)
  
   use Win32::API;
   Win32::API::More->Import(
@@ -720,17 +720,22 @@ C<Call()> method on this object to perform a call to the imported API
 
 Starting from version 0.40, you can also avoid creating a Win32::API::More object
 and instead automatically define a Perl sub with the same name of the API
-function you're importing. The details of the API definitions are the same,
-just the call is different:
+function you're importing. This 2nd way using C<Import> to create a sub instead
+of an object is slightly faster than doing C<-E<gt>Call()>. The details of the
+API definitions are the same, just the method name is different:
 
     my $GetCurrentProcessId = Win32::API::More->new(
         "kernel32", "int GetCurrentProcessId()"
     );
+    die "Failed to import GetCurrentProcessId" if !$GetCurrentProcessId;
+    $GetCurrentProcessId->UseMI64(1);
     my $PID = $GetCurrentProcessId->Call();
 
     #### vs.
 
-    Win32::API::More->Import("kernel32", "int GetCurrentProcessId()");
+    my $UnusedGCPI = Win32::API::More->Import("kernel32", "int GetCurrentProcessId()");
+    die "Failed to import GetCurrentProcessId" if !$UnusedGCPI;
+    $UnusedGCPI->UseMI64(1);
     $PID = GetCurrentProcessId();
 
 Note that C<Import> returns the Win32::API obj on success and false on failure
@@ -1245,12 +1250,12 @@ and L</ReadMemory> and L</IsBadReadPtr> require an explicit length.
 
 =head3 new
 
-    $obj = Win32::API::More->new([$dllname | undef , $funcptr], [$c_proto | $in, $out [, $calling_convention]]);
+    $obj = Win32::API::More->new([$dllname | (undef , $funcptr)], [$c_proto | ($in, $out [, $calling_convention])]);
 
 See L</DESCRIPTION>.
 
 =head3 Import
-    $bool = Win32::API::More->Import([$dllname | undef , $funcptr], [$c_proto | $in, $out [, $calling_convention]]);
+    $obj = Win32::API::More->Import([$dllname | (undef , $funcptr)], [$c_proto | ($in, $out [, $calling_convention])]);
 
 See L</DESCRIPTION>.
 

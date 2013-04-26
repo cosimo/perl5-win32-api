@@ -177,7 +177,6 @@ STATIC void w32sv_setwstr(pTHX_ SV * sv, WCHAR *wstr, INT_PTR wlenparam) {
    note the stackunwind is unaligned
 */
 typedef struct {
-    FARPROC ApiFunction;
     union {
         struct {
             unsigned int convention: 3;
@@ -202,6 +201,7 @@ typedef struct {
     /* padding hole here on x64 */
     /* these 2 AVs are not owned by this struct, their refcnt is owned in the blessed HV
        these 2 AVs are here for no func call look up of them, intypes may be NULL*/
+    FARPROC ApiFunction;
     AV * intypes;
 	APIPARAM param;
 } APICONTROL;
@@ -374,6 +374,7 @@ BOOT:
     XMM(T_QUAD)
 #endif
     XMM(T_CHAR)
+    XMM(T_NUMCHAR)
     
     XMM(T_FLOAT)
     XMM(T_DOUBLE)
@@ -396,6 +397,7 @@ BOOT:
     XMM(T_QUAD)
 #endif
     XMM(T_CHAR)
+    XMM(T_NUMCHAR)
     
     XMM(T_FLOAT)
     XMM(T_DOUBLE)
@@ -904,12 +906,18 @@ CODE:
         // callbacks = (APICALLBACK *) _alloca((nin+1) * sizeof(APICALLBACK));
 
         /* #### FIRST PASS: initialize params #### */
-        for(i = 0; i <= nin; i++) {
+        //replace with do while so condition not checked on 1st pass, since we have
+        //atleast 1 in param guarenteed
+        i=0;
+        do {
             SV*     pl_stack_param;
             APIPARAM * param = &(params[i]);
             tin = param->t;
             pl_stack_param = ST(i);
-            switch(tin) {
+        /* note T_SHORT is not in this jumptable on purpose, see type_to_num,
+           +1 is to remove T_VOID hole in compiler's jumptable, there is a -1 in
+           API::new() to match, the +1 is optimized away by -1'ing the case constants*/
+            switch(tin+1) {
             case T_NUMBER:
 				param->l = (long_ptr) SvIV(pl_stack_param);  //xxx not sure about T_NUMBER length on Win64
 #ifdef WIN32_API_DEBUG
@@ -961,9 +969,8 @@ CODE:
 				printf("(XS)Win32::API::Call: params[%d].t=%d,  as char .u=%c\n", i, params[i].t, (char)params[i].l);
 #endif
                 }break;
-            case (T_CHAR|T_FLAG_NUMERIC):{
+            case T_NUMCHAR:{
                 char c;
-                param->t = T_CHAR;
                 //unreachable unless had a proto in Perl
                 c = (char) SvIV(pl_stack_param);
                 param->l = (long_ptr)(c);
@@ -1029,7 +1036,7 @@ CODE:
                 }
                 break;
             case T_INTEGER:
-                param->t = T_NUMBER;
+                param->t = T_NUMBER-1;
                 param->l = (long_ptr) (int) SvIV(pl_stack_param);
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%d\n", i, params[i].t, params[i].l);
@@ -1123,7 +1130,8 @@ CODE:
                 croak("Win32::API::Call: (internal error) unknown type %u\n", tin);
                 break;
             } /* incoming type switch */
-        } /* incoming args, for loop */
+        i++;
+        } while (i <= nin); /* incoming args, do while loop */
         }
     } /* if incoming args */
     /* else params = NULL; /* call_asm x86 compares uninit+0 == uninit before
@@ -1145,10 +1153,13 @@ CODE:
     WIN32_API_PROFF(W32A_Prof_GT(&Call_asm_after));
 	/* #### THIRD PASS: postfix pointers/structures #### */
 	if(needs_post_call_loop) {
-    for(i = 0; i <= nin; i++) {
+    i=0;
+    do{
         SV * sv = ST(i);
         APIPARAM * param = &(params[i]);
-		if(param->t == T_POINTER && param->p){
+        switch(param->t){
+        case T_POINTER-1:
+            if(param->p) {
             char * sen = SvPVX(MY_CXT.sentinal);
             char * end = SvEND(sv);
             end -= (sizeof(SENTINAL_STRUCT));
@@ -1163,8 +1174,9 @@ CODE:
             if(control->has_proto && control->is_more){ /* bad VC optimizer && is always a branch */
                 pointerCall3Param(aTHX_ api, AvARRAY(intypes)[i], sv, PARAM3_UNPACK);
             }
-		}
-		if(param->t == T_STRUCTURE) {
+            } //if(param->p) {
+            break;
+		case T_STRUCTURE-1:
             SPAGAIN;
 			W32APUSHMARK(SP);
             STATIC_ASSERT(CALL_PL_ST_EXTEND >= 1);
@@ -1172,14 +1184,17 @@ CODE:
 			PUTBACK;
 
 			call_method("Unpack", G_DISCARD);
-		}
-        if(param->t == T_POINTERPOINTER) {
+            break;
+        case T_POINTERPOINTER-1:
             pparray = (AV*) SvRV(sv);
             av_extend(pparray, 2);
             av_store(pparray, 1, newSViv(*(param->b)));
-        }
+            break;
+        } //end of switch
+        i++;
+    } while (i <= nin); /* incoming args, do while loop */
     }
-    } /* if(needs_post_call_loop) */
+    /* if(needs_post_call_loop) */
 #ifdef WIN32_API_DEBUG
    	printf("(XS)Win32::API::Call: returning to caller.\n");
 #endif
@@ -1189,10 +1204,8 @@ CODE:
     XSprePUSH;// no ST() usage after here
     {//tout scope
     int tout = control->out;
-    //un/signed prefix is ignored unless implemented, only T_CHAR implemented
-    if((tout & ~(T_FLAG_NUMERIC|T_FLAG_UNSIGNED)) != T_CHAR){
-        tout &= ~T_FLAG_NUMERIC;
-    }
+    //un/signed prefix is ignored unless implemented, T_FLAG_NUMERIC is removed in API.pm
+
     switch(tout) {
     case T_INTEGER:
     case T_NUMBER:
@@ -1293,13 +1306,13 @@ CODE:
 #endif
         retsv = newSVpvn((char *)&retval.l, 1);
         break;
-    case (T_CHAR|T_FLAG_NUMERIC):
+    case T_NUMCHAR:
 #ifdef WIN32_API_DEBUG
 	   	printf("(XS)Win32::API::Call: returning numeric char %hd.\n", (char)retval.l);
 #endif
         retsv = newSViv((IV)(char)retval.l);
         break;
-    case (T_CHAR|T_FLAG_NUMERIC|T_FLAG_UNSIGNED):
+    case (T_NUMCHAR|T_FLAG_UNSIGNED):
 #ifdef WIN32_API_DEBUG
 	   	printf("(XS)Win32::API::Call: returning numeric unsigned char %hu.\n", (unsigned char)retval.l);
 #endif

@@ -81,7 +81,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
 	while(param > params_start) {
         param--;
         p.qParam = param->q;
-		switch(param->t) {
+		switch(param->t+1) {
 		case T_DOUBLE:
 		case T_QUAD:
 #if (defined(_MSC_VER) || defined(BORLANDC))
@@ -104,7 +104,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
 	} */
 #endif /* VC VS GCC */
 #ifdef WIN32_API_DEBUG
-                if(param->t == T_QUAD)
+                if(param->t+1 == T_QUAD)
 			printf("(XS)Win32::API::Call: parameter %d (Q) is %I64d\n", i, param->q);
                 else
 			printf("(XS)Win32::API::Call: parameter %d (D) is %f\n", i, param->d);
@@ -122,15 +122,16 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
         case T_CODE:
 		case T_NUMBER:
 		case T_CHAR:
+		case T_NUMCHAR:
 		case T_FLOAT:
 #else
                 default:
 #endif
 			p.pParam = param->p;
 #ifdef WIN32_API_DEBUG
-            if(param->t == T_POINTER)
+            if(param->t+1 == T_POINTER)
 			printf("(XS)Win32::API::Call: parameter %d (P) is 0x%X \"%s\"\n", i, param->l, param->p);
-            else if(param->t == T_FLOAT)
+            else if(param->t+1 == T_FLOAT)
 			printf("(XS)Win32::API::Call: parameter %d (F) is %f\n", i, param->f);
             else
             printf("(XS)Win32::API::Call: parameter %d (N) is %ld\n", i, param->l);
@@ -176,6 +177,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
     case T_NUMBER:
     case T_SHORT:
     case T_CHAR:
+    case T_NUMCHAR:
     case T_INTEGER:
     case T_VOID:
     case T_POINTER:
@@ -184,6 +186,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
             case T_NUMBER:
             case T_SHORT:
             case T_CHAR:
+            case T_NUMCHAR:
             printf("(XS)Win32::API::Call: Calling ApiFunctionNumber()\n");
             break;
             case T_INTEGER:
@@ -211,6 +214,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
             printf("(XS)Win32::API::Call: ApiFunctionInteger (short) returned %hd\n", retval->s);
             break;
             case T_CHAR:
+            case T_NUMCHAR:
             printf("(XS)Win32::API::Call: ApiFunctionInteger (char) returned %d\n", retval->c);
             break;
             case T_NUMBER:

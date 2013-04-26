@@ -13,8 +13,8 @@ EXTRN   _bad_esp_msg:NEAR
 _TEXT	SEGMENT
 _control$ = 8						; size = 4
 _retval$ = 12						; size = 4
-T_DOUBLE = 10
-T_FLOAT = 9
+T_DOUBLE = 11
+T_FLOAT = 10
 @Call_asm@16 PROC NEAR					; COMDAT
 param equ ecx
 params_start equ edx
@@ -42,7 +42,8 @@ loop_body:
 
 ; 74   : 		switch(param->t) {
 
-	cmp	al, T_DOUBLE ;T_DOUBLE and higher are 64 bit types
+	cmp	al, T_DOUBLE-1 ;T_DOUBLE and higher are 64 bit types
+        ; -1 bc in params are --ed to remove T_VOID hole
 	jb	SHORT push_low_dword
 push_high_dword:
 	push	DWORD PTR [param+4]
@@ -95,8 +96,8 @@ gt_param_test:
 ; 163  :     switch(t WIN32_API_DEBUGM( & ~T_FLAG_UNSIGNED) ) { //unsign has no special treatment here
 	;use no C stack *s after call, they might be corrupt on a prototype mistake
 	mov	retval, DWORD PTR _retval$[ebp] ;edi is retval
-	call	DWORD PTR [esi] ; esi is var control
-	movzx	ecx, BYTE PTR [esi+7] ; return type, can't use eax or edx
+	call	DWORD PTR [esi+8] ; esi is var control
+	movzx	ecx, BYTE PTR [esi+3] ; return type, can't use eax or edx
 	sub	ecx, T_FLOAT
 	je	SHORT get_float
 	dec	ecx
@@ -118,7 +119,7 @@ cleanup:
 ; 274  : {
 ; 275  :     unsigned int stack_unwind = (control->whole_bf >> 6) & 0x3FFFC;
 
-	mov	eax, DWORD PTR [esi+4]
+	mov	eax, DWORD PTR [esi]
 	shr	eax, 6
 	and	eax, 3FFFCh
 
