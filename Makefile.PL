@@ -118,9 +118,13 @@ ASFLAGS =  -Zi
 }
 
 sub MY::post_constants {
+    #if Call.c changes API.obj must be rebuilt
     return
 'benchmark :: pure_all
 	$(FULLPERLRUN) "-MExtUtils::Command::MM" "-e" "test_harness(\'$(TEST_VERBOSE)\', \'$(INST_LIB)\', \'$(INST_ARCHLIB)\')" t/benchmark.t
+
+$(OBJECT) : Call.c
+
 ';
 }
 
