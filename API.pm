@@ -33,7 +33,7 @@ BEGIN {
     @EXPORT_OK = qw( ReadMemory IsBadReadPtr MoveMemory
     WriteMemory SafeReadWideCString ); # symbols to export on request
 
-    use Scalar::Util qw( looks_like_number );
+    use Scalar::Util qw( looks_like_number weaken);
 
     $DEBUG = 0;
     
@@ -213,13 +213,18 @@ sub new {
     $self->{procname} = $proc;
     $self->{dll}      = $hdll;
     $self->{dllname}  = $dll;
-    #$self->{control}  = pack((PTRSIZE == 8 ? 'Q' : 'L').'L'
+
     $outnum &= ~T_FLAG_NUMERIC;
-    my $control  = pack(      'L'
+    my $control;
+    $self->{weakapi} = \$control;
+    weaken($self->{weakapi});
+    $control = pack(         'L'
                              .'S'
                              .'S' #padding
                              .(PTRSIZE == 8 ? 'Q' : 'L')
                              .(PTRSIZE == 8 ? 'Q' : 'L')
+                             .(PTRSIZE == 8 ? 'Q' : 'L')
+                             .(PTRSIZE == 8 ? '' : 'L')
                         ,($class eq "Win32::API::More" ? APICONTROL_is_more : 0)
                         | ($proto ? APICONTROL_has_proto : 0)
                         | $ccnum
@@ -228,7 +233,9 @@ sub new {
                         , $#{$self->{in}} #in param count
                         , 0 #padding
                         , $hproc
-                        , (exists $self->{intypes} ? ($self->{intypes})+0 : 0));
+                        , \($self->{weakapi})+0 #weak api obj ref
+                        , (exists $self->{intypes} ? ($self->{intypes})+0 : 0)
+                        , 0); #padding to align to 8 bytes on 32 bit only
     #make a APIPARAM template array
     foreach my $tin (@{$self->{in}}) {
         #unsigned meaningless no sign vs zero extends are done bc uv/iv is

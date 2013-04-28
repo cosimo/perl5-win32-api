@@ -172,8 +172,8 @@ STATIC void w32sv_setwstr(pTHX_ SV * sv, WCHAR *wstr, INT_PTR wlenparam) {
     }
     if(tempwstr) Safefree(tempwstr);
 }
-/*     4/8 bytes       [                always 4 bytes              ]
-   void * ApiFunction,  char flags, short stackunwind, char  outType
+/* bitfield is 4 bytes, low to high diagram\|/
+   char flags, short stackunwind, char outType
    note the stackunwind is unaligned
 */
 typedef struct {
@@ -198,10 +198,12 @@ typedef struct {
 		I16 inparamlen_signed;
 		U16 inparamlen;
 	};
-    /* padding hole here on x64 */
-    /* these 2 AVs are not owned by this struct, their refcnt is owned in the blessed HV
-       these 2 AVs are here for no func call look up of them, intypes may be NULL*/
+    /* padding hole here, 2 bytes, 32 and 64*/
+    /* these AV is here for no func call look up of them, intypes may be NULL*/
     FARPROC ApiFunction;
+    SV * api; /* a non-ref counted weak RV to the blessed SVPV that holds
+                APICONTROL, used to optimize method calls on the API obj, the
+                refcount for the RV is stored in the obj's hidden hash*/
     AV * intypes;
 	APIPARAM param;
 } APICONTROL;
@@ -301,6 +303,10 @@ STATIC void setMgSV(pTHX_ SV * sv, SV * newsv) {
 	}
 }
 
+
+STATIC void callPack(pTHX_ APICONTROL * control, int i, SV * sv, int func_offset){
+    pointerCall3Param(aTHX_ control->api, AvARRAY(control->intypes)[i], sv, func_offset);
+}
 #include "Call.c"
 
 MODULE = Win32::API   PACKAGE = Win32::API

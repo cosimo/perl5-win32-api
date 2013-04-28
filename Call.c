@@ -180,7 +180,7 @@ XS(XS_Win32__API_Call)
                 if(control->has_proto) {
                     if(SvOK(pl_stack_param)) {
                         if(control->is_more) {
-                            pointerCall3Param(aTHX_ api, AvARRAY(intypes)[i], pl_stack_param, PARAM3_PACK );
+                            callPack(aTHX_ control, i, pl_stack_param, PARAM3_PACK);
                         }
                         goto PTR_IN_USE_PV;
                     /* When arg is undef, use NULL pointer */
@@ -356,7 +356,7 @@ XS(XS_Win32__API_Call)
                 SvCUR_set(sv, SvCUR(sv)-sizeof(SENTINAL_STRUCT));
             }
             if(control->has_proto && control->is_more){ /* bad VC optimizer && is always a branch */
-                pointerCall3Param(aTHX_ api, AvARRAY(intypes)[i], sv, PARAM3_UNPACK);
+                callPack(aTHX_ control, i, sv, PARAM3_UNPACK);
             }
             } //if(param->p) {
             break;
