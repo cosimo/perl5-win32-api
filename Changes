@@ -34,11 +34,26 @@ History of Win32::API perl extension.
    - Improved, ::Import created subs are now faster than doing $api->Call(,
      pre 0.76 Import time 0.85us per call, 0.76 alpha pure Perl Import time
      0.69us, 0.76 XSUB Import (final) 0.34 us, regular ->Call( is 0.40 us, a
-     regular XSUB wrapper of the same C func is 0.22 us for comparison
+     regular XSUB wrapper of the same C func is 0.22 us for comparison,
+     *internals* The Call() XSUB is not written in XS anymore but plain C. This
+     allows some R/W optimizations to the interp struct in the header of Call()
+     and simplifies Import vs ->Call differences.
    - API Change, Import now returns a API obj ref, previously it returned a
      1/0 bool scalar
    - API Change, new and Import now check to make sure a sane number of params
      are passed and die otherwise RT#82611 txn-1183194
+   - Under undef-ed NDEBUG and/or DEBUGGING, a wrong assert happened in
+     my_find_mg on old Perls that need my_find_mg
+   - Improved, XSUB Import is down to 0.24 us which is only .02-.03 us longer on
+     benchmark vs regular XSUB.
+     *internals* TARG is now used and sv_set* instead of allocating new SVs,
+     this is the largested drop in time. 2nd biggest time win was getting rid
+     of the inefficient implementation of memcopy in MS CRT. Also cpu uops
+     reduction around the incoming args loop. A bunch of asm shifts, scales,
+     Mod R/Ms, --/++s, and adds were removed by C code modification.
+   - TODO REMOVE TEST CODE, alloca was rewritten for Visual C for speed and not
+     cause extends of the C stack, this is dangerous so rewrite this with push
+     asm ops from template param array in control
 
 2013-03-26  Win32::API v0.76_01    bulk88
    - Fixed RT #82611, make tool detection in Makefile.PL didn't work for

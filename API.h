@@ -71,6 +71,7 @@
 #ifdef WIN32_API_PROF
 LARGE_INTEGER        my_freq = {0};
 LARGE_INTEGER        start = {0};
+LARGE_INTEGER        loopprep = {0};
 LARGE_INTEGER        loopstart = {0};
 LARGE_INTEGER        Call_asm_b4 = {0};
 LARGE_INTEGER        Call_asm_after = {0};
@@ -155,6 +156,11 @@ union {
 #endif
 };
 	unsigned char t; //1 bytes, union is 8 bytes, put last to avoid padding
+        /* next 2 members exist because the space is free */
+        unsigned char unused1;
+        unsigned short unused2;
+        unsigned short idx0; /* 0 counted position of this APIPARAM struct in array */
+        unsigned short idx1; /* 1 counted position of this APIPARAM struct in array */
 } APIPARAM;
 
 /* a version of APIPARAM without a "t" type member */
@@ -289,7 +295,6 @@ MAGIC * my_find_mg(SV * sv, int type, const MGVTBL *vtbl){
 	MAGIC *mg;
 	for (mg = SvMAGIC (sv); mg; mg = mg->mg_moremagic) {
 		if (mg->mg_type == type && mg->mg_virtual == vtbl)
-			assert (mg->mg_ptr);
 			return mg;
 	}
 	return NULL;

@@ -9,6 +9,7 @@
  */
 
 #define  WIN32_LEAN_AND_MEAN
+#include <emmintrin.h>
 #include <windows.h>
 #include <memory.h>
 #define PERL_NO_GET_CONTEXT
@@ -194,18 +195,16 @@ typedef struct {
         };
         U32 whole_bf;
     };
-	union {
-		I16 inparamlen_signed;
-		U16 inparamlen;
-	};
+	U16 inparamlen;
     /* padding hole here, 2 bytes, 32 and 64*/
-    /* these AV is here for no func call look up of them, intypes may be NULL*/
     FARPROC ApiFunction;
     SV * api; /* a non-ref counted weak RV to the blessed SVPV that holds
                 APICONTROL, used to optimize method calls on the API obj, the
                 refcount for the RV is stored in the obj's hidden hash*/
+    /* this AV is here for no func call look up of it, intypes may be NULL*/
     AV * intypes;
-	APIPARAM param;
+    /* a padding hole here of unknown size */
+	__declspec(align(16)) APIPARAM param;
 } APICONTROL;
 
 #define APICONTROL_CC_STD 0
@@ -303,10 +302,6 @@ STATIC void setMgSV(pTHX_ SV * sv, SV * newsv) {
 	}
 }
 
-
-STATIC void callPack(pTHX_ APICONTROL * control, int i, SV * sv, int func_offset){
-    pointerCall3Param(aTHX_ control->api, AvARRAY(control->intypes)[i], sv, func_offset);
-}
 #include "Call.c"
 
 MODULE = Win32::API   PACKAGE = Win32::API
@@ -828,6 +823,34 @@ CODE:
     {   SV * api = POPs;
         PUTBACK;
     {   CV * cv = newXS(subname, XS_Win32__API_Call, file);
-        XSANY.any_ptr = api;
+        XSANY.any_ptr = (APICONTROL *) SvPVX(SvRV(api));
         setMgSV(aTHX_ (SV*)cv, api);  }}
+    return;
+
+#internal use only, makes SV assumptions
+void
+_Align(sv, boundary)
+    SV * sv
+    size_t boundary
+PREINIT:
+    char * buffer;
+    size_t remainder;
+    char * newbuffer;
+    size_t orig_len;
+PPCODE:
+    PUTBACK;
+    if(((size_t)SvPVX(sv) % boundary) != 0){
+        buffer = sv_grow(sv, SvCUR(sv)+boundary -1);
+        if((remainder = (size_t) buffer % boundary) != 0){
+            remainder = boundary - remainder;
+            orig_len = SvCUR(sv);
+            SvCUR_set(sv, orig_len+remainder);
+            memmove((newbuffer= buffer+remainder), buffer, orig_len+1);//+1 for null char
+            sv_chop(sv, newbuffer);
+        }
+    }
+#ifndef NDEBUG
+    if(((size_t) SvPVX(sv)% boundary) != 0 || *(SvPVX(sv) + SvCUR(sv)) != '\0')
+        croak("bad alignment");
+#endif
     return;

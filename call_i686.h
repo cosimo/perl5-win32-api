@@ -45,7 +45,9 @@ extern void __cdecl _RTC_CheckEsp();
 
 
 /* params are arranged first used (left) to last used (right) */
-
+#ifdef __cplusplus
+extern "C"
+#endif
 void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after the last
                                       initialized struct, on entry, param is
                                       always pointing to uninit memory*/,
@@ -141,7 +143,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
                                 push dword ptr [p];
 			};
 #elif (defined(__GNUC__))
-        p.lParam = param->p;
+        p.pParam = param->p;
 	/* probably uglier than necessary, but works */
 	asm ("pushl %0":: "g" (((unsigned int*)&p)[0]));
 	/* { 
@@ -317,10 +319,18 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
 #endif
 
 #else /* using MASM version */
-extern void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after the last
+#ifdef __cplusplus
+extern "C"
+#else
+extern
+#endif
+void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after the last
                                       initialized struct, on entry, param is
                                       always pointing to uninit memory*/,
               const APIPARAM * const params_start,
               const APICONTROL * const control,
               APIPARAM_U * const retval);
+/*
+void __fastcall Call_asm(const APIPARAM * param, const APIPARAM * const params_start, const APICONTROL * const control,APIPARAM_U * const retval);
+ */
 #endif /* #if defined(__GNUC__) */

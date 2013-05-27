@@ -43,7 +43,7 @@ my $SLR = Win32::API->new('kernel32.dll', 'BOOL WINAPI SetLastError( DWORD dwErr
 my $start = uint64(0);
 my $end = uint64(0);
 my ($startbool, $SLRret, $endbool);
-my $iterations = 300000;
+my $iterations = 1000000;
 $startbool = $QPC->Call($start);
 $SLRret = $SLR->Call(1) for(0..$iterations);
 $endbool = $QPC->Call($end);

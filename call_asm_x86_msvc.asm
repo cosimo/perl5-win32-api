@@ -159,8 +159,8 @@ cleanup:
 	
 	bad_esp:
 	call    DWORD PTR __imp__IsDebuggerPresent@0
-	;test    eax, eax
-	;jnz     break
+	test    eax, eax
+	jnz     break
 	push    esp ;esp must be always first, since the push modifies esp, after
 	;sampling its value
 	push    ebp
@@ -178,5 +178,16 @@ break:
 	; an int 3 can resume exec, a ud2 cant
 	; no return
 @Call_asm@16 ENDP
+__alloca_probe PROC NEAR
+    neg     eax
+    add     eax, esp
+    and     al, 0F0h ;align to 16
+    ;add     eax, 4
+    xchg    eax, esp
+    ;jmp     dword ptr [eax] ; 0.2 us slower
+    mov     eax, [eax]
+    push    eax
+    retn
+__alloca_probe ENDP
 _TEXT	ENDS
 END

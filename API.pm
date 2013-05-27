@@ -230,21 +230,27 @@ sub new {
                         | $ccnum
                         | (PTRSIZE == 8 ? 0 :  $stackunwind << 8)
                         | $outnum << 24
-                        , $#{$self->{in}} #in param count
+                        , scalar(@{$self->{in}}) #in param count
                         , 0 #padding
                         , $hproc
                         , \($self->{weakapi})+0 #weak api obj ref
                         , (exists $self->{intypes} ? ($self->{intypes})+0 : 0)
                         , 0); #padding to align to 8 bytes on 32 bit only
+    #align to 16 bytes
+    $control .= "\x00" x ((((length($control)+ 15) >> 4) << 4)-length($control));
     #make a APIPARAM template array
-    foreach my $tin (@{$self->{in}}) {
+    my ($i, $arr_end) = (0, scalar(@{$self->{in}}));
+    for(; $i< $arr_end; $i++) {
+        my $tin = $self->{in}[$i];
         #unsigned meaningless no sign vs zero extends are done bc uv/iv is
         #the biggest native integer on the cpu, big to small is truncation
         #numeric is implemented as T_NUMCHAR for in, keeps asm jumptable clean
         $tin &= ~(T_FLAG_UNSIGNED|T_FLAG_NUMERIC);
         $tin--; #T_VOID doesn't exist as in param in XS
-        $control .= "\x00" x 8 . pack('C', $tin)."\x00" x 7;
+        #put index of param array slice in unused space for croaks, why not?
+        $control .= "\x00" x 8 . pack('CCSSS', $tin, 0, 0, $i, $i+1);
     }
+    _Align($control, 16); #align the whole PVX to 16 bytes for SSE moves
 
     #### keep track of the imported function
     if(defined $dll){
