@@ -9,7 +9,6 @@
  */
 
 #define  WIN32_LEAN_AND_MEAN
-#include <emmintrin.h>
 #include <windows.h>
 #include <memory.h>
 #define PERL_NO_GET_CONTEXT
@@ -18,9 +17,8 @@
 #include "perl.h"
 #include "XSUB.h"
 #define CROAK croak
-
+#include <emmintrin.h>
 #include "API.h"
-
 
 /*
  * some Perl macros for backward compatibility
@@ -177,6 +175,9 @@ STATIC void w32sv_setwstr(pTHX_ SV * sv, WCHAR *wstr, INT_PTR wlenparam) {
    char flags, short stackunwind, char outType
    note the stackunwind is unaligned
 */
+
+#define CTRL_IS_MORE 0x10
+#define CTRL_HAS_PROTO 0x20
 typedef struct {
     union {
         struct {
@@ -808,7 +809,11 @@ void
 _ImportXS(...)
 PREINIT:
     char * subname;
+#ifdef W32A_SPLITHEAD
+    XS_EUPXS(XS_Win32__API_ImportCall);
+#else
     XS_EUPXS(XS_Win32__API_Call);
+#endif
 #if (PERL_REVISION == 5 && PERL_VERSION < 9)
     char* file = __FILE__;
 #else
@@ -822,7 +827,11 @@ CODE:
         subname = SvPVX(sv);    }
     {   SV * api = POPs;
         PUTBACK;
+#ifdef W32A_SPLITHEAD
+    {   CV * cv = newXS(subname, XS_Win32__API_ImportCall, file);
+#else
     {   CV * cv = newXS(subname, XS_Win32__API_Call, file);
+#endif
         XSANY.any_ptr = (APICONTROL *) SvPVX(SvRV(api));
         setMgSV(aTHX_ (SV*)cv, api);  }}
     return;
