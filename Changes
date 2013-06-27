@@ -54,6 +54,9 @@ History of Win32::API perl extension.
    - TODO REMOVE TEST CODE, alloca was rewritten for Visual C for speed and not
      cause extends of the C stack, this is dangerous so rewrite this with push
      asm ops from template param array in control
+   - Fixed, WIN32_API_DEBUG build option now works on GCC
+   - Fixed, the "Win32::API a function was called with the wrong prototype..."
+     message had a typo
 
 2013-03-26  Win32::API v0.76_01    bulk88
    - Fixed RT #82611, make tool detection in Makefile.PL didn't work for

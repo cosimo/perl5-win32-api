@@ -6,8 +6,11 @@
 */
 
 /* the code below will compile under MSVC can be used to generate boilerplate for
-   the MASM code, but the MASM version is more efficient */
-#if defined(__GNUC__)
+   the MASM code, but the MASM version is more efficient, this file is #included
+   twice, once in API.xs and once (if applicable) in call_i686.c*/
+#if defined(__GNUC__) && defined(IS_CALL_I686_C)
+
+PORTALIGN(1) const char bad_esp_msg [];
 
 /* Borland C */
 #if (defined(__BORLANDC__) && __BORLANDC__ >= 452)
@@ -36,7 +39,6 @@
                      + __GNUC_PATCHLEVEL__)
 #  if GCC_VERSION >= 40400
 #    pragma GCC push_options
-#    pragma GCC optimize ("no-omit-frame-pointer")
 #  endif
 #endif
 
@@ -66,7 +68,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
     LPBYTE ppParam;
     __int64 qParam;
     } p;
-	
+	register int i = (size_t)param/(size_t)params_start;
 	/* #### PUSH THE PARAMETER ON THE (ASSEMBLER) STACK #### */
 	/* Start with last arg first, asm push goes down, not up, so first push must
        be the last arg. On entry, if param == params_start, it means NO params
@@ -84,6 +86,8 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
         param--;
         p.qParam = param->q;
 		switch(param->t+1) {
+/* the 8 byte types are implemented by "pushing the high 4 bytes", then falling
+   through to the "push low 4 bytes" that all the other types do */
 		case T_DOUBLE:
 		case T_QUAD:
 #if (defined(_MSC_VER) || defined(BORLANDC))
@@ -123,6 +127,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
         case T_POINTERPOINTER:
         case T_CODE:
 		case T_NUMBER:
+        case T_INTEGER:
 		case T_CHAR:
 		case T_NUMCHAR:
 		case T_FLOAT:
@@ -160,10 +165,11 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
 
 #ifdef WIN32_API_DEBUG
         default:
-            croak("Win32::API::Call: unknown %s type", "in");
+            Perl_croak_nocontext("Win32::API::Call Call_asm unknown in type %u @%u", param->t + 1, i);
             break;
 #endif
 		}
+        i--;
 	}
 
 	/* #### NOW CALL THE FUNCTION #### */
@@ -219,7 +225,7 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
             case T_NUMCHAR:
             printf("(XS)Win32::API::Call: ApiFunctionInteger (char) returned %d\n", retval->c);
             break;
-            case T_NUMBER:
+            case T_NUMBER: /* ptr always 32 */
             case T_INTEGER:
             printf("(XS)Win32::API::Call: ApiFunctionInteger returned %d\n", (int)retval->l);
             break;
@@ -231,9 +237,6 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
             break;
             case T_QUAD:
             printf("(XS)Win32::API::Call: ApiFunctionQuad returned %I64d\n", retval->q);
-            break;
-            case T_NUMBER:
-            printf("(XS)Win32::API::Call: ApiFunctionNumer returned %I64d\n", retval->q);
             break;
         }
 #endif  //WIN32_API_DEBUG
@@ -318,7 +321,8 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
 #  endif
 #endif
 
-#else /* using MASM version */
+#else /* Call_asm is in a different compliand */
+
 #ifdef __cplusplus
 extern "C"
 #else
@@ -333,4 +337,4 @@ void __fastcall Call_asm(const APIPARAM * param /*in caller, this a * to after t
 /*
 void __fastcall Call_asm(const APIPARAM * param, const APIPARAM * const params_start, const APICONTROL * const control,APIPARAM_U * const retval);
  */
-#endif /* #if defined(__GNUC__) */
+#endif /* defined(__GNUC__) && IS_CALL_I686_C */

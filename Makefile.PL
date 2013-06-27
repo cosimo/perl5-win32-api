@@ -64,6 +64,8 @@ WriteMakefile1(
     #'clean' => {FILES => 'API_test.dll API_test_dll/Release/*'},
     
     XSOPT  => ' -nolinenumbers ',
+    #for custom alloca
+    (!$is_64bit_build && $is_msvc_compiler ?  (dynamic_lib => {OTHERLDFLAGS => '-FORCE:MULTIPLE'}) : ()),
     ($ExtUtils::MakeMaker::VERSION >= 6.47 ? (MIN_PERL_VERSION => 5.000000) : ()),
     
     (
@@ -74,7 +76,7 @@ WriteMakefile1(
 		)
 	    : ( $is_msvc_compiler
                     ? ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_asm_x86_msvc$(OBJ_EXT)' )
-                    : ()
+                    : ( 'OBJECT' => '$(BASEEXT)$(OBJ_EXT) call_i686$(OBJ_EXT)' )
               )
     )
 );
@@ -99,6 +101,12 @@ sub MY::postamble
 	perl -pi.bak -e "s/^(.globl )?Call_x64_real/$$1_Call_x64_real/" call_asm_x64_gnu.s
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
 
+#make GCC issue "push" instructions rather than "mov" to esp+offset, this is the magic
+#recipe to get GCC (4.6.3 tested) to do it
+call_i686$(OBJ_EXT): call_i686.c API.h
+	$(CCCMD) $(CCCDLFLAGS) "-I$(PERL_INC)" $(PASTHRU_DEFINE) $(DEFINE) \
+-fno-defer-pop -fno-omit-frame-pointer -mno-accumulate-outgoing-args -mno-stack-arg-probe call_i686.c
+
 EOM1
     }
     #end-of old 64bit strawberryperl hack
@@ -113,6 +121,12 @@ ASFLAGS =  -Zi
 
 .s$(OBJ_EXT):
 	$(AS) $(ASFLAGS) $< -o $*$(OBJ_EXT)
+
+#make GCC issue "push" instructions rather than "mov" to esp+offset, this is the magic
+#recipe to get GCC (4.6.3 tested) to do it
+call_i686$(OBJ_EXT): call_i686.c API.h
+	$(CCCMD) $(CCCDLFLAGS) "-I$(PERL_INC)" $(PASTHRU_DEFINE) $(DEFINE) \
+-fno-defer-pop -fno-omit-frame-pointer -mno-accumulate-outgoing-args -mno-stack-arg-probe call_i686.c
 
 ';
 }

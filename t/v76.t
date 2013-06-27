@@ -48,7 +48,7 @@ my $funcptr = $function->Call();
 $function = Import Win32::API::More(undef, $funcptr, 'GetHandle', 'P', 'I');
 my $hnd = pack(PTR_LET(), 0);
 my $pass = 1;
-print "pn ".${Win32::API::GetMagicSV($function)}{procname} ."\n";
+#print "pn ".${Win32::API::GetMagicSV($function)}{procname} ."\n";
 $pass = $pass && defined($function);
 $result = GetHandle($hnd);
 $pass = $pass && $result == 1;

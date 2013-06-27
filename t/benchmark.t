@@ -10,6 +10,7 @@ use strict;
 use Test::More;
 use Math::Int64 ('uint64', 'uint64_to_number');
 use Win32::API::Test;
+use Config;
 
 plan tests => 7;
 use vars qw($function $result $return $test_dll );
@@ -21,6 +22,31 @@ use_ok('Win32::API');
 $test_dll = Win32::API::Test::find_test_dll();
 diag('API test dll found at (' . $test_dll . ')');
 ok(-e $test_dll, 'found API test dll');
+
+if(*Win32::API::_ResetTimes{CODE}) {
+    if($Config{ptrsize} == 4) {
+    my $GCP = new Win32::API('kernel32.dll', 'GetCurrentProcess', '', 'N');
+    my $prochand = $GCP->Call();
+    my $GPAM = new Win32::API::More('kernel32.dll', 'BOOL WINAPI GetProcessAffinityMask('
+                   .'HANDLE hProcess, PHANDLE lpProcessAffinityMask, '
+                   .'PHANDLE lpSystemAffinityMask);');
+    die 'API obj for GetProcessAffinityMask failed' if !$GPAM;
+    my ($ProcessAffinityMask, $SystemAffinityMask) = (0,0);
+    die 'GetProcessAffinityMask failed' if !$GPAM->Call($prochand, $ProcessAffinityMask, $SystemAffinityMask);
+    my $bitsinptr =  length(pack(PTR_LET(),0))*8;
+    #low cpus on left side in string
+    my $availcpus = unpack('b'.$bitsinptr, pack(PTR_LET, $SystemAffinityMask));
+    my $highestCPU = index($availcpus, '0');
+    die 'can\'t find highest CPU' if $highestCPU < 1;
+    my $mask = 2**($highestCPU-1);
+    diag("highest CPU mask is $mask\n");
+    my $SPAM = new Win32::API('kernel32.dll',
+    'BOOL WINAPI SetProcessAffinityMask(HANDLE hProcess, DWORD_PTR dwProcessAffinityMask);');
+    die 'API obj for SetProcessAffinityMask failed '.($^E+0) if !$SPAM;
+    die 'SPAM failed' if !$SPAM->Call($prochand, $mask);
+    }
+    Win32::API::_ResetTimes();
+}
 
 sub benchmark {
 my $c_slr_loop= new Win32::API($test_dll, 'char * setlasterror_loop(int interations)');
@@ -56,7 +82,7 @@ $startbool = $QPC->Call($start);
 $SLRret = SetLastError(1) for(0..$iterations);
 $endbool = $QPC->Call($end);
 ok($startbool && $endbool, "QPC calls succeeded");
-my $delta = (uint64_to_number($end-$start)/uint64_to_number($freq));
+$delta = (uint64_to_number($end-$start)/uint64_to_number($freq));
 diag("time was $delta secs, ".(($delta/scalar(@{[0..$iterations, 1,1]}))*1000)." ms per Win32::AP::Import style call");
 
 my $msg = $c_slr_loop->Call($iterations);

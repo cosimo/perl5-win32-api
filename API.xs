@@ -17,7 +17,7 @@
 #include "perl.h"
 #include "XSUB.h"
 #define CROAK croak
-#include <emmintrin.h>
+//#include <emmintrin.h>
 #include "API.h"
 
 /*
@@ -75,7 +75,16 @@ BOOL WINAPI _DllMainCRTStartup(
 }
 #endif
 
-const static struct {
+#ifdef _MSC_VER
+extern __declspec(selectany) /*enable comdat folding for this symbol in msvc*/
+#endif
+PORTALIGN(1) const char bad_esp_msg [] = "Win32::API a function was called with the wrong prototype "
+"and caused a C stack inconsistency EBP=%p ESP=%p" ;
+
+#ifdef _MSC_VER
+extern __declspec(selectany) /*enable comdat folding for this symbol in msvc*/
+#endif
+PORTALIGN(1) const struct {
     char Unpack [sizeof("Win32::API::Type::Unpack")];
     char Pack [sizeof("Win32::API::Type::Pack")];
     char ck_type [sizeof("Win32::API::Struct::ck_type")];
@@ -105,9 +114,6 @@ STATIC SV * getTarg(pTHX) {
     SvOK_off(TARG);
     return TARG;
 }
-
-const char bad_esp_msg [] = "Win32::API a function was called with the wrong prototype "
-"and cause a C stack inconsistency EBP=%"UVxf" EBP=%"UVxf ;
 
 /* Convert wide character string to mortal SV.  Use UTF8 encoding
  * if the string cannot be represented in the system codepage.
@@ -171,59 +177,6 @@ STATIC void w32sv_setwstr(pTHX_ SV * sv, WCHAR *wstr, INT_PTR wlenparam) {
     }
     if(tempwstr) Safefree(tempwstr);
 }
-/* bitfield is 4 bytes, low to high diagram\|/
-   char flags, short stackunwind, char outType
-   note the stackunwind is unaligned
-*/
-
-#define CTRL_IS_MORE 0x10
-#define CTRL_HAS_PROTO 0x20
-typedef struct {
-    union {
-        struct {
-            unsigned int convention: 3;
-            unsigned int UseMI64: 1;
-            unsigned int is_more: 1;
-            unsigned int has_proto: 1;
-#ifndef _WIN64
-            unsigned int reserved: 2;
-/* remember to change Call_asm in API::Call() if this is changed */
-            unsigned int stackunwind: 16;
-#else
-            unsigned int reserved: 18;
-#endif
-            unsigned int out: 8;
-        };
-        U32 whole_bf;
-    };
-	U16 inparamlen;
-    /* padding hole here, 2 bytes, 32 and 64*/
-    FARPROC ApiFunction;
-    SV * api; /* a non-ref counted weak RV to the blessed SVPV that holds
-                APICONTROL, used to optimize method calls on the API obj, the
-                refcount for the RV is stored in the obj's hidden hash*/
-    /* this AV is here for no func call look up of it, intypes may be NULL*/
-    AV * intypes;
-    /* a padding hole here of unknown size */
-	__declspec(align(16)) APIPARAM param;
-} APICONTROL;
-
-#define APICONTROL_CC_STD 0
-#define APICONTROL_CC_C 1
-//fastcall, thiscall, regcall, will go here
-
-typedef struct {
-/* on 32bit win, HeapAlloc granularity is 8 bytes, if you request less than
-   size%8 == 0 request is rounded upto next 8, lets assume that
-   struct perl_memory_debug_header, the HE, and HEK (all if applicable), will
-   be some multiple of 4 on 32bit windows, since the string is null terminated
-   even on pre-HEK stash name Perls (< 5.9.3), there are atleast 4 bytes
-   readable at all times for HvNAME. */
-    DWORD32 MagicLow;
-    DWORD32 MagicHigh;
-    DWORD_PTR EncodedPtr; /* nullless XOR encrypted APICONTROL */
-    DWORD_PTR PtrKey; /* key to decrypt above ptr */
-} APICLASSNAME;
 
 #if defined(_M_AMD64) || defined(__x86_64)
 #include "call_x86_64.h"
@@ -273,7 +226,7 @@ const static struct {
 STATIC SV * getMgSV(pTHX_ SV * sv) {
 	MAGIC * mg;
 	if(SvRMAGICAL(sv)) { /* implies SvTYPE  >= SVt_PVMG */
-		mg = mg_findext(sv, PERL_MAGIC_ext, &vtbl_API);
+		mg = mg_findext(sv, PERL_MAGIC_ext, (const MGVTBL * const)&vtbl_API);
 		if(mg) {
 			return mg->mg_obj;
 		}
@@ -286,7 +239,7 @@ STATIC SV * getMgSV(pTHX_ SV * sv) {
 STATIC void setMgSV(pTHX_ SV * sv, SV * newsv) {
 	MAGIC * mg;
 	if(SvRMAGICAL(sv)) { /* implies SvTYPE  >= SVt_PVMG */
-		mg = mg_findext(sv, PERL_MAGIC_ext, &vtbl_API);
+		mg = mg_findext(sv, PERL_MAGIC_ext, (const MGVTBL * const)&vtbl_API);
 		if(mg) {
 			SV * oldsv;
 			SvREFCNT_inc_simple_void_NN(newsv);
@@ -299,7 +252,7 @@ STATIC void setMgSV(pTHX_ SV * sv, SV * newsv) {
 	}
 	else {
 		addmg:
-		sv_magicext(sv,newsv,PERL_MAGIC_ext,&vtbl_API,NULL,0);
+		sv_magicext(sv,newsv,PERL_MAGIC_ext,(const MGVTBL * const)&vtbl_API,NULL,0);
 	}
 }
 
@@ -368,6 +321,9 @@ BOOT:
         unsigned char len;
         unsigned char constval;
     } CONSTREG;
+#pragma pack(push)
+#pragma pack(push, 1)
+    PORTALIGN(1)
     static const struct {
 #define XMM(y)        CONSTREG cr_##y; char arr_##y [sizeof(#y)];
     XMM(T_VOID)
@@ -415,6 +371,8 @@ BOOT:
     XMM(T_FLAG_NUMERIC)
 #undef XMM
     };
+#pragma pack(pop)
+#pragma pack(pop)
     CONSTREG * entry = (CONSTREG *)&const_init;
     while((DWORD_PTR)entry < (DWORD_PTR)&const_init+sizeof(const_init)){
         newCONSTSUB(stash, (char *)((DWORD_PTR)entry+sizeof(CONSTREG)), newSVuv(entry->constval));
@@ -809,11 +767,6 @@ void
 _ImportXS(...)
 PREINIT:
     char * subname;
-#ifdef W32A_SPLITHEAD
-    XS_EUPXS(XS_Win32__API_ImportCall);
-#else
-    XS_EUPXS(XS_Win32__API_Call);
-#endif
 #if (PERL_REVISION == 5 && PERL_VERSION < 9)
     char* file = __FILE__;
 #else
@@ -827,11 +780,7 @@ CODE:
         subname = SvPVX(sv);    }
     {   SV * api = POPs;
         PUTBACK;
-#ifdef W32A_SPLITHEAD
     {   CV * cv = newXS(subname, XS_Win32__API_ImportCall, file);
-#else
-    {   CV * cv = newXS(subname, XS_Win32__API_Call, file);
-#endif
         XSANY.any_ptr = (APICONTROL *) SvPVX(SvRV(api));
         setMgSV(aTHX_ (SV*)cv, api);  }}
     return;
@@ -863,3 +812,24 @@ PPCODE:
         croak("bad alignment");
 #endif
     return;
+
+#ifdef WIN32_API_PROF
+void
+_DumpTimes()
+CODE:
+    printf("dumptimes start %I64u loopprep %I64u loopstart %I64u Call_asm_b4 %I64u Call_asm_after %I64u rtn_time\n",
+    start_loopprep.QuadPart, loopprep_loopstart.QuadPart, loopstart_Call_asm_b4.QuadPart, Call_asm_b4_Call_asm_after.QuadPart, Call_asm_after_return_time.QuadPart);
+
+#endif
+
+#ifdef WIN32_API_PROF
+void
+_ResetTimes()
+CODE:
+    start_loopprep.QuadPart = 0,
+    loopprep_loopstart.QuadPart = 0,
+    loopstart_Call_asm_b4.QuadPart = 0,
+    Call_asm_b4_Call_asm_after.QuadPart = 0,
+    Call_asm_after_return_time.QuadPart = 0;
+
+#endif

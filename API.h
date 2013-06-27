@@ -38,11 +38,15 @@
 #define DISABLE_T_L_CALLS STMT_START { 0; } STMT_END
 #endif
 
-/*never use this on cygwin, the debug messages in Call_asm leave the printf
-  string args on the c stack and the target C func sees printf args, I (bulk88)
-  did not research what GCC compiler flags or pragmas or declaration attrs are
-  necessery to make WIN32_API_DEBUG work on Cygwin GCC
+#ifdef __GNUC__
+#  define PORTALIGN(x) __attribute__((aligned(x)))
+#elif defined(_MSC_VER)
+#  define PORTALIGN(x) __declspec(align(x))
+#else
+#  error unknown compiler
+#endif
 
+/*
   when using WIN32_API_DEBUG change the iterations count to 1 in benchmark.t
   otherwise the test takes eternity
 */
@@ -77,6 +81,12 @@ LARGE_INTEGER        Call_asm_b4 = {0};
 LARGE_INTEGER        Call_asm_after = {0};
 LARGE_INTEGER        return_time = {0};
 LARGE_INTEGER        return_time2 = {0};
+
+LARGE_INTEGER        start_loopprep = {0};
+LARGE_INTEGER        loopprep_loopstart = {0};
+LARGE_INTEGER        loopstart_Call_asm_b4 = {0};
+LARGE_INTEGER        Call_asm_b4_Call_asm_after = {0};
+LARGE_INTEGER        Call_asm_after_return_time = {0};
 #  ifndef WIN64
 __declspec( naked )  unsigned __int64 rdtsc () {
                     __asm
@@ -188,6 +198,49 @@ typedef struct {
 	SV* object;
 } APICALLBACK;
 
+/* bitfield is 4 bytes, low to high diagram\|/
+   char flags, short stackunwind, char outType
+   note the stackunwind is unaligned
+*/
+
+#define CTRL_IS_MORE 0x10
+#define CTRL_HAS_PROTO 0x20
+typedef struct {
+    union {
+        struct {
+            unsigned int convention: 3;
+            unsigned int UseMI64: 1;
+            unsigned int is_more: 1;
+            unsigned int has_proto: 1;
+#ifndef _WIN64
+            unsigned int reserved: 2;
+/* remember to change Call_asm in API::Call() if this is changed */
+            unsigned int stackunwind: 16;
+#else
+            unsigned int reserved: 18;
+#endif
+            unsigned int out: 8;
+        };
+        U32 whole_bf;
+    };
+    U32 inparamlen; /*in units of sizeof(SV *) for comparison to items_sv
+                     param count limited to 65K in API.pm so 32 bit lengths
+                     dont overflow*/
+    FARPROC ApiFunction;
+    SV * api; /* a non-ref counted weak RV to the blessed SVPV that holds
+                APICONTROL, used to optimize method calls on the API obj, the
+                refcount for the RV is stored in the obj's hidden hash*/
+    /* this AV is here for no func call look up of it, intypes may be NULL,
+       refcnt owned by obj's hidden hash*/
+    AV * intypes;
+    /* a padding hole here of unknown size */
+    PORTALIGN(16) APIPARAM param;
+} APICONTROL;
+
+#define APICONTROL_CC_STD 0
+#define APICONTROL_CC_C 1
+/* fastcall, thiscall, regcall, will go here */
+
 #define STATIC_ASSERT(expr) ((void)sizeof(char[1 - 2*!!!(expr)]))
 /*
   because of unknown alignment where the sentinal is placed after the PV
@@ -291,7 +344,7 @@ S_croak_xs_usage(pTHX_ const CV *const cv, const char *const params)
 (PERL_VERSION == (V) && (PERL_SUBVERSION <= (S))))))
 
 #if PERL_VERSION_LE(5, 13, 8)
-MAGIC * my_find_mg(SV * sv, int type, const MGVTBL *vtbl){
+STATIC MAGIC * my_find_mg(SV * sv, int type, const MGVTBL *vtbl){
 	MAGIC *mg;
 	for (mg = SvMAGIC (sv); mg; mg = mg->mg_moremagic) {
 		if (mg->mg_type == type && mg->mg_virtual == vtbl)
@@ -303,7 +356,7 @@ MAGIC * my_find_mg(SV * sv, int type, const MGVTBL *vtbl){
 #endif
 
 #if PERL_VERSION_LE(5, 7, 2)
-MAGIC *
+STATIC MAGIC *
 my_sv_magicext(pTHX_ SV* sv, SV* obj, int how, MGVTBL *vtable,
 		 const char* name, I32 namlen)
 {

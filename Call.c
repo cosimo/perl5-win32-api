@@ -44,10 +44,40 @@ mov     edi, [ecx+ebx]
 
 /* SPLIT_HEAD is only for compilers that will optimize to a jmp, not a call,
    none on 32 bits known right now*/
+
+//#define W32A_SPLITHEAD
+
 #ifndef W32A_SPLITHEAD
-XS(XS_Win32__API_Call)
+
+XS(XS_Win32__API_ImportCall);
+#if defined(_MSC_VER) && ! (defined(_M_AMD64) || defined(__x86_64))
+__declspec(naked) XS(XS_Win32__API_Call) {
+    __asm {
+#ifdef PERL_IMPLICIT_CONTEXT
+    or dword ptr [esp+8], 1h
+#else
+    or dword ptr [esp+4], 1h
+#endif
+    jmp XS_Win32__API_ImportCall
+    }
+}
+#else
+XS(XS_Win32__API_Call) {
+    XS_Win32__API_ImportCall(aTHX_ (CV*)((size_t)cv | 1));
+}
+#endif //XS_Win32__API_Call definined in MASM or not
+
+XS(XS_Win32__API_ImportCall)
 {
+#if defined(_MSC_VER) && ! (defined(_M_AMD64) || defined(__x86_64))
+    void * origesp;
+    __asm {
+        mov origesp, esp
+    }
+#endif
+#if defined(_M_AMD64) || defined(__x86_64)
     WIN32_API_PROFF(QueryPerformanceFrequency(&my_freq));
+#endif
     WIN32_API_PROFF(W32A_Prof_GT(&start));
 {
     dVAR;
@@ -60,7 +90,7 @@ XS(XS_Win32__API_Call)
      //static assert against the constant
     {//compiler can toss some variables that EXTEND used
     SV **mark = &(W32A_ST(ax_p));
-    SV ** items_sv = (size_t)sp - (size_t)mark;
+    SV ** items_sv = (SV **)((size_t)sp - (size_t)mark);
     ax_p++;
     PERL_UNUSED_VAR(cv); /* -W */
     {
@@ -68,21 +98,26 @@ XS(XS_Win32__API_Call)
     const APICONTROL * control;
     APIPARAM * param;
     size_t param_len;
-    SV*	in_type;
 
     AV*		pparray;
     SV**	ppref;
 
 	SV** code;
 
-    /* nin is index of last parameter, 0 means 1 in param, -1 means no in params */
     int nin;
     SV ** ax_end;
     long_ptr tin;
-    UCHAR rt_flags;
+    unsigned int rt_flags;
     SV * sentinal;
-    if(!XSANY.any_ptr){ /* ->Call( */
+    if(!(rt_flags = (size_t)cv & 1))  /* ::Import(, placed here so jmp taken is ->Call(*/
+    {
+        rt_flags = 0;
+        control = (const APICONTROL *)XSANY.any_ptr;
+    }
+    //if(!XSANY.any_ptr){ /* ->Call( */
+    else {
         SV*	api;
+        *(size_t*)&cv  ^= rt_flags;
         if (items_sv  == 0)
             croak_xs_usage(cv,  "api, ...");
         api = W32A_ST(ax_p);
@@ -91,19 +126,18 @@ XS(XS_Win32__API_Call)
         rt_flags = IS_CALL;
         control = (APICONTROL *) SvPVX(SvRV(api));
     }
-    else { /* ::Import( */
-        rt_flags = 0;
-        control = (const APICONTROL *)XSANY.any_ptr;
-    }
+
 
 
 #else //is W32A_SPLITHEAD
-STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV ** ax_p,
+STATIC void Call_body(pTHX_ const APICONTROL * const control, unsigned int rt_flags, SV ** ax_p,
           SV ** items_sv);
-
+/*-------------------------------------------------------------------*/
 XS(XS_Win32__API_ImportCall)
 {
+#if defined(_M_AMD64) || defined(__x86_64)
     WIN32_API_PROFF(QueryPerformanceFrequency(&my_freq));
+#endif
     WIN32_API_PROFF(W32A_Prof_GT(&start));
 {
     dVAR;
@@ -124,10 +158,11 @@ XS(XS_Win32__API_ImportCall)
     }
 }
 }
-
 XS(XS_Win32__API_Call)
 {
+#if defined(_M_AMD64) || defined(__x86_64)
     WIN32_API_PROFF(QueryPerformanceFrequency(&my_freq));
+#endif
     WIN32_API_PROFF(W32A_Prof_GT(&start));
 {
     dVAR;
@@ -155,35 +190,41 @@ XS(XS_Win32__API_Call)
     
 }
 
-STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV ** ax_p,
+STATIC void Call_body(pTHX_ const APICONTROL * const control, unsigned int rt_flags, SV ** ax_p,
           SV ** items_sv) {
+#if defined(_MSC_VER) && ! (defined(_M_AMD64) || defined(__x86_64))
+    void * origesp;
+    __asm {
+        mov origesp, esp
+    }
+#endif
+    {
     dVAR;
     dSP;
     APIPARAM *params;
     APIPARAM * param;
     size_t param_len;
-    SV*	in_type;
 
     AV*		pparray;
     SV**	ppref;
 
 	SV** code;
 
+    int nin;
+    SV ** ax_end;
     long_ptr tin;
     SV * sentinal;
 #endif //#ifndef W32A_SPLITHEAD
     {
-    /* all but -1 are unsigned, so we have ~65K params, not 32K
-       turn short -1 into int -1, but turn short -2 into unsigned int 65534 */
-    I32 items = (I32)((size_t)items_sv/sizeof(SV *));
-    nin = control->inparamlen;
-
-    if(items != nin) {
-        croak("Wrong number of parameters: expected %d, got %d.\n", nin, items);
+    if(items_sv != (SV**)(control->inparamlen)) { /* both in units of sizeof(SV*) */
+        croak("Wrong number of parameters: expected %d, got %d.\n"
+              ,(size_t)control->inparamlen / sizeof(SV*)
+              ,(size_t)items_sv / sizeof(SV*));
     }
+    nin = (size_t)control->inparamlen / sizeof(SV*);
     }
-    if(nin) {
-        {
+    /*take advantage of a zero flag modification*/
+    if(param_len=control->inparamlen * (sizeof(APIPARAM)/sizeof(SV*))) {
         SV ** ax_i;
 #ifdef WIN32_API_DEBUG
         int i;
@@ -195,10 +236,23 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
            be used or we aren't interested in it but some other SV * after
            Call_asm(), so the ST() slots ARENT always what the caller passed in
         */
-        params = (APIPARAM *) _alloca(nin * sizeof(APIPARAM));
+#if !(defined(_MSC_VER) && ! (defined(_M_AMD64) || defined(__x86_64)))
+        params = (APIPARAM *) _alloca(param_len);
+        memcpy(params, &(control->param), param_len);
+#else
+/*
+        __asm {
+            //and     sp, 0FFF0h //align to 16, never do this, eax math is faster by 4-10 ns
+            mov eax, esp
+            and al, 0F0h //align esp to 16
+            sub eax, param_len
+            mov esp, eax
+            mov params, eax
+        }
+*/
         // SSE copying, unknown if i386 or SSE copying is faster
  /*       {
-            __m128i * param_dst = (__m128i *)param;
+            __m128i * param_dst = (__m128i *)params;
             __m128i * param_src = (__m128i *)&(control->param);
             __m128i * params_end = (__m128i *)((size_t)&(control->param)+param_len);
             do {
@@ -206,25 +260,47 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
                 param_src++;
                 param_dst++;
             } while (param_src != params_end);
-        }*/
+        }
         {
-            __m128i * param_dst = params;
-            __m128i * param_src = &(control->param);
-            __m128i * params_end = (size_t)&(control->param)+(size_t)(nin * sizeof(APIPARAM));
+            __int64 * param_dst = (__int64 *)params;
+            __int64 * param_src = (__int64 *)&(control->param);
+            __int64 * params_end =(__int64 *)((size_t)&(control->param)+(size_t)(param_len));
             do {
                 //todo, make it copy 16 bytes in 1 loop pass, not 8
                 *param_dst = *param_src;
                 param_src++;
                 param_dst++;
             } while (param_src != params_end);
+        }*/
+        //below is fastest on VC2003 + Intel Merom (Core 2)
+        {
+            void * end_ptr = (void *)param_len;
+            void * source_ptr = (size_t)&(control->param)+(size_t)param_len-16;
+        __asm {
+            mov eax, esp
+            and al, 0F0h /* align esp to 16*/
+            mov esp, eax
+            mov ecx, source_ptr
+            sub eax, end_ptr /* calc lower end of APIPARAM array */
+            copy_loop:
+            push dword ptr [ecx+12]
+            push dword ptr [ecx+8]
+            push dword ptr [ecx+4]
+            push dword ptr [ecx]
+            cmp esp, eax
+            lea ecx, [ecx-16]
+            jne copy_loop
+            mov params, eax
         }
-        //memcpy(params, &(control->param), nin * sizeof(APIPARAM));
+        }
+#endif /* optimized alloca and memcpy for MSVC*/
 
         /* #### FIRST PASS: initialize params #### */
         /* this is a combo of a do-while and a for loop, going from ax start
           of incoming args to ax end of incoming args, << 2/<< 3 avoided then */
         ax_i=ax_p;
-        ax_end = (SV **)((size_t)ax_p+(size_t)(nin*sizeof(SV *))); //move me up
+        ax_end = (SV **)((size_t)ax_p
+                         +(size_t)(param_len / (sizeof(APIPARAM)/sizeof(SV *)))); //move me up
         param = params;
 #ifdef WIN32_API_DEBUG
         i=0;
@@ -312,6 +388,7 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
 #endif
                 break;
             case T_POINTER:{
+                //Not COW compliant Todo
                 if(SvREADONLY(pl_stack_param)) //Call() param was a string litteral
                     W32A_ST(ax_i) = pl_stack_param = sv_mortalcopy(pl_stack_param);
                 if(control->has_proto) {
@@ -359,7 +436,6 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
                 }
                 break;
             case T_INTEGER:
-                //param->t = T_NUMBER-1;
                 param->l = (long_ptr) (int) SvIV(pl_stack_param);
 #ifdef WIN32_API_DEBUG
                 printf("(XS)Win32::API::Call: params[%d].t=%d, .u=%d\n", i, params[i].t, params[i].l);
@@ -462,7 +538,6 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
                 goto incoming_loop;
             }
         }/* incoming_loop */
-        }/* profiler call*/
     } /* if incoming args */
     else {param = params;}
     /* call_asm x86 compares uninit+0 == uninit before derefing, so params
@@ -507,7 +582,10 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
             }else{ //remove the sentinal off the buffer
                 SvCUR_set(sv, SvCUR(sv)-sizeof(SENTINAL_STRUCT));
             }
-            if(*(char *)&control->whole_bf & (CTRL_IS_MORE|CTRL_HAS_PROTO)){ /* bad VC optimizer && is always a branch */
+            /* bad VC optimizer && is always a branch, so dont use bf members*/
+            if((*(char *)&(control->whole_bf)
+                & (CTRL_IS_MORE|CTRL_HAS_PROTO))
+               == (CTRL_IS_MORE|CTRL_HAS_PROTO)){
                 callPack(aTHX_ control, param, sv, PARAM3_UNPACK);
                 //pointerCall3Param(aTHX_ control->api, AvARRAY(control->intypes)[i], sv, PARAM3_UNPACK );
             }
@@ -527,13 +605,22 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
             av_extend(pparray, 2);
             av_store(pparray, 1, newSViv(*(param->b)));
             break;
+#ifndef NDEBUG
+	default:
+#  ifdef T_QUAD
+	    if(param->t > T_QUAD)
+#  else
+	    if(param->t > T_DOUBLE)
+#  endif
+		croak("Win32::API::Call: (internal error) unknown type %u\n", param->t);
+#endif
         } //end of switch
         ax_i++;
-        if(ax_i <= ax_end){
+        param++;
+        if(ax_i < ax_end){
 #ifdef WIN32_API_DEBUG
             i++;
 #endif
-            param++;
             goto post_call_incoming_loop;
         }
         }/* var sv from PL stack scope */
@@ -543,13 +630,21 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
    	printf("(XS)Win32::API::Call: returning to caller.\n");
 #endif
 	/* #### NOW PUSH THE RETURN VALUE ON THE (PERL) STACK #### */
-    SP = &(W32A_ST(ax_p-1)); /* XSprePUSH equivelent */
+    SP = &(W32A_ST(ax_p)); /* XSprePUSH equivelent -1 not needed b/c always ret 1 elem*/
     SP = (SV **)((DWORD_PTR)SP - (DWORD_PTR)(rt_flags & IS_CALL)); /* IS_CALL flag is sizeof(SV *)*/
+    PUTBACK;
+    if(control->out == T_VOID){
+        return_undef:
+#ifdef WIN32_API_DEBUG
+	   	printf("(XS)Win32::API::Call: returning UNDEF.\n");
+#endif
+        *SP = &PL_sv_undef;
+        goto _return; /*dont call SvSETMAGIC or use TARG */
+    }
     {//tout scope
     dXSTARG; /* todo, dont execute for returning undef */
     //un/signed prefix is ignored unless implemented, T_FLAG_NUMERIC is removed in API.pm
-    PUSHs(TARG);
-    PUTBACK;
+    *SP = TARG;
     switch(control->out) {
     case T_INTEGER:
     case T_NUMBER:
@@ -586,16 +681,22 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
 #endif
         sv_setpvn(TARG, (char *)&retval.q, sizeof(retval.q));
         if(control->UseMI64){
-            SP--; /*remove TARG from PL stack */
-			W32APUSHMARK(SP);
+            const static struct {
+                char _signed [sizeof("Math::Int64::native_to_int64")];
+                char _unsigned [sizeof("Math::Int64::native_to_uint64")];
+            } MI64RetSubName = {
+                "Math::Int64::native_to_int64",
+                "Math::Int64::native_to_uint64"
+            };
+            /*TARG already on PL stack, put mark behind TARG slice*/
+			W32APUSHMARK(SP-1);
             STATIC_ASSERT(CALL_PL_ST_EXTEND >= 1);
-            //mPUSHs(retsv); //newSVpvn above must be freeded, this also destroys
-            PUSHs(TARG);
-            //our Perl stack incoming args
-            PUTBACK; //don't check return count, assume its 1
-            call_pv(control->out & T_FLAG_UNSIGNED ?
-            "Math::Int64::native_to_uint64" : "Math::Int64::native_to_int64", G_SCALAR);
-            return; //global SP is 1 ahead
+            /* branchless string selection, result of & is either 0 or offset to start of unsigned sub name*/
+            call_pv(MI64RetSubName._signed + (size_t)(
+                    -!!(control->out & T_FLAG_UNSIGNED)
+                    & ((char *)(&MI64RetSubName._unsigned) - (char*)(&MI64RetSubName._signed)))
+                    , G_SCALAR);
+            goto _return; /* global SP is 1 ahead */
         }
         break;
 #else //USEMI64
@@ -609,7 +710,7 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
 #ifdef WIN32_API_DEBUG
 	   	printf("(XS)Win32::API::Call: returning %I64d.\n", retval.q);
 #endif
-        sv_setiv(TARG, retval.q);
+        sv_setuv(TARG, retval.q);
         break;
 #endif //USEMI64
 #endif //T_QUAD
@@ -664,25 +765,17 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
 #endif
         sv_setuv(TARG, (UV)(unsigned char)retval.l);
         break;
-    case T_VOID:
     default:
-    return_undef:
-#ifdef WIN32_API_DEBUG
-	   	printf("(XS)Win32::API::Call: returning UNDEF.\n");
-#endif
-        W32A_ST(ax_p) = &PL_sv_undef;
-        return; /*dont call SvSETMAGIC or use TARG */
+        croak("Win32::API::Call: (internal error) unknown type %u\n", control->out);
     }
-    //retsv = sv_2mortal(retsv);
-    //return_no_mortal:
-    //PUSHs(retsv);
-    //PUTBACK;?
     SvSETMAGIC(TARG);
+
+    _return:
     WIN32_API_PROFF(W32A_Prof_GT(&return_time));
     WIN32_API_PROFF(W32A_Prof_GT(&return_time2));
-    ///*
+    /*
     WIN32_API_PROFF(printf("freq %I64u start %I64u loopprep %I64u loopstart %I64u Call_asm_b4 %I64u Call_asm_after %I64u rtn_time %I64u rtn_time2\n",
-        my_freq, /* 12 is bulk88's Core 2 TSC increment unit, eyes hurt less comparing the numbers*/
+        my_freq, // 12 is bulk88's Core 2 TSC increment unit, eyes hurt less comparing the numbers
            (loopprep.QuadPart - start.QuadPart - (return_time2.QuadPart-return_time.QuadPart))/12,
            (loopstart.QuadPart - loopprep.QuadPart -(return_time2.QuadPart-return_time.QuadPart))/12,
            (Call_asm_b4.QuadPart - loopstart.QuadPart - (return_time2.QuadPart-return_time.QuadPart))/12,
@@ -690,12 +783,28 @@ STATIC void Call_body(pTHX_ const APICONTROL * const control, UCHAR rt_flags, SV
            (return_time.QuadPart-Call_asm_after.QuadPart - (return_time2.QuadPart-return_time.QuadPart))/12,
            return_time2.QuadPart-return_time.QuadPart
            ));
+    */
+#ifdef WIN32_API_PROF
+    start_loopprep.QuadPart += (loopprep.QuadPart - start.QuadPart - (return_time2.QuadPart-return_time.QuadPart))/12;
+    loopprep_loopstart.QuadPart += (loopstart.QuadPart - loopprep.QuadPart -(return_time2.QuadPart-return_time.QuadPart))/12;
+    loopstart_Call_asm_b4.QuadPart += (Call_asm_b4.QuadPart - loopstart.QuadPart - (return_time2.QuadPart-return_time.QuadPart))/12;
+    Call_asm_b4_Call_asm_after.QuadPart += (Call_asm_after.QuadPart-Call_asm_b4.QuadPart - (return_time2.QuadPart-return_time.QuadPart))/12;
+    Call_asm_after_return_time.QuadPart += (return_time.QuadPart-Call_asm_after.QuadPart - (return_time2.QuadPart-return_time.QuadPart))/12;
+    printf("start %I64u loopprep %I64u loopstart %I64u Call_asm_b4 %I64u Call_asm_after %I64u rtn_time\n",
+           start_loopprep.QuadPart, loopprep_loopstart.QuadPart, loopstart_Call_asm_b4.QuadPart, Call_asm_b4_Call_asm_after.QuadPart, Call_asm_after_return_time.QuadPart);
+#endif
+
     //*/
+#if defined(_MSC_VER) && ! (defined(_M_AMD64) || defined(__x86_64))
+    __asm {
+        mov esp, origesp
+    }
+#endif
     return; /* don't use CODE:'s boilerplate */
     }//tout scope
     }//call_asm scope
-#ifndef W32A_SPLITHEAD
     }
+#ifndef W32A_SPLITHEAD
     }
     }
     }

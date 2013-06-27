@@ -219,8 +219,7 @@ sub new {
     $self->{weakapi} = \$control;
     weaken($self->{weakapi});
     $control = pack(         'L'
-                             .'S'
-                             .'S' #padding
+                             .'L'
                              .(PTRSIZE == 8 ? 'Q' : 'L')
                              .(PTRSIZE == 8 ? 'Q' : 'L')
                              .(PTRSIZE == 8 ? 'Q' : 'L')
@@ -230,8 +229,7 @@ sub new {
                         | $ccnum
                         | (PTRSIZE == 8 ? 0 :  $stackunwind << 8)
                         | $outnum << 24
-                        , scalar(@{$self->{in}}) #in param count
-                        , 0 #padding
+                        , scalar(@{$self->{in}}) * PTRSIZE #in param count, in SV * units
                         , $hproc
                         , \($self->{weakapi})+0 #weak api obj ref
                         , (exists $self->{intypes} ? ($self->{intypes})+0 : 0)
@@ -984,10 +982,10 @@ be treated as a Math::Int64 object without having to previously call
 L</UseMI64>.
 
 =item C<F>: 
-value is a floating point number (float)
+value is a single precision (4 bytes) floating point number (float)
 
 =item C<D>: 
-value is a double precision number (double)
+value is a double precision (8 bytes) floating point number (double)
 
 =item C<S>: 
 value is a unsigned short (unsigned short)
