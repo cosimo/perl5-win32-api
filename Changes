@@ -1,6 +1,6 @@
 History of Win32::API perl extension.
 
-2013-??-??  Win32::API v0.76_??    bulk88
+2013-06-27  Win32::API v0.76_02    bulk88
    - Fixed, on 32 bits, Call_asm since 0.76_01, in Visual Studio, even with
      symbols loaded, lost the the part of the call stack behind Call_asm in VS
      debugger, while in the body of Call_asm, in a crash this made debugging
