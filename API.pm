@@ -77,7 +77,7 @@ my %Procedures = ();
 # dynamically load in the API extension module.
 # BEGIN required for constant subs in BOOT:
 BEGIN {
-    $VERSION = '0.76_02';
+    $VERSION = '0.76_03';
     bootstrap Win32::API;
 }
 

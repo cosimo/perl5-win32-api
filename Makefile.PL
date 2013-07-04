@@ -163,6 +163,19 @@ sub MY::test {
     return $test_sec;
 }
 
+#b/c of this sub, distdir only runs on Cygwin, perm changes are for Kwalitee
+sub MY::distdir {
+    package ExtUtils::MM_Win32;
+    my($self) = shift;
+    my $distdir_sec = $self->SUPER::distdir(@_);
+    substr($distdir_sec
+           ,index($distdir_sec,"\"\n\ndistdir : ")
+           ,length("\"\n\ndistdir : ")
+           ,"\"\\\n\t&& cd \$(DISTVNAME) && chmod -v -x-x-x Makefile.PL && chmod -v -x-x-x ./Callback/Makefile.PL\n\ndistdir : "
+           );
+    return $distdir_sec;
+}
+
 sub GS_flag {
     if($is_msvc_compiler
        && Win32::API::Test::compiler_version_from_shell() >= 14 ) {

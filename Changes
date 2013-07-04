@@ -1,5 +1,12 @@
 History of Win32::API perl extension.
 
+2013-07-04  Win32::API v0.76_03    bulk88
+   - Fixed, rebuilt API_test64.dll to fix a problem where Debug CRT was required
+     by manifest but not by import table, this caused API_test64.dll to be
+     unloadable on many x64 CPANTesters machines
+   - 2 Makefile.PL files are not executable in the CPAN tarball anymore for
+     Kwalitee reasons
+
 2013-06-27  Win32::API v0.76_02    bulk88
    - Fixed, on 32 bits, Call_asm since 0.76_01, in Visual Studio, even with
      symbols loaded, lost the the part of the call stack behind Call_asm in VS

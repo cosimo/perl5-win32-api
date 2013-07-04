@@ -90,7 +90,8 @@ SKIP: {
     );
     ok($IsBadReadPtr, 'Import of IsBadReadPtr function from kernel32.dll');
     my $dllhandle = Win32::LoadLibrary($test_dll);
-    die "LoadLibrary on test dll failed" if ! $dllhandle;
+    $result = Win32::GetLastError();
+    die "LoadLibrary on test dll failed GLR=".$result if ! $dllhandle;
     my $nofunction = new Win32::API($test_dll, 'int ThisFunctionDoesntExist(int a, int b)');
     die "function that doesn't exist, exists!" if $nofunction;
     Win32::FreeLibrary($dllhandle);
