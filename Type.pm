@@ -379,10 +379,12 @@ otherwise.
 
 =head2 SUPPORTED TYPES
 
-This module should recognize all the types defined in the
-Win32 Platform SDK header files. 
+This module recognizes many commonly used types defined in the Win32 Platform
+SDK header files, but not all. Types less than 13 years old are very unlikely
+to be the in built type database.
+
 Please see the source for this module, in the C<__DATA__> section,
-for the full list.
+for the full list of builtin supported types.
 
 
 =head2 NOTES ON SELECT TYPES

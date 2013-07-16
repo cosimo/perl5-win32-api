@@ -1,5 +1,8 @@
 History of Win32::API perl extension.
 
+2013-??-??  Win32::API v0.76_??    bulk88
+   - Fixed, a lie in the POD for Type.pm, about the Type database
+
 2013-07-04  Win32::API v0.76_03    bulk88
    - Fixed, rebuilt API_test64.dll to fix a problem where Debug CRT was required
      by manifest but not by import table, this caused API_test64.dll to be
