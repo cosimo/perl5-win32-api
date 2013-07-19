@@ -410,7 +410,7 @@ LPHANDLE.
 =item signed char
 
 These 2 types by name force numeric handling. C<97> not C<"a">. C<UCHAR> is
-not a C<unsigned char> for numeric handling purposess.
+not a C<unsigned char> for numeric handling purposes.
 
 =back
 

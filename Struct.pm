@@ -237,7 +237,7 @@ sub getPack {
     my @buffer_ptrs = (); #this contains the struct_ptrs that were placed in the
     #the struct, its part of "C func changes the struct ptr to a private allocated
     #struct" code, it is push/poped only for struct ptrs, it is NOT a 1 to
-    #1 mapping between all struct members, so dont access it with indexes
+    #1 mapping between all struct members, so don't access it with indexes
 
     my $align = $self->align();
 
@@ -411,7 +411,7 @@ else{ #new ptr is true
     }
 #must fix {buffer} with contents of the new struct, $structptr might be
 #null or might be a SVPV from a ::Struct that was ignored, in any case,
-#a forign memory allocator is at work here
+#a foreign memory allocator is at work here
     $$SVMemberRef->{buffer} = Win32::API::ReadMemory($newstructptr, $$SVMemberRef->sizeof)
         if($oldstructptr != $newstructptr);
 #always must be called, if new ptr is not null, at this point, C func, did
@@ -584,7 +584,7 @@ function takes care of removing the semicolon after the member
 name. Win32::API::Struct does B<NOT> support Enums, Unions, or Bitfields.
 C<NAME> must not end in C<*>, typedef creates structs, not struct pointers.
 See L<Win32::API::Type/"typedef">
-on howto create a struct pointer type. Returns true on success, and undef on error.
+on how to create a struct pointer type. Returns true on success, and undef on error.
 On error it L<warns|perlfunc/warn> with the specific reason.
 
 The synopsis example could be written like this:
@@ -600,7 +600,7 @@ syntax), which is pretty cool:
   };
 
 L<Win32::API/Call> automatically knows that an 'LPNAME' type, refers
-to a 'NAME' type struct. Also see L<Win32::API::Type/"typedef"> on howto declare
+to a 'NAME' type struct. Also see L<Win32::API::Type/"typedef"> on how to declare
 pointers to struct types.
 
 Unlike in Win32::API, a single non-array char or CHAR struct member in a
@@ -697,9 +697,9 @@ allocator. Some C APIs give you static global buffers which never are freed or f
 automatically in the next call to a function from to that DLL.
 
 With foreign allocators, its best to treat to write a pointer class, bless the
-ref to scalar interger (holding the pointer) into that class to ensure that the
+ref to scalar integer (holding the pointer) into that class to ensure that the
 DESTROY method will free the pointer and you never leak it, and your write
-method accesors using L<perlfunc/pack>, L<Win32::API/ReadMemory> and
+method accessors using L<perlfunc/pack>, L<Win32::API/ReadMemory> and
 L<Win32::API/WriteMemory> around the pointer.
 
 
