@@ -607,8 +607,8 @@ sub parse_prototype {
 
 #
 # XXX hack, see the proper implementation in TODO
-# The point here is dont let fork children free the parent's DLLs.
-# CLONE runs on ::API and ::More, thats bad and causes a DLL leak, make sure
+# The point here is don't let fork children free the parent's DLLs.
+# CLONE runs on ::API and ::More, that's bad and causes a DLL leak, make sure
 # CLONE dups the DLL handles only once per CLONE
 # GetModuleHandleEx was not used since that is a WinXP and newer function, not Win2K.
 # GetModuleFileName was used to get full DLL pathname incase SxS/multiple DLLs
@@ -794,7 +794,7 @@ readable, GetLastError will be ERROR_NOACCESS.
 
 The C prototype of the function. If you are using a function pointer, the name
 of the function should be something "friendly" to you and no attempt is made
-to retrive such a name from any DLL's export table. This name for a function
+to retrieve such a name from any DLL's export table. This name for a function
 pointer is also used for Import().
 
 =back
@@ -830,7 +830,7 @@ readable, GetLastError will be ERROR_NOACCESS.
 =item 3.
 The name of the function (as exported by the library) or for function pointers
 a name that is "friendly" to you. This name for a function pointer is also used
-for Import(). No attempt is made to retrive such a name from any DLL's export
+for Import(). No attempt is made to retrieve such a name from any DLL's export
 table in the 2nd case.
 
 =item 4.
@@ -1006,11 +1006,11 @@ integer C<0>.
 
 It is suggested to
 not use P as a return type and instead use N and read the memory yourself, and
-free the pointer if applicable. This pointer is effectivly undefined after the
+free the pointer if applicable. This pointer is effectively undefined after the
 C function returns control to Perl. The C function may not hold onto it after
 the C function returns control. There are exceptions where the pointer will
 remain valid after the C function returns control, but tread at your own risk,
-and at your knowledge of Perl interpretor's C internals.
+and at your knowledge of Perl interpreter's C internals.
 
 =item C<T>: 
 value is a Win32::API::Struct object, in parameter only, pass by reference
@@ -1021,25 +1021,25 @@ value is a Win32::API::Callback object, in parameter only, (see L<Win32::API::Ca
 
 =item C<V>:
 no value, no parameters, stands for C<void>, may not be combined with any other
-letters, equivelent to a "" 
+letters, equivalent to a ""
 
 =back
 
 For beginners, just skip this paragraph.
 Note, all parameter types are little endian. This is probably what you want
-unless the documentation for the C function you are calling explictly says
+unless the documentation for the C function you are calling explicitly says
 the parameters must be big endian. If there is no documentation for your C
-function or no mention of endianess in the doucmentation, this doesn't apply
-to you and skip the rest of this paragraph. There is no inherant support
+function or no mention of endianess in the documentation, this doesn't apply
+to you and skip the rest of this paragraph. There is no inherent support
 for big endian parameters. Perl's scalar numbers model is that numeric
-scalars are effectivly opaque and their machine representation is
-irrelavent. On Windows Perl, scalar numbers are little endian
+scalars are effectively opaque and their machine representation is
+irrelevant. On Windows Perl, scalar numbers are little endian
 internally. So C<$number = 5; print "$number";> will put 5 on the screen.
 C<$number> given to Win32::API will pass little endian integer 5 to the C
 function call. This is almost surly what you want. If you really must pass
 a big endian integer, do C<$number = unpack('L', pack('N', 5));>, then
 C<print "$number";> will put 83886080 on the screen, but this is big endian 5,
-and passing 83886080 to C<-E<gt>Call()> will make sure that that
+and passing 83886080 to C<-E<gt>Call()> will make sure that
 the C function is getting big endian 5. See L<perlpacktut> for more.
 
 Our function needs two parameters: a number (C<DWORD>) and a pointer to a 
@@ -1166,8 +1166,8 @@ them as parameters to Win32::API functions. A short example follows:
 
 Note that this works only when the function wants a 
 B<pointer to a structure>, not a "pass by copy" structure. As you can see, our
-structure is named 'POINT', but the API used 'LPPOINT'. Some herustics are
-done to vaildate the argument's type vs the parameter's type if the function
+structure is named 'POINT', but the API used 'LPPOINT'. Some heuristics are
+done to validate the argument's type vs the parameter's type if the function
 has a C prototype definition (not letter definition). First, if the parameter
 type starts with the LP prefix, the LP prefix is stripped, then compared to
 the argument's type. If that fails, the Win32::API::Type database
@@ -1236,10 +1236,10 @@ Probes a memory block for C<$length> bytes for readability. Returns true if
 access violation occurs, otherwise false is returned. This function is useful
 to avoid dereferencing pointers which will crash the perl process. This function
 has many limitations, including not detecting uninitialized memory, not
-detecting freed memory, and not detecting giberrish. It can not tell whether a
+detecting freed memory, and not detecting gibberish. It can not tell whether a
 function pointer is valid x86 machine code. Ideally, you should never use it,
 or remove it once your code is stable. C<$ptr> is in the format of 123456,
-not C<"\x01\x02\x03\x04">. See MS's documentation for alot more
+not C<"\x01\x02\x03\x04">. See MS's documentation for a lot more
 on this function of the same name.
 
 =head3 SafeReadWideCString
@@ -1331,7 +1331,7 @@ not called.
 =item buffer overflow protection
 
 Introduced in 0.69. If disabling is required, which is highly
-B<not recommended>, set an enviromental variable called
+B<not recommended>, set an environmental variable called
 WIN32_API_SORRY_I_WAS_AN_IDIOT to 1.
 
 =item automatic un/pack
@@ -1413,7 +1413,7 @@ See L<http://dev.perl.org/licenses/artistic.html>
 All the credits go to Andrea Frosini for the neat assembler trick
 that makes this thing work. I've also used some work by Dave Roth
 for the prototyping stuff. A big thank you also to Gurusamy Sarathy
-for his unvaluable help in XS development, and to all the Perl
+for his invaluable help in XS development, and to all the Perl
 community for being what it is.
 
 Cosimo also wants to personally thank everyone that contributed
