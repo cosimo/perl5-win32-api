@@ -16,7 +16,7 @@ use strict;
 use warnings;
 use vars qw( %Known %PackSize %Modifier %Pointer $VERSION @ISA );
 
-$VERSION = '0.67';
+$VERSION = '0.68';
 
 use Carp;
 BEGIN{
@@ -273,7 +273,7 @@ sub Pack {
         return;
     }
     elsif(IVSIZE() == 4 && ($pack_type eq 'q' || $pack_type eq 'Q')){
-        if($_[0]->{'UseMI64'} || ref($_[2])){ #un/signed meaningless
+        if($_[0]->UseMI64() || ref($_[2])){ #un/signed meaningless
             $_[2] = Math::Int64::int64_to_native($_[2]);
         }
         else{
@@ -301,13 +301,13 @@ sub Unpack {
     elsif(IVSIZE() == 4){
         #todo debugging output
         if($pack_type eq 'q'){
-            if($_[0]->{'UseMI64'} || ref($_[2])){
+            if($_[0]->UseMI64() || ref($_[2])){
             $_[2] = Math::Int64::native_to_int64($_[2]);
             DEBUG "(PM)Type::Unpack: returning signed Math::Int64 '".$_[2]."'\n";
             }
             return;
         }elsif($pack_type eq 'Q'){
-            if($_[0]->{'UseMI64'} || ref($_[2])){
+            if($_[0]->UseMI64() || ref($_[2])){
             $_[2] = Math::Int64::native_to_uint64($_[2]);
             DEBUG "(PM)Type::Unpack: returning unsigned Math::Int64 '".$_[2]."'\n";
             }
@@ -379,10 +379,12 @@ otherwise.
 
 =head2 SUPPORTED TYPES
 
-This module should recognize all the types defined in the
-Win32 Platform SDK header files. 
+This module recognizes many commonly used types defined in the Win32 Platform
+SDK header files, but not all. Types less than 13 years old are very unlikely
+to be the in built type database.
+
 Please see the source for this module, in the C<__DATA__> section,
-for the full list.
+for the full list of builtin supported types.
 
 
 =head2 NOTES ON SELECT TYPES

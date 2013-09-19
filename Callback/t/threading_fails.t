@@ -6,7 +6,12 @@ use Test::More;
 use Win32::API;
 use Win32::API::Callback;
 
-plan tests => 1;
+use Config;
+if($Config{useithreads}) {
+    plan tests => 1;
+} else {
+    plan skip_all => 'no threading on this perl';
+}
 
 my $function = new Win32::API('kernel32' , ' HANDLE  CreateThread(
   UINT_PTR lpThreadAttributes,

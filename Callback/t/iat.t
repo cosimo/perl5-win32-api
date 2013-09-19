@@ -161,7 +161,7 @@ tco\276\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0PE\0\0L\1\6\0\223\0028P\0
 undef($patch); #done let old IATPatch change the GLR for the next call, DESTROY happens
 #after the obj was assigned to but before next line
 $patch = Win32::API::Callback::IATPatch ->new($callback,
-    unpack(IV_LET, pack('P', $BrokenModule)), 'kernel32.dll', 'QueryPerformanceCounter');
+    unpack(PTR_LET, pack('P', $BrokenModule)), 'kernel32.dll', 'QueryPerformanceCounter');
 ok($^E == 193 && ! defined $patch , "IATPatch claims corrupt DLL is corrupt ".($^E+0));
 #193 = ERROR_BAD_EXE_FORMAT
 $patch = Win32::API::Callback::IATPatch ->new($callback,

@@ -1,7 +1,8 @@
 .CODE
 
-; void Call_x64_real(FARPROC ApiFunction, size_t *int_registers, double *float_registers, stackitem *stack, size_t nstack, size_t *iret, double *dret)
+; void Call_x64_real(FARPROC ApiFunction, size_t *int_registers, double *float_registers, stackitem *stack, unsigned int nstack)
 Call_x64_real PROC FRAME
+
 
     ; store register parameters
     mov qword ptr[rsp+32], r9  ; stack
@@ -19,16 +20,6 @@ Call_x64_real PROC FRAME
     .SETFRAME rbp, 0
     .ENDPROLOG
 
-    sub rsp, 32
-
-    ; Load up integer registers first...
-    mov rax, qword ptr [rbp+24]
-
-    mov rcx, qword ptr [rax]
-    mov rdx, qword ptr [rax+8]
-    mov r8,  qword ptr [rax+16]
-    mov r9,  qword ptr [rax+24]
-
     ; Now floating-point registers
     mov rax, qword ptr [rbp+32]
     movsd xmm0, qword ptr [rax]
@@ -38,31 +29,45 @@ Call_x64_real PROC FRAME
 
     ; Now the stack
     mov r11, qword ptr [rbp+40]
-    mov rax, qword ptr [rbp+48]
+    mov eax, dword ptr [rbp+48]
+
+    ;align stack so *after* the copystack loop it will be 16 bytes
+    ;do 32 bits, GBs of stack params is impossible
+    mov r10d, eax
+    ;if odd set al to 1
+    and eax, 1H
+    ;boost 1 to 8 if its 1, if its 0 it will remain 0
+    shl eax, 3
+    ;rax might be zero or not, all eax ops zero extend upper 32 bits
+    sub rsp, rax
+    mov eax, r10d
 
     ; Except not if there isn't any
-    test rax, rax
+    test eax, eax
     jz docall
 
 copystack:
-    sub rax, 1
+    sub eax, 1
+    ;upper bits of rax are zero
     mov r10, qword ptr [r11+8*rax]
     push r10
-    test rax, rax
+    test eax, eax
     jnz copystack
 
 docall:
+    ; Load up integer registers first...
+    mov rax, qword ptr [rbp+24]
+
+    mov rcx, qword ptr [rax]
+    mov rdx, qword ptr [rax+8]
+    mov r8,  qword ptr [rax+16]
+    mov r9,  qword ptr [rax+24]
+    sub rsp, 32 ;Microsoft x64 calling convention - allocate 32 bytes of "shadow space" on the stack
     ; And call
-    sub rsp, 32
     mov r10, qword ptr [rbp+16]
     call r10
 
-    ; Store return value
-    mov r10, qword ptr [rbp+56]
-    mov qword ptr [r10], rax
-    mov r10, qword ptr [rbp+64]
-    movsd qword ptr [r10], xmm0
-
+    ;pass through rax and xmm0 to caller
     ; Cleanup
     mov rsp, rbp
 ;old code, see note above

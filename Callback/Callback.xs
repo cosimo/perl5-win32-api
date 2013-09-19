@@ -16,6 +16,7 @@
 #include <memory.h>
 
 #define PERL_NO_GET_CONTEXT
+#define NO_XSLOCKS
 #include "EXTERN.h"
 #include "perl.h"
 
@@ -89,24 +90,6 @@ BOOL WINAPI DllMain(
 
 #ifndef call_sv
 #	define call_sv(name, flags) perl_call_sv(name, flags)
-#endif
-
-
-#define PERL_API_VERSION_LE(R, V, S) (PERL_API_REVISION < (R) || \
-(PERL_API_REVISION == (R) && (PERL_API_VERSION < (V) ||\
-(PERL_API_VERSION == (V) && (PERL_API_SUBVERSION <= (S))))))
-
-#if PERL_API_VERSION_LE(5, 13, 8)
-MAGIC * my_find_mg(SV * sv, int type, const MGVTBL *vtbl){
-	MAGIC *mg;
-	for (mg = SvMAGIC (sv); mg; mg = mg->mg_moremagic) {
-		if (mg->mg_type == type && mg->mg_virtual == vtbl)
-			assert (mg->mg_ptr);
-			return mg;
-	}
-	return NULL;
-}
-#define mg_findext(a,b,c) my_find_mg(a,b,c)
 #endif
 
 #ifdef WIN32BIT
@@ -455,6 +438,36 @@ PackedRVTarget(sv)
 PPCODE:
     mPUSHs(newSVpvn((char*)&(SvRV(sv)), sizeof(SV *)));
 
+#if IVSIZE == 4
+
+void
+UseMI64(...)
+PREINIT:
+    SV * flag;
+    HV * self;
+    SV * old_flag;
+PPCODE:
+    if (items < 1 || items > 2)
+       croak_xs_usage(cv,  "self [, FlagBool]");
+    self = (HV*)ST(0);
+	if (!(SvROK((SV*)self) && ((self = (HV*)SvRV((SV*)self)), SvTYPE((SV*)self) == SVt_PVHV)))
+        Perl_croak(aTHX_ "%s: %s is not a hash reference",
+			"Win32::API::Callback::UseMI64",
+			"self");
+    //dont create one if doesn't exist
+    old_flag = (SV*)hv_fetch(self, "UseMI64", sizeof("UseMI64")-1, 0);
+    if(old_flag) old_flag = *(SV **)old_flag;
+    PUSHs(boolSV(sv_true(old_flag))); //old_flag might be NULL, ST(0) now gone
+    
+    if(items == 2){
+        flag = boolSV(sv_true(ST(1)));
+        hv_store(self, "UseMI64", sizeof("UseMI64")-1, flag, 0);
+    }
+    
+
+#endif
+
+
 # MakeParamArr is written without null checks or lvalue=true since
 # the chance of crashing is zero unless someone messed with the PM file and
 # broke it, this isn't a public sub, putting in null checking
@@ -478,7 +491,7 @@ PREINIT:
     int iTypes;
     AV * Types;
     I32 lenTypes;
-#if (PERL_API_VERSION_LE(5, 8, 0))
+#if (PERL_VERSION_LE(5, 8, 0))
     SV * unpacktypeSV = sv_newmortal();
 #endif
 PPCODE:
@@ -581,7 +594,7 @@ PPCODE:
             }
             goto HAVEUNPACKED;
         }
-#if ! (PERL_API_VERSION_LE(5, 8, 0))
+#if ! (PERL_VERSION_LE(5, 8, 0))
         PUTBACK;    
         unpackstring(&type, &type+1, packedParam, packedParam+SvCUR(packedParamSV), 0);
 #else /* dont have unpackstring */

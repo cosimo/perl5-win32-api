@@ -12,11 +12,11 @@ use Test::More;
 use Math::Int64 qw( hex_to_int64 );
 use Win32::API::Test;
 
-plan tests => 16;
+plan tests => 17;
 use vars qw($function $result $return $test_dll );
 
 SKIP: {
-    skip('Quads are native on this computer', 16) if 
+    skip('Quads are native on this computer', 17) if 
         IV_SIZE == 8;
 
 use_ok('Win32::API');
@@ -62,11 +62,16 @@ ok(defined($function), 'sum_quads_ref() function defined');
 $function->UseMI64(1);
 $result = "\x00\x00\x00\x00\x00\x00\x00\x00";
 #no automatic un/packing for ptrs
-is($function->Call(hex_to_int64("0x0200000000000000"),
+{
+    my @arr = $function->Call(hex_to_int64("0x0200000000000000"),
                    hex_to_int64("0x0300000000000000"),
-                   $result),
-    hex_to_int64("0x0500000000000000"),
-   'old api with MI64 sum_quads_ref() returns the expected value');
+                   $result);
+    is(scalar(@arr), 1, 'MI64 sum_quads_ref() returns 1 value');
+    is($arr[0],
+        hex_to_int64("0x0500000000000000"),
+       'old api with MI64 sum_quads_ref() returns the expected value');
+}
+
 
 is($result, "\x00\x00\x00\x00\x00\x00\x00\x05",
    'sum_quads_ref() correctly modifies its ref argument');

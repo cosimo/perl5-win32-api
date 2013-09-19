@@ -1,10 +1,99 @@
 History of Win32::API perl extension.
 
+2013-??-??  Win32::API v0.76_??    bulk88
+   - Fixed, a lie in the POD for Type.pm, about the Type database
+
+2013-07-04  Win32::API v0.76_03    bulk88
+   - Fixed, rebuilt API_test64.dll to fix a problem where Debug CRT was required
+     by manifest but not by import table, this caused API_test64.dll to be
+     unloadable on many x64 CPANTesters machines
+   - 2 Makefile.PL files are not executable in the CPAN tarball anymore for
+     Kwalitee reasons
+
+2013-06-27  Win32::API v0.76_02    bulk88
+   - Fixed, on 32 bits, Call_asm since 0.76_01, in Visual Studio, even with
+     symbols loaded, lost the the part of the call stack behind Call_asm in VS
+     debugger, while in the body of Call_asm, in a crash this made debugging
+     harder by showing a corrupt or incomplete call stack, the prologue code was
+     reworked to enable traditional EBP walking
+   - Changed RaiseException/TerminateProcess on ESP inconsistency to a catchable
+     die() if no C debugger is attached, community opinion from PerlMonks, if
+     C debugger is attached, then Win32::API crashes to enable examination of
+     process state
+   - Added, previously (v0.76_01) 32 bit VC-only stack checking/ESP
+     inconsistency now works on 32 bit GCC for __stdcall/__cdecl mixups only,
+     not for wrong number of params (C stack overwritten)
+   - Fixed, iat.t fatally exits after "ok 23" with "Usage:
+     Win32::API::Callback::IATPatch::new(classSV, callback, HookDll,
+     ImportDllName, ImportFunctionName) at t/iat.t line 163." on 32 bit Mingw
+     Perl with 64 bit IVs (all of iat.t is skipped on 32 bit Cygwin Perls with
+     64 bit IVs, so test was never executed before), reported by kmx
+   - Fixed, when using Win32::API::Import, the API object internally created was
+     leaked, now when the sub is freeded, the API object also is destroyed, this
+     might unload the DLL being called, previously the DLL referenced by a
+     ::Import was never unloaded except at interpreter exit
+   - Fixed, Win32::API::More::Import created Win32::API objs,
+     not Win32::API::More
+   - Fixed, POD had erronous commas in code samples, UseMI64 code example didn't
+     match current behaviour
+   - Improved, the internals of a Win32::API obj were reorgranized for more
+     speed
+   - Improved, POD for NULL pointer for letter 'P'
+   - Improved, mangle_simple_struct in API_test*.dll was made less noisy during
+     a make test
+   - Improved, ::Import created subs are now faster than doing $api->Call(,
+     pre 0.76 Import time 0.85us per call, 0.76 alpha pure Perl Import time
+     0.69us, 0.76 XSUB Import (final) 0.34 us, regular ->Call( is 0.40 us, a
+     regular XSUB wrapper of the same C func is 0.22 us for comparison,
+     *internals* The Call() XSUB is not written in XS anymore but plain C. This
+     allows some R/W optimizations to the interp struct in the header of Call()
+     and simplifies Import vs ->Call differences.
+   - API Change, Import now returns a API obj ref, previously it returned a
+     1/0 bool scalar
+   - API Change, new and Import now check to make sure a sane number of params
+     are passed and die otherwise RT#82611 txn-1183194
+   - Under undef-ed NDEBUG and/or DEBUGGING, a wrong assert happened in
+     my_find_mg on old Perls that need my_find_mg
+   - Improved, XSUB Import is down to 0.24 us which is only .02-.03 us longer on
+     benchmark vs regular XSUB.
+     *internals* TARG is now used and sv_set* instead of allocating new SVs,
+     this is the largested drop in time. 2nd biggest time win was getting rid
+     of the inefficient implementation of memcopy in MS CRT. Also cpu uops
+     reduction around the incoming args loop. A bunch of asm shifts, scales,
+     Mod R/Ms, --/++s, and adds were removed by C code modification.
+   - TODO REMOVE TEST CODE, alloca was rewritten for Visual C for speed and not
+     cause extends of the C stack, this is dangerous so rewrite this with push
+     asm ops from template param array in control
+   - Fixed, WIN32_API_DEBUG build option now works on GCC
+   - Fixed, the "Win32::API a function was called with the wrong prototype..."
+     message had a typo
+
+2013-03-26  Win32::API v0.76_01    bulk88
+   - Fixed RT #82611, make tool detection in Makefile.PL didn't work for
+     absolute path make tools, also removed a "dmake:  makefile:  line 276:
+     Warning: -- Macro `CCFLAGS' redefined after use" warning
+   - Fixed RT #83191, C stack not aligned to 16 bytes on x64
+   - Improved, ::API->Call() is much faster now
+   - Added, a limit of ~65K parameters per C function prototype was added
+   - Added, on VC 32bit, Win32::API detects (TODO, dies) __stdcall funcs that
+     were called with the wrong prototype, or __stdcall/__cdecl mixups, similar
+     to VC's stack pointer Run-Time Error Checks feature
+   - Improved, API_test64.dll was rebuilt with a dynamic CRT, dozens of KBs
+     smaller
+   - Fixed, threading_fails.t skipped on unthreaded Perls (Perl 5.6 related) to
+     stop crashes
+   - Fixed, 32 bit Strawberry Perl 5.8.9 with GCC 3.4.5 now builds and passes
+   - Now requires Encode::compat, not Encode::, hopefully will enable
+     automatic building on Perl 5.6
+   - Win32::API is faster on 5.10 than 5.8 (HvNAME related)
+   - Win32::API on 32 bit Windows has a little bit more optimization on Visual C
+     than on Mingw GCC
+
 2013-01-09  Win32::API v0.75    bulk88
    - Fixed/added, alpha Perl 5.6.2 support has been added, ::API will compile,
      will not crash except for randomly threading_fails.t . Many tests fail due
      to prerequities not being met. 00_API.t should pass on 5.6.2 with zero
-     failures wWITHOUT prereqs. Other tests require Math::Int64 and
+     failures WITHOUT prereqs. Other tests require Math::Int64 and
      Encode::compat.
    - Removed, distropref workaround for ActiveState's PPM system (AS fixed it)
 
