@@ -145,7 +145,10 @@ $(OBJECT) : Call.c
 sub MY::cflags {
     package ExtUtils::MM_Win32;
     my($self) = shift;
-    my $dlib = $self->SUPER::cflags(@_);
+    my $dlib = eval { $self->SUPER::cflags(@_) };
+    if ($@) {
+        return '';
+    }
     my $pos = index($dlib,'CCFLAGS = ',0);
     die "bad CCFLAGS match" if $pos == -1;
     $dlib = substr($dlib, 0, $pos+length('CCFLAGS = '))
@@ -158,7 +161,10 @@ sub MY::cflags {
 sub MY::test {
     package ExtUtils::MM_Win32;
     my($self) = shift;
-    my $test_sec = $self->SUPER::test(@_);
+    my $test_sec = eval { $self->SUPER::test(@_) };
+    if ($@) {
+        return '';
+    }
     substr($test_sec,index($test_sec,'TEST_VERBOSE=0'), length('TEST_VERBOSE=0') ,'TEST_VERBOSE=1');
     return $test_sec;
 }
@@ -167,7 +173,10 @@ sub MY::test {
 sub MY::distdir {
     package ExtUtils::MM_Win32;
     my($self) = shift;
-    my $distdir_sec = $self->SUPER::distdir(@_);
+    my $distdir_sec = eval { $self->SUPER::distdir(@_) };
+    if ($@) {
+        return '';
+    }
     substr($distdir_sec
            ,index($distdir_sec,"\"\n\ndistdir : ")
            ,length("\"\n\ndistdir : ")

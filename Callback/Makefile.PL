@@ -22,7 +22,10 @@ sub GS_flag {
 sub MY::cflags {
     package ExtUtils::MM_Win32;
     my($self) = shift;
-    my $dlib = $self->SUPER::cflags(@_);
+    my $dlib = eval { $self->SUPER::cflags(@_) };
+    if ($@) {
+        return '';
+    }
     my $pos = index($dlib,'CCFLAGS = ',0);
     die "bad CCFLAGS match" if $pos == -1;
     $dlib = substr($dlib, 0, $pos+length('CCFLAGS = '))
