@@ -319,7 +319,7 @@ while (importDescriptor->Name != 0){
 #endif
     if(TargetDllNameLen == 0) goto NO_MORE_LIBS;
     if(TargetDllNameLen == DllNameLen
-        && strnicmp(TargetDllNameStr, DllNameStr, TargetDllNameLen) == 0
+        && strncasecmp(TargetDllNameStr, DllNameStr, TargetDllNameLen) == 0
         && importDescriptor->OriginalFirstThunk
         && importDescriptor->FirstThunk
     ){
